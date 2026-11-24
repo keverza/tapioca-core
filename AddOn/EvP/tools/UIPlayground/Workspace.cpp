@@ -1,4 +1,5 @@
 #include "Workspace.hpp"
+#include "ArchViz/ReportPaperPreview.hpp"
 #include "WorkflowState.hpp"
 #include "ArchViz/HudMassingStats.hpp"
 #include "ArchViz/HudFloorProgramme.hpp"
@@ -471,6 +472,10 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
     if (compact)
         style.Var (ImGuiStyleVar_ItemSpacing, { 4 * scale, 2 * scale });
     if (w.native.mocks.hud.captureFrame.active) {
+        auto& capture = w.native.mocks.hud.captureFrame;
+        if (frame.renderDevice && capture.builder && !capture.editCamera)
+            av::viewerhud::UpdateReportPaper (static_cast<Diligent::IRenderDevice*> (frame.renderDevice), capture,
+                                              false);
         DrawNativeCapture (w.native, w.document, { uint32_t (frame.width), uint32_t (frame.height) },
                            dpi > 0 ? dpi : frame.dpiScale);
         return;

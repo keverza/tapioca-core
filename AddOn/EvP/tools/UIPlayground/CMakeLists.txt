@@ -74,7 +74,8 @@ target_link_libraries (PlaygroundModel PUBLIC imgui)
 add_library (TapiocaUIPlaygroundUI SHARED UiModule.cpp Workspace.cpp NativePreview.cpp MockServices.cpp WorkflowState.cpp
     RustTerrainStubs.cpp
     ${PLAYGROUND_PRODUCTION_SOURCES})
-target_link_libraries (TapiocaUIPlaygroundUI PRIVATE PlaygroundModel imgui)
+target_sources (TapiocaUIPlaygroundUI PRIVATE "${ADDON_DIR}/ArchViz/LayoutReportPage.cpp")
+target_link_libraries (TapiocaUIPlaygroundUI PRIVATE PlaygroundModel imgui Diligent-Common Diligent-GraphicsEngineInterface)
 target_compile_definitions (TapiocaUIPlaygroundUI PRIVATE TAPIOCA_UI_MODULE=1)
 include (WorkflowSources.cmake)
 

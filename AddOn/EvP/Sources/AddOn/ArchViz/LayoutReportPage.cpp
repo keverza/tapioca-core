@@ -1,5 +1,6 @@
 #include "ArchViz/LayoutReportPage.hpp"
 #include <windows.h>
+#include <objidl.h>
 #include <gdiplus.h>
 #include <algorithm>
 #include <cstdio>
@@ -61,7 +62,8 @@ void StoreReportTile (ReportPanel& p, std::vector<uint8_t>& source)
     p.width = w;
     p.height = h;
 }
-bool ComposeReportPage (const LayoutReportPage& p, std::vector<uint8_t>& rgba)
+bool ComposeReportPage (const LayoutReportPage& p, std::vector<uint8_t>& rgba,
+                        std::vector<PaperViewportRect>* viewports)
 {
     using namespace Gdiplus;
     const bool matrix = p.type == ReportTemplate::Analysis;
@@ -75,6 +77,8 @@ bool ComposeReportPage (const LayoutReportPage& p, std::vector<uint8_t>& rgba)
     const auto page = ReportPageFormat (p.format);
     rgba.assign (size_t (page.width) * page.height * 4, 255);
     bool ok = true;
+    if (viewports)
+        viewports->clear ();
     {
         Bitmap paper (page.width, page.height, page.width * 4, PixelFormat32bppARGB, rgba.data ());
         Graphics g (&paper);
@@ -90,16 +94,20 @@ bool ComposeReportPage (const LayoutReportPage& p, std::vector<uint8_t>& rgba)
                 : p.type == ReportTemplate::Patterns ? "Distribution of measured shadows before and after solar noon"
                                                      : "Hours of direct sunlight on measured receivers",
                 m, 96, 1300, 36, 22);
-        const float header = matrix ? 178 : 220, footer = H - 85;
+        const float header = matrix ? 178 : 220, footer = H - (p.legendHeight ? p.legendHeight / scale + 12 : 85);
         const float rowH = (footer - header - 25) / rows;
         for (unsigned i = 0; i < p.panels.size (); ++i) {
             const auto& t = p.panels[i];
             const unsigned c = i % cols, r = i / cols;
             const float x = left + c * (cw + gap), y = header + r * rowH, maxH = rowH - 48;
             // Fit the whole crop, then anchor labels to the fitted picture edges.
-            const float aspect = t.width && t.height ? float (t.width) / t.height : 1.5f;
+            const float aspect = p.tileAspect > 0      ? p.tileAspect
+                                 : t.width && t.height ? float (t.width) / t.height
+                                                       : 1.5f;
             const float iw = (std::min) (cw, maxH * aspect), ih = iw / aspect, ix = x + (cw - iw) / 2,
                         iy = y + (maxH - ih) / 2;
+            if (viewports)
+                viewports->push_back ({ ix / W, iy / H, iw / W, ih / H });
             if (matrix && !r) {
                 char clock[16];
                 std::snprintf (clock, sizeof (clock), "%02d:%02d", p.clocks[c] / 60, p.clocks[c] % 60);
@@ -125,7 +133,8 @@ bool ComposeReportPage (const LayoutReportPage& p, std::vector<uint8_t>& rgba)
                 for (size_t k = 0; k < bgra.size (); k += 4)
                     std::swap (bgra[k], bgra[k + 2]);
                 Bitmap bitmap (t.width, t.height, t.width * 4, PixelFormat32bppARGB, bgra.data ());
-                if (g.DrawImage (&bitmap, RectF (ix, iy, iw, ih), 0.f, 0.f, float (t.width), float (t.height),
+                const float sw = (std::min) (float (t.width), t.height * aspect), sh = sw / aspect;
+                if (g.DrawImage (&bitmap, RectF (ix, iy, iw, ih), (t.width - sw) / 2, (t.height - sh) / 2, sw, sh,
                                  UnitPixel) != Ok) {
                     ok = false;
                     break;
@@ -139,32 +148,41 @@ bool ComposeReportPage (const LayoutReportPage& p, std::vector<uint8_t>& rgba)
         }
         Pen rule (Color (255, 204, 207, 208), 1);
         g.DrawLine (&rule, m, footer, W - m, footer);
-        d.Text (p.site, m, footer + 5, 710, 55, 17);
-        float k = 800;
-        if (matrix) {
-            d.Key (k, footer + 18, 0xffeeeeee, "Sunlit", 150);
-            d.Key (k, footer + 18, 0xff545454, "Shaded", 150);
-        }
-        else if (p.type == ReportTemplate::Patterns) {
-            d.Key (k, footer + 18, 0xffeeeeee, "Neither", 145);
-            d.Key (k, footer + 18, 0xff796ab1, "AM only", 155);
-            d.Key (k, footer + 18, 0xffdf9792, "PM only", 155);
-            d.Key (k, footer + 18, 0xffac819e, "Both", 130);
-        }
-        else {
-            d.Text ("Direct sun (hours)", k, footer + 10, 190, 32, 16, true);
-            k += 178;
-            LinearGradientBrush ramp (PointF (k, 0), PointF (k + 310, 0), Color (255, 107, 55, 26),
-                                      Color (255, 255, 224, 138));
-            g.FillRectangle (&ramp, k, footer + 16, 310.f, 13.f);
-            d.Text ("0 h", k, footer + 30, 100, 25, 15);
-            d.Text ("9 h+", k + 273, footer + 30, 80, 25, 15);
+        if (!p.legendHeight) {
+            d.Text (p.site, m, footer + 5, 710, 55, 17);
+            float k = 800;
+            if (p.pending) {
+            }
+            else if (matrix) {
+                d.Key (k, footer + 18, 0xffeeeeee, "Sunlit", 150);
+                d.Key (k, footer + 18, 0xff545454, "Shaded", 150);
+            }
+            else if (p.type == ReportTemplate::Patterns) {
+                d.Key (k, footer + 18, 0xffeeeeee, "Neither", 145);
+                d.Key (k, footer + 18, 0xff796ab1, "AM only", 155);
+                d.Key (k, footer + 18, 0xffdf9792, "PM only", 155);
+                d.Key (k, footer + 18, 0xffac819e, "Both", 130);
+            }
+            else {
+                d.Text ("Direct sun (hours)", k, footer + 10, 190, 32, 16, true);
+                k += 178;
+                LinearGradientBrush ramp (PointF (k, 0), PointF (k + 310, 0), Color (255, 107, 55, 26),
+                                          Color (255, 255, 224, 138));
+                g.FillRectangle (&ramp, k, footer + 16, 310.f, 13.f);
+                d.Text ("0 h", k, footer + 30, 100, 25, 15);
+                d.Text ("9 h+", k + 273, footer + 30, 80, 25, 15);
+            }
         }
         g.Flush (FlushIntentionSync);
     }
     GdiplusShutdown (token);
     for (size_t i = 0; i < rgba.size (); i += 4)
         std::swap (rgba[i], rgba[i + 2]);
+    if (p.legendHeight) {
+        if (p.legend.size () != size_t (page.width) * p.legendHeight * 4 || p.legend.size () > rgba.size ())
+            return false;
+        std::copy (p.legend.begin (), p.legend.end (), rgba.end () - p.legend.size ());
+    }
     return ok;
 }
 } // namespace geomsrv::archviz

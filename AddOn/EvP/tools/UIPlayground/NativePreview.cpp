@@ -190,7 +190,7 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
     p.captureDock = { { dockMin.x, dockMin.y, dockMax.x, dockMax.y },
                       { p.mocks.hud.width, p.mocks.hud.height },
                       p.dock.edge,
-                      p.dock.horizontal };
+                      p.dock.horizontal, shell::FontScaleOfStep (p.fontStep) };
     if (p.open) {
         shell::HostSpec spec;
         spec.window = "###playground.native.hud";

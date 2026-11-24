@@ -114,6 +114,7 @@ constexpr uint32_t kFontStepCount = uint32_t (sizeof (kFontSteps) / sizeof (kFon
 constexpr uint32_t kFontStepDefault = 2;
 // A step's factor, the last for one past the end; and as the user reads it, "110 %".
 float FontScaleOfStep (uint32_t step);
+float MenuPanelWidth (float ui, float availableWidth);
 std::string Percent (float scale);
 
 // ---- the dock -----------------------------------------------------------------------

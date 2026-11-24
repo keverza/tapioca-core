@@ -262,7 +262,8 @@ class CaptureGui : public testing::Test {
             DrawCaptureRow (state_, sunRow_ ? kShotSunStudy : kShotVision);
             const auto min = ImGui::GetItemRectMin ();
             const auto max = ImGui::GetItemRectMax ();
-            entry_ = { (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f };
+            entry_ = { sunRow_ ? ImGui::GetWindowPos ().x + ImGui::GetWindowSize ().x * .25f : (min.x + max.x) * 0.5f,
+                       (min.y + max.y) * 0.5f };
             ImGui::End ();
         }
         ImGui::Render ();
@@ -376,41 +377,45 @@ TEST_F (CaptureGui, SunStudyRowFramesBeforeCaptureAndBusyBlocksAnotherShot)
     EXPECT_FALSE (state_.sunShotRequested);
 }
 
-TEST_F (CaptureGui, DateCaptureWaitsForTheCompletedDayToBeAttached)
+TEST_F (CaptureGui, ScreenshotKeepsActiveShadowViewAndNeverSubmitsAStudy)
 {
     tapioca::test::ResetSunStudyHudServices ();
     ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
-    state_.captureFrame.studyDay = true;
+    state_.sunView = 2;
+    state_.sunStep = 4;
     auto& status = tapioca::test::SunStudyTestStatus ();
     status.running = true;
     status.dayDate = "2026-03-21";
     Frame ();
     Frame ();
     Click (capture_);
-    EXPECT_FALSE (state_.sunShotRequested);
-    status.running = false;
-    status.stage = "done";
-    status.studyId = "new";
-    shown_.studyId = "old";
-    shown_.elementsAttached = 1;
-    shown_.stepCount = 1;
-    shown_.stepMinutes = { 720 };
-    Frame ();
-    Frame ();
-    Click (capture_);
-    EXPECT_FALSE (state_.sunShotRequested);
-    shown_.studyId = "new";
-    shown_.version = 6;
-    Frame ();
-    Frame ();
-    Click (capture_);
     EXPECT_TRUE (state_.sunShotRequested);
-    EXPECT_EQ (state_.captureFrame.pinnedVersion, 6u);
-    EXPECT_EQ (SunStudyViewOf (state_).viewOverride, 6);
-    state_.captureFrame.shadowStyle = 1;
+    EXPECT_FALSE (state_.captureFrame.studyDay);
+    EXPECT_EQ (SunStudyViewOf (state_).step, 4u);
     EXPECT_EQ (SunStudyViewOf (state_).viewOverride, 5);
     EXPECT_EQ (tapioca::test::SunStudyTestSubmissions (), 0);
     tapioca::test::ResetSunStudyHudServices ();
+}
+
+TEST_F (CaptureGui, BuilderChangesQuantityButKeepsAnalysisColoursAndBands)
+{
+    state_.sunGradientStepped = true;
+    state_.sunSingleShadowedRgba = 0x9933aaff;
+    state_.sunAmPmEveningRgba = 0xc7aa34ff;
+    const auto original = SunStudyViewOf (state_);
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
+    state_.captureFrame.builder = state_.captureFrame.studyDay = true;
+    for (int i = 0; i < 3; ++i) {
+        state_.captureFrame.reportType = i;
+        const auto view = SunStudyViewOf (state_);
+        EXPECT_EQ (view.viewOverride, i == 0 ? 5 : i == 1 ? 9 : 0);
+        EXPECT_EQ (view.singleShadowedRgba, original.singleShadowedRgba);
+        EXPECT_EQ (view.amPmEveningRgba, original.amPmEveningRgba);
+        EXPECT_EQ (view.bandCount, original.bandCount);
+        ASSERT_EQ (view.rampCount, original.rampCount);
+        for (int j = 0; j < view.rampCount; ++j)
+            EXPECT_EQ (view.ramp[j].rgba, original.ramp[j].rgba);
+    }
 }
 
 TEST_F (CaptureGui, ATopViewCaptureCannotReplaceThePerspectiveRegion)

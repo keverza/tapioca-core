@@ -31,9 +31,17 @@ struct LayoutReportPage {
     std::string site;
     std::vector<int> clocks;
     std::vector<ReportPanel> panels;
+    float tileAspect = 0;
+    unsigned legendHeight = 0;
+    bool pending = false;
+    std::vector<uint8_t> legend;
 };
 // Called by both the viewer and RenderBench. Source pixels are the settled scene
 // readbacks; the physical page never changes the camera or measurement domain.
-bool ComposeReportPage (const LayoutReportPage& page, std::vector<uint8_t>& rgba);
+struct PaperViewportRect {
+    float x, y, w, h;
+}; // normalized paper coordinates
+bool ComposeReportPage (const LayoutReportPage& page, std::vector<uint8_t>& rgba,
+                        std::vector<PaperViewportRect>* viewports = nullptr);
 void StoreReportTile (ReportPanel& panel, std::vector<uint8_t>& source);
 } // namespace geomsrv::archviz

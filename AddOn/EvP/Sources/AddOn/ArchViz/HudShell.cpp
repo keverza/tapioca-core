@@ -516,6 +516,12 @@ float PageRoom ()
     return s_pageRoom;
 }
 
+float MenuPanelWidth (float ui, float availableWidth)
+{
+    const float logical = (std::max) (320.f, float (graphicssettings::Number ("ui.panelWidth", 320.f)));
+    return (std::min) (availableWidth, logical * ui);
+}
+
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
                  const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer,
                  NavigationState* navigation)
@@ -568,11 +574,12 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     ImGui::PushFont (spec.font, panel.sizePixels * ui);
     const ImGuiStyle& style = ImGui::GetStyle ();
     const bool pageWidth = !spec.attached && spec.pageWidthPixels > 0.0f;
-    const float panelWidth =
-        pageWidth ? spec.pageWidthPixels
-                  : float (graphicssettings::Number ("ui.panelWidth", spec.attached ? 320.0f : panel.widthPixels));
-    float width = (std::max) (320.0f * ui, panelWidth * ui);
-    width = (std::min) (width, view.x);
+    float width = MenuPanelWidth (ui, view.x);
+    if (!spec.attached) {
+        const float logical = pageWidth ? spec.pageWidthPixels
+                                        : float (graphicssettings::Number ("ui.panelWidth", panel.widthPixels));
+        width = (std::min) (view.x, (std::max) (320.f, logical) * ui);
+    }
     float tallest = TallestPanel (panel, placement, scale, view.y);
     if (spec.attached) {
         const auto bounds = PanelAtDock (view, spec.dockMin, spec.dockMax, spec.dockEdge, spec.dockHorizontal,

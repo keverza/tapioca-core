@@ -183,7 +183,8 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     const ImVec2 dockMin = dock.window->Pos;
     const ImVec2 dockMax = { dockMin.x + dock.window->Size.x, dockMin.y + dock.window->Size.y };
     shell.captureDock = {
-        { dockMin.x, dockMin.y, dockMax.x, dockMax.y }, { width, height }, shell.dock.edge, shell.dock.horizontal
+        { dockMin.x, dockMin.y, dockMax.x, dockMax.y }, { width, height }, shell.dock.edge, shell.dock.horizontal,
+        hudshell::FontScaleOfStep (shell.fontStep)
     };
 
     // ---- the floating panel -------------------------------------------------------------------

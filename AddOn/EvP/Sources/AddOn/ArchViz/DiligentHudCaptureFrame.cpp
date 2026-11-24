@@ -2,7 +2,7 @@
 
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/LayoutReportPage.hpp"
-#include "ArchViz/GradientPresetChoice.hpp"
+#include "ArchViz/SunStudyColourControls.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/TapiocaUI/Foundation/ScopedStyle.hpp"
 
@@ -31,7 +31,7 @@ void ShadowClockRange (CaptureFrame& f, float dpi)
     if (ImGui::SmallButton ("+##shadow-divisions"))
         f.divisions = std::min (8, f.divisions + 1);
     auto pos = ImGui::GetCursorScreenPos ();
-    float w = std::min (324.f * dpi, std::max (120.f * dpi, ImGui::GetIO ().DisplaySize.x - 48 * dpi));
+    float w = std::clamp (ImGui::GetContentRegionAvail ().x, 1.f, 324.f * dpi);
     ImGui::InvisibleButton ("##shadow-clock-range", { w, 24 * dpi });
     const auto x = [&] (int minute) { return pos.x + 6 * dpi + (w - 12 * dpi) * minute / 1435.f; };
     float y = pos.y + 12 * dpi, mx = ImGui::GetIO ().MousePos.x;
@@ -343,41 +343,117 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
         frame.rect = ToNormalized (
             FitCaptureAspect (ToPixels (frame.rect, view), view, minimum, CaptureAspect (frame.aspect, view)), view);
     frame.view = view;
-    const bool dragging = HasArea (frame.rect) && DragFrame (frame, view, 7.0f * dpiScale, minimum);
+    const bool dragging = !frame.builder && HasArea (frame.rect) && DragFrame (frame, view, 7.0f * dpiScale, minimum);
     const ScreenshotRect rect = ToPixels (frame.rect, view);
-    DrawMask (rect, view, dpiScale, frame, dragging);
+    if (!frame.builder || frame.editCamera)
+        DrawMask (rect, view, dpiScale, frame, dragging);
 
     const float bottomSpace = float (view.height) - rect.bottom;
     const bool atBottom = bottomSpace > rect.top;
     ui::ScopedStyle style;
     UseCaptureLook (style, dpiScale);
-    ImGui::SetNextWindowPos ({ float (view.width) * 0.5f, atBottom ? float (view.height) - margin : margin },
-                             ImGuiCond_Always, { 0.5f, atBottom ? 1.0f : 0.0f });
+    const float sidebar = hudshell::MenuPanelWidth (dpiScale * dock.fontScale, float (view.width));
+    if (frame.builder) {
+        if (!frame.editCamera) {
+            const auto page = ReportPageFormat (frame.pageFormat);
+            const float s = std::max (.001f, std::min ((view.width - sidebar - 2 * margin) / page.width,
+                                                       (view.height - 2 * margin) / page.height));
+            ImVec2 a { (view.width + sidebar - page.width * s) / 2, (view.height - page.height * s) / 2 };
+            ImVec2 b { a.x + page.width * s, a.y + page.height * s };
+            auto* draw = ImGui::GetBackgroundDrawList ();
+            draw->AddRectFilled ({ 0, 0 }, { float (view.width), float (view.height) }, IM_COL32 (47, 49, 50, 255));
+            draw->AddRectFilled (a, b, IM_COL32_WHITE);
+            if (frame.paperImage)
+                draw->AddImage (ImTextureID (frame.paperImage), a, b);
+            else
+                draw->AddText ({ a.x + margin, a.y + margin }, IM_COL32_BLACK,
+                               ReportTitle (ReportTemplate (frame.reportType)));
+            const bool popup = ImGui::IsPopupOpen (nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+            if (!popup)
+                for (const auto& tile : frame.paperTiles) {
+                    ImVec2 tl { a.x + tile.x * (b.x - a.x), a.y + tile.y * (b.y - a.y) };
+                    ImVec2 br { tl.x + tile.w * (b.x - a.x), tl.y + tile.h * (b.y - a.y) };
+                    if (!ImGui::IsMouseHoveringRect (tl, br, false))
+                        continue;
+                    draw->AddRect (tl, br, IM_COL32 (82, 92, 105, 255));
+                    draw->AddRectFilled ({ br.x - margin, br.y - margin }, br, IM_COL32 (82, 92, 105, 255));
+                    if (ImGui::IsMouseHoveringRect ({ br.x - margin, br.y - margin }, br, false) &&
+                        ImGui::IsMouseClicked (0)) {
+                        frame.resizeX = tl.x;
+                        frame.resizeY = tl.y;
+                        frame.resizingTile = true;
+                    }
+                    else if (ImGui::IsMouseDoubleClicked (0)) {
+                        frame.editCamera = true;
+                        frame.paperDirty = true;
+                    }
+                    break;
+                }
+            if (frame.resizingTile) {
+                auto mouse = ImGui::GetMousePos ();
+                frame.tileAspect =
+                    std::clamp ((mouse.x - frame.resizeX) / std::max (1.f, mouse.y - frame.resizeY), .4f, 3.f);
+                ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeNWSE);
+                frame.resizingTile = ImGui::IsMouseDown (0);
+            }
+        }
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ sidebar, float (view.height) });
+    }
+    else
+        ImGui::SetNextWindowPos ({ float (view.width) * 0.5f, atBottom ? float (view.height) - margin : margin },
+                                 ImGuiCond_Always, { 0.5f, atBottom ? 1.0f : 0.0f });
     bool ownsMouse = dragging;
-    if (ImGui::Begin ("##capture-bar", nullptr, kCaptureWindowFlags | ImGuiWindowFlags_AlwaysAutoResize)) {
-        const bool ready = frame.builder || DrawStudyDay (state, shown);
-        if (frame.kind == kShotSunStudy && !frame.studyDay) {
+    if (ImGui::Begin ("##capture-bar", nullptr,
+                      kCaptureWindowFlags | (frame.builder ? 0 : ImGuiWindowFlags_AlwaysAutoResize))) {
+        if (frame.builder) {
+            ImGui::TextUnformatted ("Layout Builder");
+            ImGui::Separator ();
+        }
+        if (frame.kind == kShotSunStudy) {
             ImGui::SetNextItemWidth (220 * dpiScale);
-            gradientchoice::GradientPresetChoice ("Colours##capture", state.sunGradientPreset, state.sunGradientCustom,
-                                                  state.sunGradientFlipped, 220 * dpiScale,
-                                                  overlaylayers::GradientCategory::Sun);
-            ImGui::SameLine ();
-            ImGui::Checkbox ("Stepped gradient", &state.sunGradientStepped);
+            frame.paperDirty |= DrawAnalysisColourChoice (state,
+                                                          frame.builder ? (frame.reportType == 2   ? 0
+                                                                           : frame.reportType == 1 ? 9
+                                                                                                   : 5)
+                                                                        : frame.entryMode,
+                                                          220 * dpiScale, !frame.builder);
         }
         if (frame.builder) {
-            ImGui::TextUnformatted ("Layout Builder  /  Analysis page");
-            ImGui::Separator ();
             const char* templates[] = { "Shadow Analysis", "Shadow Patterns", "Sunlight Access" };
             const char* papers[] = { "A4 landscape", "A4 portrait", "A3 landscape", "A3 portrait" };
             ImGui::SetNextItemWidth (190 * dpiScale);
-            ImGui::Combo ("Workflow output", &frame.reportType, templates, 3);
+            frame.paperDirty |= ImGui::Combo ("Workflow output", &frame.reportType, templates, 3);
+            if (frame.reportType != 2) {
+                auto swatch = [&] (const char* label, uint32_t& rgb) {
+                    ImGui::PushID (label);
+                    frame.paperDirty |= gradientchoice::ColourChoice ("##colour", rgb, false);
+                    ImGui::SameLine ();
+                    ImGui::TextUnformatted (label);
+                    ImGui::PopID ();
+                };
+                if (frame.reportType == 0) {
+                    swatch ("Sunlit", state.sunSingleLitRgba);
+                    ImGui::SameLine ();
+                    swatch ("Shaded", state.sunSingleShadowedRgba);
+                }
+                else {
+                    swatch ("Neither", state.sunAmPmSunlitRgba);
+                    ImGui::SameLine ();
+                    swatch ("AM only", state.sunAmPmMorningRgba);
+                    ImGui::SameLine ();
+                    swatch ("PM only", state.sunAmPmEveningRgba);
+                }
+            }
             ImGui::SetNextItemWidth (190 * dpiScale);
-            ImGui::Combo ("Page format", &frame.pageFormat, papers, 4);
+            frame.paperDirty |= ImGui::Combo ("Page format", &frame.pageFormat, papers, 4);
             ImGui::TextDisabled ("Equinox  /  Summer solstice  /  Winter solstice");
+            const auto previousClocks = frame.clocks;
             if (frame.reportType == 0)
                 ShadowClockRange (frame, dpiScale);
             else
                 frame.clocks = { 720 };
+            frame.paperDirty |= frame.clocks != previousClocks;
             frame.panelSteps.assign (frame.clocks.size (), -1);
             if (shown)
                 for (size_t i = 0; i < frame.clocks.size (); ++i) {
@@ -387,36 +463,53 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                 }
             auto page = ReportPageFormat (frame.pageFormat);
             ImGui::Text ("Page 1   |   %u x %u px   |   150 dpi", page.width, page.height);
-            ImGui::TextDisabled ("Frame the shared 3D view with the crop handles.");
+            ImGui::SliderFloat ("Tile W:H", &frame.tileAspect, .4f, 3.f, "%.2f");
+            if (ImGui::Button (frame.editCamera ? "Return to paper" : "Edit shared camera")) {
+                frame.editCamera = !frame.editCamera;
+                frame.paperDirty = true;
+            }
+            ImGui::TextWrapped (
+                frame.editCamera
+                    ? "Navigate the 3D view to frame all tiles."
+                    : "Drag a tile corner to resize the grid. Double-click a tile to edit its shared camera.");
+            if (ImGui::Button ("Render preview")) {
+                state.sunShotFailed = false;
+                frame.previewOnly = true;
+                frame.active = frame.editCamera = false;
+                state.shotKind = frame.kind;
+                state.sunShotPreset = frame.preset;
+                state.sunShotRequested = true;
+            }
+            if (state.sunShotFailed)
+                ImGui::TextWrapped ("%s", state.sunShotResult.c_str ());
         }
         const float barWidth = ImGui::CalcTextSize ("Capture   Cancel   16:9   1.5x   12345 x 12345").x +
                                14.0f * ImGui::GetStyle ().FramePadding.x;
         const bool inlineControls = float (view.width) >= barWidth + 2.0f * margin;
         const char* aspects[] = { "Free", "16:9", "4:3", "1:1", "Current view" };
-        ImGui::SetNextItemWidth (ImGui::GetFontSize () * 4.0f);
-        ImGui::Combo ("##capture-scale", &frame.preset, kViewerScreenshotScaleLabels, kViewerScreenshotScaleCount);
-        hudshell::ItemTip ("Output scale");
-        ImGui::SameLine ();
-        ImGui::SetNextItemWidth (ImGui::GetFontSize () * 7.5f);
-        if (ImGui::Combo ("##capture-aspect", &frame.aspect, aspects, IM_ARRAYSIZE (aspects)))
-            frame.rect =
-                ToNormalized (FitCaptureAspect (rect, view, minimum, CaptureAspect (frame.aspect, view)), view);
-        hudshell::ItemTip ("Frame aspect ratio");
+        if (!frame.builder) {
+            ImGui::SetNextItemWidth (ImGui::GetFontSize () * 4.0f);
+            ImGui::Combo ("##capture-scale", &frame.preset, kViewerScreenshotScaleLabels, kViewerScreenshotScaleCount);
+            hudshell::ItemTip ("Output scale");
+            ImGui::SameLine ();
+            ImGui::SetNextItemWidth (ImGui::GetFontSize () * 7.5f);
+            if (ImGui::Combo ("##capture-aspect", &frame.aspect, aspects, IM_ARRAYSIZE (aspects)))
+                frame.rect =
+                    ToNormalized (FitCaptureAspect (rect, view, minimum, CaptureAspect (frame.aspect, view)), view);
+            hudshell::ItemTip ("Frame aspect ratio");
+        }
         const ScreenshotPixels crop = ViewerScreenshotCrop (
             frame.rect, ViewerScreenshotTargetSize (view.width, view.height, kViewerScreenshotScales[frame.preset]));
-        if (inlineControls)
+        if (inlineControls && !frame.builder)
             ImGui::SameLine ();
         if (frame.builder)
             ImGui::Text ("%u panels", unsigned (frame.panelSteps.size ()) * 3);
         else
             ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
         ImGui::SameLine ();
-        const bool seasons = frame.studyDay && frame.shadowStyle == 1 && frame.seasonal;
-        ImGui::BeginDisabled (
-            (!seasons && (!ready || (frame.studyDay && (!shown || !shown->stepCount || shown->stepMinutes.empty () ||
-                                                        (frame.shadowStyle == 1 && frame.panelSteps.empty ()))))) ||
-            ShotPending (state) || !crop.Width () || !crop.Height ());
+        ImGui::BeginDisabled (ShotPending (state) || !crop.Width () || !crop.Height ());
         if (ImGui::Button ("Capture")) {
+            frame.previewOnly = false;
             state.captureRegions[frame.viewSlot] = frame.rect;
             state.shotKind = frame.kind;
             state.sunShotPreset = frame.preset;
@@ -439,22 +532,18 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             ImGui::BringWindowToDisplayFront (ImGui::GetCurrentWindow ());
     }
     ImGui::End ();
-    return ownsMouse;
+    return ownsMouse || (frame.builder && !frame.editCamera);
 }
 
 void DrawCaptureRow (HudState& state, int kind)
 {
+    float w =
+        kind == kShotSunStudy ? (ImGui::GetContentRegionAvail ().x - ImGui::GetStyle ().ItemSpacing.x) * .5f : -1.f;
+    DrawShotButton (state, kind, kind == kShotVision ? "Capture screenshot" : "Screenshot##sunshot", { w, 0.0f });
     if (kind == kShotSunStudy) {
-        ImGui::BeginDisabled (ShotPending (state));
-        ImGui::SetNextItemWidth (ImGui::GetContentRegionAvail ().x * 0.4f);
-        ImGui::Combo ("##sunshotscale", &state.sunShotPreset, kViewerScreenshotScaleLabels,
-                      kViewerScreenshotScaleCount);
-        ImGui::EndDisabled ();
+        hudshell::ItemTip ("Frame the view, then save a PNG with the sun study legend to Tapioca\\Export.");
         ImGui::SameLine ();
     }
-    DrawShotButton (state, kind, kind == kShotVision ? "Capture screenshot" : "Screenshot##sunshot", { -1.0f, 0.0f });
-    if (kind == kShotSunStudy)
-        hudshell::ItemTip ("Frame the view, then save a PNG with the sun study legend to Tapioca\\Export.");
     if (kind == kShotSunStudy && ImGui::Button ("Layout Builder", { -1, 0 }) && BeginCaptureFrame (state, kind)) {
         auto& f = state.captureFrame;
         f.builder = f.studyDay = f.seasonal = true;

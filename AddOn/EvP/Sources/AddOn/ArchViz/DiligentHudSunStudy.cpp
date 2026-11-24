@@ -10,7 +10,7 @@
 // range to DiligentScene::SetSunStudyFilter.
 
 #include "ArchViz/DiligentHud.hpp"
-#include "ArchViz/LayoutReportStudy.hpp"
+#include "ArchViz/SunStudyColourControls.hpp"
 #include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/GradientPresetChoice.hpp"
@@ -90,6 +90,11 @@ bool FanOnScreen (const HudState& state)
 
 int ChosenMode (const HudState& state)
 {
+    if (!state.captureFrame.builder && state.captureFrame.entryMode >= 0 &&
+        (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
+        return state.captureFrame.entryMode;
+    if (state.captureFrame.builder && (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
+        return state.captureFrame.reportType == 2 ? 0 : state.captureFrame.reportType == 1 ? 9 : 5;
     if ((state.captureFrame.active || state.sunShotBusy || state.sunShotRequested) && state.captureFrame.studyDay)
         return state.captureFrame.shadowStyle == 0 ? 6 : 5;
     if (FanOnScreen (state) && state.sunFanInterval == kFanAmPm)
@@ -375,47 +380,6 @@ void LegendSwatch (unsigned hex, const char* label)
     ImGui::TextUnformatted (label);
 }
 
-// One editable colour of a shadow view's palette (#116).
-struct ShadowRole {
-    uint32_t* rgba;
-    uint32_t fallback; // the default, for "reset"
-    const char* label;
-    const char* tip;
-};
-
-// A shadow view's legend as pickers: a swatch per role that opens the colour
-// picker, its word, and one "reset" when any differs from its default.
-// DISPLAY ONLY, like the hours colours: no study reruns.
-//
-// ⚠️ EVERY ROLE IS ITS OWN ID SCOPE, under the view's. `##` hides a suffix but
-// leaves the whole label in the ID, so a bare "##sunlit" here and one anywhere
-// else in the window would collide -- as the view selector's "Roles" button
-// and the run form's "Roles" node did.
-void DrawShadowPalette (const char* view, std::initializer_list<ShadowRole> roles)
-{
-    ImGui::PushID (view);
-    bool edited = false;
-    int i = 0;
-    for (const ShadowRole& role : roles) {
-        if (i++ > 0)
-            ImGui::SameLine ();
-        ImGui::PushID (role.label);
-        InlineColour ("##colour", *role.rgba, false, role.tip);
-        ImGui::PopID ();
-        ImGui::SameLine ();
-        ImGui::TextUnformatted (role.label);
-        edited = edited || *role.rgba != role.fallback;
-    }
-    if (edited) {
-        ImGui::SameLine ();
-        if (ImGui::SmallButton ("reset"))
-            for (const ShadowRole& role : roles)
-                *role.rgba = role.fallback;
-        geomsrv::archviz::hudshell::ItemTip ("Puts this view's default colours back.");
-    }
-    ImGui::PopID ();
-}
-
 } // namespace
 
 void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats& scene, uint32_t width, uint32_t height)
@@ -529,8 +493,9 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         for (size_t k = 0; k < ticks.size (); ++k) {
             const float x = at.x + size.x * ticks[k] / kSunRampTop;
             // The open top band is "9:00h+"; a share's top is 100 %, never more.
-            const bool openTop = k + 1 == ticks.size () && SunLegendUnit () == SunValueUnit::Hours;
-            const std::string label = SunStudyValueText (ticks[k], true) + (openTop ? "+" : "");
+            const bool openTop = k + 1 == ticks.size () && (layout || SunLegendUnit () == SunValueUnit::Hours);
+            const std::string label =
+                (layout ? SunStudyClock (ticks[k], true) : SunStudyValueText (ticks[k], true)) + (openTop ? "+" : "");
             const float wide = ImGui::CalcTextSize (label.c_str ()).x;
             // Centred on its tick, held inside the bar's span at the two ends.
             const float left = std::clamp (x - 0.5f * wide, at.x, (std::max) (at.x, at.x + size.x - wide));
@@ -558,6 +523,12 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
         if (mode == 5)
             row (layout ? (frame.seasonal ? "Shadow analysis" : "Single shadow by time") : at.c_str (),
                  { { state.sunSingleLitRgba >> 8, "sunlit" }, { state.sunSingleShadowedRgba >> 8, "shadowed" } });
+        else if (mode == 9)
+            row ("Shadow patterns",
+                 { { state.sunAmPmSunlitRgba >> 8, "neither" },
+                   { state.sunAmPmMorningRgba >> 8, "AM only" },
+                   { state.sunAmPmEveningRgba >> 8, "PM only" },
+                   { SunStudyAmPmOverlapRgba (state.sunAmPmMorningRgba, state.sunAmPmEveningRgba) >> 8, "both" } });
         else if (mode == 6)
             row ("Shadow duration",
                  { { state.sunAmPmSunlitRgba >> 8, "sunlit" },
@@ -580,7 +551,8 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
                                                      scene.siteAltitudeMetres, scene.northDegrees))
                                 .c_str ());
     if (layout && frame.seasonal)
-        ImGui::Text ("Seasonal shadow analysis | %04d | shaded receiver area", state.sunRunYear);
+        ImGui::Text ("%s | %04d | Equinox and solstices", ReportTitle (ReportTemplate (frame.reportType)),
+                     state.sunRunYear);
     else
         ImGui::TextUnformatted (SunStudyCaptureJoin (SunStudyCapturePeriodLines (period)).c_str ());
     for (size_t i = 0; i < overflow.size (); ++i) {
@@ -607,6 +579,9 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.endShadowStep = interval.second;
     view.viewOverride = ChosenMode (state);
     view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
+    if (!state.captureFrame.builder && state.captureFrame.entryStep >= 0 &&
+        (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
+        view.step = uint32_t (state.captureFrame.entryStep);
     if ((state.captureFrame.active || state.sunShotBusy || state.sunShotRequested) && state.captureFrame.studyDay) {
         view.step = uint32_t (state.captureFrame.shadowStep);
         view.firstShadowStep = 0;
@@ -642,8 +617,6 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
             ++view.fanCount;
         }
     }
-    if (state.captureFrame.builder && (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
-        ApplyReportPalette (ReportTemplate (state.captureFrame.reportType), view);
     return view;
 }
 
@@ -760,6 +733,14 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     if (study.preview)
         ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
     viewerhud::DrawCaptureRow (state, kShotSunStudy);
+    if (state.captureFrame.active && !state.captureFrame.builder) {
+        auto& f = state.captureFrame;
+        const int chosen = ChosenMode (state);
+        f.entryMode = chosen >= 0 ? chosen : int (scene.sunStudy.debugMode);
+        f.entryStep = std::max (0, state.sunStep);
+        f.pinnedStudy = scene.sunStudy.studyId;
+        f.pinnedVersion = scene.sunStudy.version;
+    }
 
     // ---- the view ---------------------------------------------------------------
     //
@@ -778,6 +759,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     const bool obstruction = state.sunView == kObstructionView;
     const bool shadows = !obstruction && (current == 5 || current == 6 || current == 7);
     const bool roles = current == 4;
+    if (shadows || roles || obstruction)
+        viewerhud::DrawAnalysisColourChoice (state, current, ImGui::GetContentRegionAvail ().x * .64f, false);
     const float buttonWidth = (ImGui::GetContentRegionAvail ().x - 3.0f * ImGui::GetStyle ().ItemSpacing.x) / 4.0f;
     ImGui::PushStyleColor (
         ImGuiCol_Button,
@@ -895,7 +878,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         state.sunPlaySpeed = play.speed;
         state.sunPlayedAt = play.playedAt;
         state.sunPlayLoop = play.loop;
-        DrawShadowPalette (
+        viewerhud::DrawShadowPalette (
             "singleshadow",
             { { &state.sunSingleLitRgba, kSingleShadowLitRgba, "sunlit", "Sunlit at this time" },
               { &state.sunSingleShadowedRgba, kSingleShadowShadowedRgba, "shadowed", "Shadowed at this time" } });
@@ -950,10 +933,10 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         if (study.noonStep < study.stepMinutes.size ())
             Clock (study.stepMinutes[study.noonStep], noon, sizeof (noon));
         ImGui::TextDisabled ("Solar noon %s; colour intensity = shadow duration", noon);
-        DrawShadowPalette ("ampm",
-                           { { &state.sunAmPmSunlitRgba, kAmPmSunlitRgba, "sunlit", "Never shadowed" },
-                             { &state.sunAmPmMorningRgba, kAmPmMorningRgba, "morning", "Shadowed before solar noon" },
-                             { &state.sunAmPmEveningRgba, kAmPmEveningRgba, "evening", "Shadowed after solar noon" } });
+        viewerhud::DrawShadowPalette (
+            "ampm", { { &state.sunAmPmSunlitRgba, kAmPmSunlitRgba, "sunlit", "Never shadowed" },
+                      { &state.sunAmPmMorningRgba, kAmPmMorningRgba, "morning", "Shadowed before solar noon" },
+                      { &state.sunAmPmEveningRgba, kAmPmEveningRgba, "evening", "Shadowed after solar noon" } });
         // Not a colour of its own: the tint mixes morning and evening by share.
         ImGui::PushID ("ampm");
         Swatch ("##overlap", Rgb (SunStudyAmPmOverlapRgba (state.sunAmPmMorningRgba, state.sunAmPmEveningRgba) >> 8),

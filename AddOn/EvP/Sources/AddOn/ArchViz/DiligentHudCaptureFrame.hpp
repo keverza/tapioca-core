@@ -2,6 +2,7 @@
 #define EVP_ARCHVIZ_DILIGENTHUDCAPTUREFRAME_HPP
 
 #include "ArchViz/ViewerScreenshotGeometry.hpp"
+#include "ArchViz/LayoutReportPage.hpp"
 #include "SunStudy/AnalysisRoi.hpp"
 #include "SunStudy/CapturePlan.hpp"
 #include <memory>
@@ -17,6 +18,7 @@ enum class DockEdge : uint8_t;
 }
 
 namespace viewerhud {
+struct ReportPaperPreview;
 
 struct CaptureFrame {
     bool active = false;
@@ -27,9 +29,17 @@ struct CaptureFrame {
     bool studyDay = false;
     std::shared_ptr<const tapioca::sunstudy::CapturePlan> legendPlan;
     int shadowStyle = 0, shadowStep = 0;
+    int entryMode = -1, entryStep = -1;
     int startMinute = 540, endMinute = 900, divisions = 3, grip = 0;
     bool seasonal = false;
     bool builder = false;
+    bool editCamera = false, previewOnly = false, paperDirty = true;
+    float tileAspect = 1.5f;
+    uintptr_t paperImage = 0;
+    std::vector<PaperViewportRect> paperTiles;
+    float resizeX = 0, resizeY = 0;
+    bool resizingTile = false;
+    std::shared_ptr<ReportPaperPreview> paperCache;
     int reportType = 0, pageFormat = 0;
     std::vector<int> clocks;
     std::vector<std::string> captions;
@@ -58,6 +68,7 @@ struct CaptureDock {
     ScreenshotSize view;
     hudshell::DockEdge edge {};
     bool horizontal = true;
+    float fontScale = 1.f;
 };
 
 ScreenshotRect DefaultCaptureRect (const CaptureDock& dock, ScreenshotSize view, float margin);

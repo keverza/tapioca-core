@@ -5,7 +5,7 @@
 /* Tool-only ABI, never the EvP/EvPPy/Archicad ABI. UTF-8 JSON, POD, cdecl.
    The only persistent handle is opaque and is destroyed by its creating module.
    No ImGui pointer, STL value, exception, or module allocation crosses this ABI. */
-#define TAPIOCA_UI_ABI_VERSION 1u
+#define TAPIOCA_UI_ABI_VERSION 2u
 #ifdef TAPIOCA_UI_MODULE
 #define TAPIOCA_UI_EXPORT __declspec (dllexport)
 #else
@@ -22,6 +22,7 @@ typedef struct TapiocaUiHost {
 typedef struct TapiocaUiFrame {
     float width, height, dpiScale;
     const char* status; /* borrowed UTF-8, valid only during Draw */
+    void* renderDevice; /* borrowed Diligent device for native paper preview; null in CPU tests */
 } TapiocaUiFrame;
 typedef struct TapiocaUiResult {
     char* stateJson; /* host allocator, host releases, null when unchanged */

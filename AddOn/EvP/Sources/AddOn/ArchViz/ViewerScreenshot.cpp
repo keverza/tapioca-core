@@ -20,6 +20,7 @@
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "ArchViz/ShadowCaptureArea.hpp"
 #include "ArchViz/LayoutReportStudy.hpp"
+#include "ArchViz/ReportPaperPreview.hpp"
 #include "ArchViz/SurfaceTakeoffShot.hpp"
 #include "ArchViz/ViewerEditor.hpp"
 #include "Geometry/MeshStore.hpp"
@@ -107,10 +108,37 @@ bool ExposedShotCurrent (const surfacetakeoff::ShotTable& table)
 
 void Fail (HudState& state, const std::string& reason)
 {
+    if (state.captureFrame.previewOnly) {
+        state.captureFrame.previewOnly = false;
+        state.captureFrame.active = true;
+    }
     state.sunShotFailed = true;
     state.sunShotBusy = false;
     state.sunShotResult = reason;
     ArchVizLog ("viewer screenshot: not saved -- " + reason);
+}
+
+bool SaveImage (const std::vector<uint8_t>& image, uint32_t width, uint32_t height, int kind, float scale,
+                std::filesystem::path& path, std::string& error)
+{
+    std::string png;
+    std::filesystem::path directory;
+    if (!EncodeRgbaPng (image, width, height, png, error) || !ExportDirectory (directory, error))
+        return false;
+    std::error_code ec;
+    path = ShotPath (directory, kind, scale, ec);
+    if (ec) {
+        error = "could not choose an export filename: " + ec.message ();
+        return false;
+    }
+    std::ofstream file (path, std::ios::binary);
+    file.write (png.data (), static_cast<std::streamsize> (png.size ()));
+    file.close ();
+    if (!file) {
+        error = "could not write " + Utf8 (path);
+        return false;
+    }
+    return true;
 }
 
 // Use the same per-sample lit mask as the single-shadow shader. Padding and
@@ -193,7 +221,7 @@ void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scen
                 state.captureRegions[slot] = r;
         }
     }
-    if (state.captureFrame.active) {
+    if (state.captureFrame.active || state.captureFrame.previewOnly) {
         if (!framingCamera_) {
             framingCamera_ = std::make_unique<Camera> (camera);
             framingUserNavigated_ = userHasNavigated;
@@ -217,6 +245,8 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
 {
     if (target_ != nullptr)
         return *target_;
+    if (state.captureFrame.active && state.captureFrame.builder && !state.captureFrame.editCamera)
+        viewerhud::UpdateReportPaper (device, state.captureFrame, scene.Stats ().latitudeDegrees < 0);
     if (!state.sunShotRequested)
         return surface;
     state.sunShotRequested = false;
@@ -239,6 +269,25 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     }
     const int preset = std::clamp (state.sunShotPreset, 0, kViewerScreenshotScaleCount - 1);
     scale_ = kViewerScreenshotScales[preset];
+    auto& paper = state.captureFrame;
+    if (kind_ == kShotSunStudy && paper.builder && !paper.previewOnly && !paper.paperDirty && paper.paperCache &&
+        !paper.paperCache->page.pending && !paper.paperCache->page.panels.empty ()) {
+        auto& page = paper.paperCache->page;
+        page.tileAspect = paper.tileAspect;
+        const auto format = ReportPageFormat (page.format);
+        std::vector<uint8_t> pixels;
+        std::filesystem::path path;
+        std::string error = "could not compose the analysis page";
+        if (ComposeReportPage (page, pixels) &&
+            SaveImage (pixels, format.width, format.height, kind_, scale_, path, error)) {
+            state.sunShotFailed = false;
+            state.sunShotResult = Utf8 (path);
+        }
+        else
+            Fail (state, error);
+        paper.active = true;
+        return surface;
+    }
     const ScreenshotSize size = ViewerScreenshotTargetSize (surface.Width (), surface.Height (), scale_);
     crop_ = ViewerScreenshotCrop (state.captureFrame.rect, size);
     if (!crop_.Width () || !crop_.Height ()) {
@@ -253,11 +302,7 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         report_.format = frame.pageFormat;
         report_.type = ReportTemplate (frame.reportType);
         report_.clocks = frame.clocks;
-        const auto stats = scene.Stats ();
-        char site[120];
-        std::snprintf (site, sizeof (site), "%04d   |   %.4f, %.4f   |   Project local time", state.sunRunYear,
-                       stats.latitudeDegrees, stats.longitudeDegrees);
-        report_.site = site;
+        report_.tileAspect = frame.tileAspect;
         panelIndex_ = 0;
         state.captureFrame.shadowStep = (std::max) (0, frame.panelSteps.front ());
         state.captureFrame.captions.clear ();
@@ -406,6 +451,15 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             return true;
         }
     }
+    if (kind_ == kShotSunStudy && !state.captureFrame.builder && state.captureFrame.entryMode >= 0) {
+        const auto& study = scene.Stats ().sunStudy;
+        if (study.studyId != f.pinnedStudy || study.version != f.pinnedVersion) {
+            Fail (state, "the analysis changed after Screenshot was opened; frame the new result");
+            Destroy (context);
+            scene.ResetTemporalAntiAliasingHistory ();
+            return true;
+        }
+    }
     if (kind_ == kShotSunStudy && state.captureFrame.studyDay) {
         const auto& study = scene.Stats ().sunStudy;
         if (study.studyId != state.captureFrame.pinnedStudy || study.version != state.captureFrame.pinnedVersion ||
@@ -435,9 +489,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
                                                     : 0;
     std::vector<uint8_t> image;
     std::vector<uint8_t> strip;
-    std::string png;
     std::string error;
-    std::filesystem::path directory;
     bool ok = target_->CaptureRgba (context, image, error);
     if (ok && !CropScreenshotRgba (image, { target_->Width (), target_->Height () }, crop_)) {
         ok = false;
@@ -504,10 +556,29 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             scene.ResetTemporalAntiAliasingHistory ();
             return true;
         }
-        ok = ComposeReportPage (report_, image);
+        const auto page = ReportPageFormat (report_.format);
+        const float legendScale = page.width / 1500.f;
+        report_.legendHeight = hud.CaptureLegendHeight (legendScale);
+        ok = RenderStrip (
+            device_, context, page.width, report_.legendHeight,
+            [&] {
+                hud.DrawCaptureLegend (context, page.width, report_.legendHeight, legendScale, scene.Stats (), state);
+            },
+            report_.legend, error);
+        if (ok && frame.previewOnly) {
+            frame.paperCache = std::make_shared<viewerhud::ReportPaperPreview> ();
+            frame.paperCache->page = std::move (report_);
+            frame.paperDirty = false;
+            frame.active = true;
+            frame.previewOnly = false;
+            state.sunShotBusy = false;
+            Destroy (context);
+            scene.ResetTemporalAntiAliasingHistory ();
+            return true;
+        }
+        ok = ok && ComposeReportPage (report_, image);
         if (!ok)
             error = "could not compose the analysis page";
-        const auto page = ReportPageFormat (report_.format);
         width = page.width;
         viewHeight = page.height;
         stripHeight = 0;
@@ -546,42 +617,25 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         ok = RenderStrip (device_, context, width, stripHeight, draw, strip, error);
         image.insert (image.end (), strip.begin (), strip.end ());
     }
-    ok = ok && EncodeRgbaPng (image, width, viewHeight + (strip.empty () ? 0u : stripHeight), png, error) &&
-         ExportDirectory (directory, error);
     std::filesystem::path path;
-    if (ok) {
-        std::error_code pathError;
-        path = ShotPath (directory, kind_, scale_, pathError);
-        if (pathError) {
-            ok = false;
-            error = "could not choose an export filename: " + pathError.message ();
-        }
-    }
+    ok = ok && SaveImage (image, width, viewHeight + (strip.empty () ? 0u : stripHeight), kind_, scale_, path, error);
     if (!ok)
         Fail (state, error);
     else {
-        std::ofstream file (path, std::ios::binary);
-        file.write (png.data (), static_cast<std::streamsize> (png.size ()));
-        file.close ();
-        if (!file)
-            Fail (state, "could not write " + Utf8 (path));
-        else {
-            state.sunShotFailed = false;
-            state.sunShotBusy = false;
-            state.sunShotResult = Utf8 (path);
-            const auto region = RegionFile (state.captureFrame.viewSlot);
-            if (!region.empty ()) {
-                std::error_code ec;
-                std::filesystem::create_directories (region.parent_path (), ec);
-                const auto r = state.captureFrame.rect;
-                std::ofstream saved (region);
-                saved << r.left << ' ' << r.top << ' ' << r.right << ' ' << r.bottom;
-                if (!saved)
-                    ArchVizLog ("viewer screenshot: could not remember the view's capture region");
-            }
-            ArchVizLog ("viewer screenshot: saved " + state.sunShotResult + " (" + std::to_string (png.size ()) +
-                        " bytes)");
+        state.sunShotFailed = false;
+        state.sunShotBusy = false;
+        state.sunShotResult = Utf8 (path);
+        const auto region = RegionFile (state.captureFrame.viewSlot);
+        if (!region.empty ()) {
+            std::error_code ec;
+            std::filesystem::create_directories (region.parent_path (), ec);
+            const auto r = state.captureFrame.rect;
+            std::ofstream saved (region);
+            saved << r.left << ' ' << r.top << ' ' << r.right << ' ' << r.bottom;
+            if (!saved)
+                ArchVizLog ("viewer screenshot: could not remember the view's capture region");
         }
+        ArchVizLog ("viewer screenshot: saved " + state.sunShotResult);
     }
 
     Destroy (context);

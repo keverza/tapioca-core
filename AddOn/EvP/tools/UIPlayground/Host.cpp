@@ -221,6 +221,8 @@ struct Crop {
 };
 Crop PanelCrop (uint32_t width, uint32_t height)
 {
+    if (const auto* bar = ImGui::FindWindowByName ("##capture-bar"); bar && bar->Active && bar->Size.y >= height - 1)
+        return { 0, 0, width, height };
     ImRect area;
     bool any = false;
     for (const char* name : { "###playground.native.hud", "###tapioca.dock", "##capture-bar" })
@@ -340,7 +342,7 @@ fs::path FullScreenshot (Graphics& graphics, Module& module, uint32_t width, flo
         ImGui::GetIO ().DisplaySize = ImVec2 (float (width), float (height));
         ImGui::NewFrame ();
         ImGui::PushFont (nullptr, 13.0f * dpi);
-        const TapiocaUiFrame tall { float (width), float (height), dpi, "" };
+        const TapiocaUiFrame tall { float (width), float (height), dpi, "", graphics.device.RawPtr () };
         TapiocaUiResult result {};
         const bool drawn = module.Draw (tall, result);
         if (result.stateJson)
@@ -488,7 +490,7 @@ int Run ()
         ImGui::PushFont (nullptr, 13.0f * float (GetDpiForWindow (window.handle)) / 96);
         const auto status = reloadStatus + reload.Status ();
         const TapiocaUiFrame frame { float (width), float (height), float (GetDpiForWindow (window.handle)) / 96,
-                                     status.c_str () };
+                                     status.c_str (), graphics.device.RawPtr () };
         TapiocaUiResult result {};
         const bool drawn = module.Draw (frame, result);
         if (result.stateJson) {
@@ -507,12 +509,13 @@ int Run ()
         const float clear[] { 0.12f, 0.12f, 0.12f, 1 };
         graphics.context->ClearRenderTarget (target, clear, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         graphics.renderer->RenderDrawData (graphics.context, ImGui::GetDrawData ());
-        graphics.swapChain->Present (1);
         if (g_screenshotRequested || (screenshotFrame > 0 && frames + 1 == screenshotFrame)) {
             g_screenshotRequested = false;
             try {
                 const auto file =
-                    FullScreenshot (graphics, module, width, float (GetDpiForWindow (window.handle)) / 96);
+                    select == "layout-builder"
+                        ? Screenshot (graphics, target->GetTexture (), width, height)
+                        : FullScreenshot (graphics, module, width, float (GetDpiForWindow (window.handle)) / 96);
                 reloadStatus = "Screenshot saved: " + file.string () + "\n";
             }
             catch (const std::exception& failure) {
@@ -520,6 +523,7 @@ int Run ()
             }
             diagnostic << reloadStatus << std::flush;
         }
+        graphics.swapChain->Present (1);
         if (frames == 0 && ImGui::GetDrawData ()->TotalVtxCount <= 0)
             throw std::runtime_error ("No UI vertices drawn.");
         ++frames;
