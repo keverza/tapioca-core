@@ -97,6 +97,13 @@ void SunVisibility::Build (const ObjScene& scene)
     impl_->casters.Build ();
 }
 
+bool SunVisibility::Blocked (const double* p, const double* d, double near) const
+{
+    float origin[] = { float (p[0]), float (p[1]), float (p[2]) }, ray[] = { float (d[0]), float (d[1]), float (d[2]) };
+    nanort::TriangleIntersection<float> hit;
+    return impl_->casters.Hit (origin, ray, float (near), hit);
+}
+
 std::vector<uint8_t> SunVisibility::Render (const float eye[3], const float target[3], float fovDegrees, uint32_t width,
                                             uint32_t height, const float sunIn[3], float sunDiameterDegrees) const
 {

@@ -507,7 +507,8 @@ uint32_t DiligentHud::DrawCaptureTable (Diligent::IDeviceContext* context, uint3
 }
 
 void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
-                                     const DiligentSceneStats& scene, const HudState& state, int captionRow)
+                                     const DiligentSceneStats& scene, const HudState& state, int captionRow,
+                                     Diligent::ITextureView* preview)
 {
     if (context == nullptr || !impl_->ready || width == 0 || height == 0)
         return;
@@ -528,6 +529,9 @@ void DiligentHud::DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t
         const int colors = hudshell::PushLook (look, dpiScale);
         ImGui::GetBackgroundDrawList ()->AddRectFilled ({ 0, 0 }, { float (width), float (height) },
                                                         hudshell::Packed (look.backgroundRgba | 255u));
+        if (preview)
+            ImGui::GetBackgroundDrawList ()->AddImage (ImTextureID (uintptr_t (preview)), { 0, 0 },
+                                                       { float (width), float (height) });
         ImGui::SetNextWindowPos ({ width * .5f, height * .5f }, ImGuiCond_Always, { .5f, .5f });
         ImGui::Begin ("Shadow analysis export", nullptr,
                       ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |

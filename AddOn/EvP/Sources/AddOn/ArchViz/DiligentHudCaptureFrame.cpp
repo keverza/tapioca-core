@@ -1,6 +1,7 @@
 #include "ArchViz/DiligentHudCaptureFrame.hpp"
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/LayoutReportPage.hpp"
 #include "ArchViz/GradientPresetChoice.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/TapiocaUI/Foundation/ScopedStyle.hpp"
@@ -354,7 +355,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                              ImGuiCond_Always, { 0.5f, atBottom ? 1.0f : 0.0f });
     bool ownsMouse = dragging;
     if (ImGui::Begin ("##capture-bar", nullptr, kCaptureWindowFlags | ImGuiWindowFlags_AlwaysAutoResize)) {
-        const bool ready = DrawStudyDay (state, shown);
+        const bool ready = frame.builder || DrawStudyDay (state, shown);
         if (frame.kind == kShotSunStudy && !frame.studyDay) {
             ImGui::SetNextItemWidth (220 * dpiScale);
             gradientchoice::GradientPresetChoice ("Colours##capture", state.sunGradientPreset, state.sunGradientCustom,
@@ -363,53 +364,30 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             ImGui::SameLine ();
             ImGui::Checkbox ("Stepped gradient", &state.sunGradientStepped);
         }
-        if (frame.studyDay) {
-            const char* modes[] = { "Morning / evening", "Single shadows by time" };
-            ImGui::SetNextItemWidth (160 * dpiScale);
-            ImGui::Combo ("Shadows", &frame.shadowStyle, modes, 2);
-            const auto colour = [] (const char* label, uint32_t& rgba) {
-                ImGui::SameLine ();
-                gradientchoice::ColourChoice (label, rgba, false, label);
-            };
-            if (frame.shadowStyle == 0) {
-                colour ("Sunlit", state.sunAmPmSunlitRgba);
-                colour ("Morning", state.sunAmPmMorningRgba);
-                colour ("Evening", state.sunAmPmEveningRgba);
-            }
-            else {
-                colour ("Sunlit", state.sunSingleLitRgba);
-                colour ("Shadow", state.sunSingleShadowedRgba);
-                if (ImGui::Checkbox ("Seasonal comparison: equinox and both solstices", &frame.seasonal) &&
-                    frame.seasonal) {
-                    state.sunSingleLitRgba = 0xeeeeeeff;
-                    state.sunSingleShadowedRgba = 0x545454ff;
-                }
+        if (frame.builder) {
+            ImGui::TextUnformatted ("Layout Builder  /  Analysis page");
+            ImGui::Separator ();
+            const char* templates[] = { "Shadow Analysis", "Shadow Patterns", "Sunlight Access" };
+            const char* papers[] = { "A4 landscape", "A4 portrait", "A3 landscape", "A3 portrait" };
+            ImGui::SetNextItemWidth (190 * dpiScale);
+            ImGui::Combo ("Workflow output", &frame.reportType, templates, 3);
+            ImGui::SetNextItemWidth (190 * dpiScale);
+            ImGui::Combo ("Page format", &frame.pageFormat, papers, 4);
+            ImGui::TextDisabled ("Equinox  /  Summer solstice  /  Winter solstice");
+            if (frame.reportType == 0)
                 ShadowClockRange (frame, dpiScale);
-                frame.panelSteps.clear ();
-                for (int m : frame.clocks) {
-                    int step = -1;
-                    if (shown) {
-                        auto it = std::find (shown->stepMinutes.begin (), shown->stepMinutes.end (), m);
-                        if (it != shown->stepMinutes.end ())
-                            step = int (it - shown->stepMinutes.begin ());
-                    }
-                    frame.panelSteps.push_back (step);
-                }
-            }
-            if (shown && !shown->stepMinutes.empty ()) {
-                state.sunStepMinutes = shown->stepMinutes;
-                frame.shadowStep = std::clamp (frame.shadowStep, 0, int (shown->stepMinutes.size ()) - 1);
-                if (frame.shadowStyle == 1) {
-                    frame.layoutMinutes = shown->stepMinutes;
-                    for (int s : frame.panelSteps)
-                        if (s >= 0) {
-                            frame.shadowStep = s;
-                            break;
-                        }
-                }
-            }
             else
-                ImGui::TextDisabled ("This study has no measured shadow steps.");
+                frame.clocks = { 720 };
+            frame.panelSteps.assign (frame.clocks.size (), -1);
+            if (shown)
+                for (size_t i = 0; i < frame.clocks.size (); ++i) {
+                    auto it = std::find (shown->stepMinutes.begin (), shown->stepMinutes.end (), frame.clocks[i]);
+                    if (it != shown->stepMinutes.end ())
+                        frame.panelSteps[i] = int (it - shown->stepMinutes.begin ());
+                }
+            auto page = ReportPageFormat (frame.pageFormat);
+            ImGui::Text ("Page 1   |   %u x %u px   |   150 dpi", page.width, page.height);
+            ImGui::TextDisabled ("Frame the shared 3D view with the crop handles.");
         }
         const float barWidth = ImGui::CalcTextSize ("Capture   Cancel   16:9   1.5x   12345 x 12345").x +
                                14.0f * ImGui::GetStyle ().FramePadding.x;
@@ -428,9 +406,8 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             frame.rect, ViewerScreenshotTargetSize (view.width, view.height, kViewerScreenshotScales[frame.preset]));
         if (inlineControls)
             ImGui::SameLine ();
-        if (frame.studyDay && frame.shadowStyle == 1)
-            ImGui::Text ("%u panels | %u x %u grid", unsigned (frame.panelSteps.size ()) * (frame.seasonal ? 3 : 1),
-                         crop.Width (), crop.Height ());
+        if (frame.builder)
+            ImGui::Text ("%u panels", unsigned (frame.panelSteps.size ()) * 3);
         else
             ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
         ImGui::SameLine ();
@@ -478,6 +455,12 @@ void DrawCaptureRow (HudState& state, int kind)
     DrawShotButton (state, kind, kind == kShotVision ? "Capture screenshot" : "Screenshot##sunshot", { -1.0f, 0.0f });
     if (kind == kShotSunStudy)
         hudshell::ItemTip ("Frame the view, then save a PNG with the sun study legend to Tapioca\\Export.");
+    if (kind == kShotSunStudy && ImGui::Button ("Layout Builder", { -1, 0 }) && BeginCaptureFrame (state, kind)) {
+        auto& f = state.captureFrame;
+        f.builder = f.studyDay = f.seasonal = true;
+        f.shadowStyle = 1;
+        f.endMinute = 1080;
+    }
     DrawResult (state, kind);
 }
 

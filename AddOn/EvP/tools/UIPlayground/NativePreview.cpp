@@ -149,7 +149,7 @@ void DrawNative (NativePreview& p, Value& state, ImVec2 stageMin, ImVec2 stageMa
         if (requested == "@capture-times") {
             auto& hud = p.mocks.hud;
             av::viewerhud::BeginCaptureFrame (hud, av::kShotSunStudy);
-            hud.captureFrame.studyDay = true;
+            hud.captureFrame.builder = hud.captureFrame.seasonal = hud.captureFrame.studyDay = true;
             hud.captureFrame.shadowStyle = 1;
             auto& study = p.mocks.scene.sunStudy;
             study.studyId = p.mocks.sun.studyId = "fixture-sun";

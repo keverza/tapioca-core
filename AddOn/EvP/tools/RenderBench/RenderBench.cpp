@@ -17,6 +17,9 @@
 
 #include "ObjScene.hpp"
 #include "SunVisibility.hpp"
+#ifdef TAPIOCA_REPORT_FIXTURE
+#include "SeasonalReportFixture.hpp"
+#endif
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/DiligentDeviceFactory.hpp"
@@ -831,6 +834,12 @@ int main (int argc, char** argv)
     }
 
     renderbench::SunVisibility sunVisibility;
+#ifdef TAPIOCA_REPORT_FIXTURE
+    renderbench::SeasonalReportFixture fixture;
+    const bool reports = o.styles == std::vector<std::string> { "reports" };
+    if (reports)
+        fixture.Bind (obj);
+#endif
     if (std::find (o.styles.begin (), o.styles.end (), "sunvis") != o.styles.end () ||
         std::find (o.styles.begin (), o.styles.end (), "sunsoft") != o.styles.end ())
         sunVisibility.Build (obj); // before the elements are handed to the queue
@@ -846,6 +855,86 @@ int main (int argc, char** argv)
     }
     if (!o.env.empty ())
         scene.SetEnvironmentMap (o.env.c_str ());
+#ifdef TAPIOCA_REPORT_FIXTURE
+    if (reports) {
+        av::LayoutReportPage pages[3];
+        for (unsigned k = 0; k < 3; ++k) {
+            pages[k].type = av::ReportTemplate (k);
+            pages[k].site = "Courtyard   |   52 N   |   Local solar time   |   15 min samples";
+            pages[k].clocks = { 540, 720, 900, 1080 };
+        }
+        View v { "courtyard", { 20, -46, 66 }, { 0, 0, 0 }, 35 };
+        auto hud = StyleState ("clay", o);
+        hud.shadowsEnabled = false;
+        hud.temporalConvergence = false;
+        unsigned frame = 0;
+        for (unsigned row = 0; row < 3; ++row) {
+            auto day = fixture.Day (row);
+            queue.PushAnalysisAtlas (queue.ClaimAnalysisDisplay (0), std::make_unique<av::SunStudyAtlasUpload> (day));
+            while (scene.Consume (device, 64, context) > 0) {
+            }
+            if (scene.Stats ().sunStudy.elementsAttached != 1) {
+                av::ArchVizLog ("report fixture receiver failed to attach");
+                return 1;
+            }
+            for (auto& page : pages) {
+                bool matrix = page.type == av::ReportTemplate::Analysis;
+                double previous = -1;
+                for (size_t i = 0; i < (matrix ? page.clocks.size () : 1); ++i) {
+                    av::ReportPanel tile;
+                    tile.width = o.width;
+                    tile.height = o.height;
+                    tile.date = row == 0 ? "20 March" : row == 1 ? "21 June" : "21 December";
+                    tile.season = row == 0 ? "Equinox" : row == 1 ? "Summer solstice" : "Winter solstice";
+                    char label[120];
+                    const int a = day.stepMinutes.front (), b = day.stepMinutes.back ();
+                    std::snprintf (label, sizeof (label), "Measured %02d:%02d - %02d:%02d", a / 60, a % 60, b / 60,
+                                   b % 60);
+                    tile.window = label;
+                    auto it = std::find (day.stepMinutes.begin (), day.stepMinutes.end (), page.clocks[i]);
+                    if (matrix && it == day.stepMinutes.end ()) {
+                        tile.metric = "Night";
+                        page.panels.push_back (std::move (tile));
+                        continue;
+                    }
+                    av::SunStudyViewSettings settings;
+                    av::ApplyReportPalette (page.type, settings);
+                    if (matrix) {
+                        settings.step = unsigned (it - day.stepMinutes.begin ());
+                        auto metric =
+                            av::MeasureShadowArea (fixture.areas, *day.stepMasks, fixture.plane, settings.step,
+                                                   [&] (size_t n) { return fixture.texels[n]; });
+                        double pc = 100 * metric.shaded / metric.measured;
+                        std::snprintf (label, sizeof (label), "%.1f%% shaded", pc);
+                        if (previous >= 0)
+                            std::snprintf (label, sizeof (label), "%.1f%% shaded (%+.1f pp)", pc, pc - previous);
+                        previous = pc;
+                        tile.metric = label;
+                    }
+                    else
+                        tile.metric = av::SeasonalMetric (
+                            day, fixture.areas, [&] (size_t n) { return fixture.texels[n]; }, page.type);
+                    scene.SetSunStudyView (settings);
+                    scene.ResetTemporalAntiAliasingHistory ();
+                    for (unsigned f = 0; f < o.frames; ++f)
+                        RenderFrame (scene, context, targets, o, v, hud, frame++);
+                    tile.rgba = ReadBack (context, targets, o.width, o.height);
+                    page.panels.push_back (std::move (tile));
+                }
+            }
+        }
+        for (auto& p : pages) {
+            std::vector<uint8_t> pixels;
+            auto size = av::ReportPageFormat (p.format);
+            if (!av::ComposeReportPage (p, pixels) ||
+                !stbi_write_png ((o.out + "/" + av::ReportTitle (p.type) + ".png").c_str (), size.width, size.height, 4,
+                                 pixels.data (), size.width * 4))
+                return 1;
+        }
+        scene.Shutdown ();
+        return 0;
+    }
+#endif
 
     if (o.views.empty ()) {
         View v;

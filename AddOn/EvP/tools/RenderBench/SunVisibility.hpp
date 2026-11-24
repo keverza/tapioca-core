@@ -38,6 +38,7 @@ class SunVisibility {
     ~SunVisibility ();
     // Copies the opaque triangles out of `scene`; call before its elements are handed away.
     void Build (const ObjScene& scene);
+    bool Blocked (const double* point, const double* direction, double near) const;
     // One byte per pixel, rows top to bottom. `sun` points toward the sun; the camera is
     // LookAtRH(eye, target, +Z) with a vertical field of view in degrees, as the bench's.
     // sunDiameterDegrees > 0 traces the sun as a disk of that angular diameter (see kSoftSunScale).

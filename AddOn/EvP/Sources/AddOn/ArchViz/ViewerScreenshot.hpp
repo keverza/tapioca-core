@@ -23,6 +23,7 @@
 
 #include "ArchViz/DiligentViewportTarget.hpp"
 #include "ArchViz/ViewerScreenshotGeometry.hpp"
+#include "ArchViz/LayoutReportPage.hpp"
 
 #include <cstdint>
 #include <chrono>
@@ -93,7 +94,8 @@ class ViewerScreenshot final {
     std::chrono::steady_clock::time_point publishingSince_ {};
     uint64_t sourceStamp_ = 0;
     DiligentViewportTarget* progressSurface_ = nullptr;
-    std::vector<uint8_t> layoutImage_;
+    LayoutReportPage report_;
+    bool reporting_ = false;
     std::shared_ptr<const surfacetakeoff::ShotTable> table_;
 };
 

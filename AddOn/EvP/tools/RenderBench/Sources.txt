@@ -16,6 +16,8 @@ ArchViz/DiligentSceneRayTraced.cpp
 ArchViz/DiligentSceneSection.cpp
 ArchViz/DiligentSceneSunPathOverlay.cpp
 ArchViz/DiligentSceneSunStudy.cpp
+ArchViz/SunStudyOverlay.cpp
+ArchViz/LayoutReportPage.cpp
 ArchViz/DiligentAmbientOcclusion.cpp
 ArchViz/DiligentScreenSpaceReflection.cpp
 ArchViz/DiligentTemporalAntiAliasing.cpp

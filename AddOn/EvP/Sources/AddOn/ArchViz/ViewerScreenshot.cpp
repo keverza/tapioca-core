@@ -19,6 +19,7 @@
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "ArchViz/ShadowCaptureArea.hpp"
+#include "ArchViz/LayoutReportStudy.hpp"
 #include "ArchViz/SurfaceTakeoffShot.hpp"
 #include "ArchViz/ViewerEditor.hpp"
 #include "Geometry/MeshStore.hpp"
@@ -148,8 +149,8 @@ void StartSeason (HudState& state, size_t row, bool south)
     // The form is restored immediately. All columns are on the five-minute
     // clock; trace the inclusive last clock even at a whole hour.
     const int from = state.sunRunHourFrom, to = state.sunRunHourTo, step = state.sunRunTimestep;
-    state.sunRunHourFrom = f.startMinute / 60;
-    state.sunRunHourTo = f.endMinute / 60 + 1;
+    state.sunRunHourFrom = f.reportType ? 0 : f.startMinute / 60;
+    state.sunRunHourTo = f.reportType ? 24 : f.endMinute / 60 + 1;
     state.sunRunTimestep = 0;
     RunSunStudyDay (state, f.month, f.day, &f.requestedRun);
     state.sunRunHourFrom = from;
@@ -246,18 +247,18 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     }
     auto target = std::make_unique<DiligentViewportTarget> ();
     const auto& frame = state.captureFrame;
-    if (kind_ == kShotSunStudy && frame.studyDay && frame.shadowStyle == 1) {
-        const size_t count = frame.panelSteps.size ();
-        const auto grid = frame.seasonal ? ScreenshotSize { uint32_t (count), 3 }
-                                         : TimeGrid (count, { crop_.Width (), crop_.Height () });
-        if (!grid.width || crop_.Width () / grid.width < 32 || crop_.Height () / grid.height < 16 ||
-            uint64_t (crop_.Width ()) * crop_.Height () > 64ull * 1024 * 1024) {
-            Fail (state, "the grid does not fit this capture size; adjust the interval, scale or crop");
-            return surface;
-        }
+    reporting_ = kind_ == kShotSunStudy && frame.builder;
+    if (reporting_) {
+        report_ = {};
+        report_.format = frame.pageFormat;
+        report_.type = ReportTemplate (frame.reportType);
+        report_.clocks = frame.clocks;
+        const auto stats = scene.Stats ();
+        char site[120];
+        std::snprintf (site, sizeof (site), "%04d   |   %.4f, %.4f   |   Project local time", state.sunRunYear,
+                       stats.latitudeDegrees, stats.longitudeDegrees);
+        report_.site = site;
         panelIndex_ = 0;
-        layoutImage_.assign (size_t (crop_.Width ()) * crop_.Height () * 4, 255);
-        state.captureFrame.gridHeight = crop_.Height ();
         state.captureFrame.shadowStep = (std::max) (0, frame.panelSteps.front ());
         state.captureFrame.captions.clear ();
         state.captureFrame.progress = 0;
@@ -268,7 +269,8 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     std::string error;
     if (!target->Create (device, context, SurfaceMode::Offscreen, nullptr, size.width, size.height, error)) {
         target->Destroy (context);
-        std::vector<uint8_t> ().swap (layoutImage_);
+        report_ = {};
+        reporting_ = false;
         Fail (state, error.empty () ? "the viewer has no size yet" : error);
         return surface;
     }
@@ -276,7 +278,7 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     device_ = device;
     frames_ = 0;
     state.sunShotBusy = true;
-    if (!layoutImage_.empty () && frame.seasonal) {
+    if (reporting_ && frame.seasonal) {
         waitingDay_ = true;
         StartSeason (state, 0, scene.Stats ().latitudeDegrees < 0);
     }
@@ -336,7 +338,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         return false;
     EndUnpresentedFrame (context); // a screenshot frame is never presented, so it ends (and is paced) here
     auto& f = state.captureFrame;
-    if (!layoutImage_.empty ()) {
+    if (reporting_) {
         const size_t columns = f.panelSteps.size (), total = columns * (f.seasonal ? 3 : 1);
         const auto abort = [&] (const std::string& why) {
             if (waitingDay_)
@@ -394,7 +396,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             if (progressSurface_->BeginFrame (rtv, dsv)) {
                 context->SetRenderTargets (1, &rtv, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
                 hud.DrawCaptureLegend (context, progressSurface_->Width (), progressSurface_->Height (), 1,
-                                       scene.Stats (), state, -2);
+                                       scene.Stats (), state, -2, target_->CapturePreviewView ());
                 context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
                 progressSurface_->Present ();
             }
@@ -426,7 +428,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         return true;
 
     uint32_t width = crop_.Width ();
-    const uint32_t viewHeight = crop_.Height ();
+    uint32_t viewHeight = crop_.Height ();
     uint32_t stripHeight = table_ != nullptr
                                ? hud.CaptureTableHeight (scale_, table_->rows.size (), table_->footer.size ())
                            : kind_ == kShotSunStudy ? hud.CaptureLegendHeight (scale_)
@@ -441,43 +443,56 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         ok = false;
         error = "could not crop the captured pixels";
     }
-    if (ok && !layoutImage_.empty ()) {
+    if (ok && reporting_) {
         auto& frame = state.captureFrame;
         const size_t cols = frame.panelSteps.size (), total = cols * (frame.seasonal ? 3 : 1),
                      column = panelIndex_ % cols, rowIndex = panelIndex_ / cols;
-        const auto grid =
-            frame.seasonal ? ScreenshotSize { uint32_t (cols), 3 } : TimeGrid (cols, { width, viewHeight });
-        const uint32_t caption = std::clamp (stripHeight, 1u, viewHeight / grid.height / 3);
-        const int step = frame.panelSteps[column], minute = frame.clocks[column];
+        const int step = frame.panelSteps[column];
         const auto payload = scene.ShownAnalysisPayload ();
-        double percent = -1;
-        auto metric = step < 0 ? "Not measured" : payload ? ShadeMetric (*payload, step, percent) : "No area data";
-        if (column && percent >= 0 && previousShaded_ >= 0) {
-            char change[40];
-            std::snprintf (change, sizeof (change), " (%+.1f pp)", percent - previousShaded_);
-            metric += change;
+        ReportPanel panel;
+        panel.season = rowIndex == 0 ? "Equinox" : rowIndex == 1 ? "Summer solstice" : "Winter solstice";
+        char date[48];
+        std::snprintf (date, sizeof (date), "%02d %s", frame.day,
+                       frame.month == 3   ? "March"
+                       : frame.month == 6 ? "June"
+                                          : "December");
+        panel.date = date;
+        if (!frame.layoutMinutes.empty ()) {
+            const int a = frame.layoutMinutes.front (), b = frame.layoutMinutes.back ();
+            std::snprintf (date, sizeof (date), "Measured %02d:%02d - %02d:%02d", a / 60, a % 60, b / 60, b % 60);
+            panel.window = date;
         }
-        previousShaded_ = percent;
-        char label[180];
-        std::snprintf (label, sizeof (label), "%02d/%02d | %02d:%02d\n%s", frame.month, frame.day, minute / 60,
-                       minute % 60, metric.c_str ());
-        if (frame.seasonal && !column) {
-            char heading[48];
-            std::snprintf (heading, sizeof (heading), "%s\n%02d/%02d",
-                           rowIndex == 0   ? "Equinox"
-                           : rowIndex == 1 ? "Summer solstice"
-                                           : "Winter solstice",
-                           frame.month, frame.day);
-            frame.seasonLabels[rowIndex] = heading;
+        if (report_.type == ReportTemplate::Analysis) {
+            double percent = -1;
+            panel.metric = step < 0 ? "Not measured" : payload ? ShadeMetric (*payload, step, percent) : "No data";
+            if (column && percent >= 0 && previousShaded_ >= 0) {
+                char delta[32];
+                std::snprintf (delta, sizeof (delta), " (%+.1f pp)", percent - previousShaded_);
+                panel.metric += delta;
+            }
+            previousShaded_ = percent;
         }
-        frame.captions.emplace_back (frame.seasonal ? metric : label);
-        const auto tile = frame.seasonal
-                              ? SeasonalTileOf ({ width, viewHeight }, grid.width, unsigned (panelIndex_), scale_)
-                              : SeasonalTile {};
-        ok = step < 0 ||
-             PlaceTimePanel (layoutImage_, { width, viewHeight }, total, panelIndex_, caption, image, grid, tile.image);
-        if (!ok)
-            error = "invalid time panel dimensions";
+        else {
+            panel.metric = "No measured area";
+            const auto rec =
+                payload ? evp::sunstudy::SunStudyStore::Get ().CompletedRecord (payload->studyId) : nullptr;
+            if (rec) {
+                bool patch = rec->IsPatchDomain ();
+                const auto& areas = patch ? rec->patchGrid.areas : rec->sampleGrid.areas;
+                if (patch || rec->atlas.texels.size () == areas.size ())
+                    panel.metric = SeasonalMetric (
+                        *payload, areas,
+                        [&] (size_t i) {
+                            return patch ? rec->patchAtlas.TexelOf (rec->patchGrid, i) : int64_t (rec->atlas.texels[i]);
+                        },
+                        report_.type);
+            }
+        }
+        panel.width = width;
+        panel.height = viewHeight;
+        if (report_.type != ReportTemplate::Analysis || step >= 0)
+            StoreReportTile (panel, image);
+        report_.panels.push_back (std::move (panel));
         if (ok && ++panelIndex_ < total) {
             if (frame.seasonal && panelIndex_ % cols == 0) {
                 StartSeason (state, panelIndex_ / cols, scene.Stats ().latitudeDegrees < 0);
@@ -489,29 +504,13 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             scene.ResetTemporalAntiAliasingHistory ();
             return true;
         }
-        image.swap (layoutImage_);
-        const auto stats = scene.Stats ();
-        for (unsigned row = 0; ok && row < grid.height; ++row) {
-            const auto boundary = [&] (unsigned r) {
-                return r ? tile.header + (viewHeight - tile.header) * r / 3 : 0u;
-            };
-            const unsigned top = frame.seasonal ? boundary (row) : (row + 1) * viewHeight / grid.height - caption;
-            const unsigned band = frame.seasonal ? boundary (row + 1) - top : caption;
-            const auto draw = [&] { hud.DrawCaptureLegend (context, width, band, scale_, stats, state, int (row)); };
-            std::vector<uint8_t> labels;
-            ok = RenderStrip (device_, context, width, band, draw, labels, error);
-            if (ok) {
-                if (frame.seasonal)
-                    for (unsigned col = 0; col < grid.width; ++col) {
-                        const auto box =
-                            SeasonalTileOf ({ width, viewHeight }, grid.width, row * grid.width + col, scale_).image;
-                        for (unsigned y = box.top; y < box.bottom; ++y)
-                            std::copy_n (image.data () + (size_t (y) * width + box.left) * 4, box.Width () * 4,
-                                         labels.data () + (size_t (y - top) * width + box.left) * 4);
-                    }
-                std::copy (labels.begin (), labels.end (), image.begin () + size_t (top) * width * 4);
-            }
-        }
+        ok = ComposeReportPage (report_, image);
+        if (!ok)
+            error = "could not compose the analysis page";
+        const auto page = ReportPageFormat (report_.format);
+        width = page.width;
+        viewHeight = page.height;
+        stripHeight = 0;
     }
     if (ok && table_ != nullptr) {
         // Drawn at the estimate; drawn again at what the layout needed when names
@@ -597,7 +596,8 @@ void ViewerScreenshot::Destroy (Diligent::IDeviceContext* context)
     publishingSince_ = {};
     progressSurface_ = nullptr;
     frames_ = 0;
-    std::vector<uint8_t> ().swap (layoutImage_);
+    report_ = {};
+    reporting_ = false;
     framingCamera_.reset ();
     table_.reset ();
     if (target_ == nullptr)

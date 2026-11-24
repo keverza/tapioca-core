@@ -307,7 +307,7 @@ TEST_F (CaptureGui, SeasonalColumnsRetainUnmeasuredClocksAndCanStartWithoutAnExi
 {
     ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
     auto& f = state_.captureFrame;
-    f.studyDay = f.seasonal = true;
+    f.builder = f.studyDay = f.seasonal = true;
     f.shadowStyle = 1;
     shown_.stepMinutes = { 660, 780 };
     Frame ();

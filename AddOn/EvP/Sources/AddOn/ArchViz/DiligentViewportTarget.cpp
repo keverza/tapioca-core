@@ -94,6 +94,7 @@ struct DiligentViewportTarget::Impl {
     // ---- the offscreen path -----------------------------------------------
     RefCntAutoPtr<Diligent::ITexture> offscreenColor;
     RefCntAutoPtr<Diligent::ITextureView> offscreenView; // the _SRGB render target over it
+    RefCntAutoPtr<Diligent::ITextureView> capturePreview;
     RefCntAutoPtr<Diligent::ITexture> offscreenStaging;
 
     // ---- the overlay path --------------------------------------------------
@@ -322,7 +323,7 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
         // screenshot that carries the Exposed surfaces highlight would encode it
         // twice. The scene still draws through the _SRGB view: no pixel changes.
         cd.Format = Diligent::TEX_FORMAT_RGBA8_TYPELESS;
-        cd.BindFlags = Diligent::BIND_RENDER_TARGET;
+        cd.BindFlags = Diligent::BIND_RENDER_TARGET | Diligent::BIND_SHADER_RESOURCE;
         cd.Usage = Diligent::USAGE_DEFAULT;
         device->CreateTexture (cd, nullptr, &impl_->offscreenColor);
         if (impl_->offscreenColor != nullptr) {
@@ -331,6 +332,8 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
             view.ViewType = Diligent::TEXTURE_VIEW_RENDER_TARGET;
             view.Format = static_cast<Diligent::TEXTURE_FORMAT> (impl_->colorFormat);
             impl_->offscreenColor->CreateView (view, &impl_->offscreenView);
+            view.ViewType = Diligent::TEXTURE_VIEW_SHADER_RESOURCE;
+            impl_->offscreenColor->CreateView (view, &impl_->capturePreview);
         }
 
         Diligent::TextureDesc sd = cd;
@@ -508,6 +511,7 @@ void DiligentViewportTarget::Destroy (Diligent::IDeviceContext* context)
     impl_->swapChain.Release ();
     impl_->offscreenStaging.Release ();
     impl_->offscreenView.Release ();
+    impl_->capturePreview.Release ();
     impl_->offscreenColor.Release ();
     impl_->depthTexture.Release ();
     impl_->deviceD3D11.Release ();
@@ -674,6 +678,11 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
     rtv = it->second.view;
     dsv = impl_->depthTexture->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
     return rtv != nullptr && dsv != nullptr;
+}
+
+Diligent::ITextureView* DiligentViewportTarget::CapturePreviewView () const
+{
+    return impl_->capturePreview;
 }
 
 Diligent::ITextureView* DiligentViewportTarget::DepthShaderView () const

@@ -31,6 +31,10 @@ target_include_directories (TapiocaRenderBench SYSTEM PRIVATE ${GLM_INC} ${NANOR
     "${DILIGENT_DIR}/DiligentTools/ThirdParty/stb")
 target_compile_definitions (TapiocaRenderBench PRIVATE NOMINMAX TAPIOCA_RENDER_BENCH=1)
 target_link_libraries (TapiocaRenderBench PRIVATE ${DILIGENT_PROBE_LIBS} TapiocaClipper2 d3dcompiler dxguid gdi32 dcomp dbghelp)
+if(TARGET TapiocaCoreFfi)
+    target_link_libraries(TapiocaRenderBench PRIVATE TapiocaCoreFfi)
+    target_compile_definitions(TapiocaRenderBench PRIVATE TAPIOCA_REPORT_FIXTURE=1)
+endif()
 # ⚠️ /FORCE:UNRESOLVED, AND WHY THAT IS SAFE HERE. DiligentScene owns layers for features the
 # bench never feeds -- Grasshopper previews, diagrams, sun studies, point clouds -- and their deep
 # dependencies (node graphs, massing, editors) would drag most of the add-on in. The layers

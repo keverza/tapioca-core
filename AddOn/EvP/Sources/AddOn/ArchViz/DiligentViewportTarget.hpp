@@ -93,6 +93,7 @@ class DiligentViewportTarget final {
     // Render-thread-only. The target owns one sampleable depth texture in every
     // mode; null means no valid depth texture is currently available.
     Diligent::ITextureView* DepthShaderView () const;
+    Diligent::ITextureView* CapturePreviewView () const;
 
     // Offscreen mode only. The caller must unbind the colour target before this
     // call; the method copies through a staging texture and returns PNG bytes.

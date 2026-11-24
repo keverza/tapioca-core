@@ -97,7 +97,7 @@ std::string InitialState (const fs::path& folder, const std::vector<fs::path>& d
     bool editor = !dumps.empty ();
     if (select == "criteria")
         selected = -2; // Workspace's Exposed surfaces criteria preview
-    else if (!select.empty ()) {
+    else if (!select.empty () && select != "layout-builder") {
         selected = -1;
         for (size_t i = 0; i < fixtures.size (); ++i)
             if (Text (fixtures[i], "variant") == select || paths[i].stem ().string () == select ||
@@ -110,7 +110,9 @@ std::string InitialState (const fs::path& folder, const std::vector<fs::path>& d
     }
     return json::Write (Value::Object ({ { "version", Value::Integer (1) },
                                          { "selected", Value::Integer (selected) },
-                                         { "nativeRequest", Value::String (editor ? "@editor" : "") },
+                                         { "nativeRequest", Value::String (select == "layout-builder" ? "@capture-times"
+                                                                           : editor                   ? "@editor"
+                                                                                                      : "") },
                                          { "fixtures", Value::Array (std::move (fixtures)) },
                                          { "events", Value::Array ({}) } }),
                         0);
@@ -221,7 +223,7 @@ Crop PanelCrop (uint32_t width, uint32_t height)
 {
     ImRect area;
     bool any = false;
-    for (const char* name : { "###playground.native.hud", "###tapioca.dock" })
+    for (const char* name : { "###playground.native.hud", "###tapioca.dock", "##capture-bar" })
         if (const ImGuiWindow* window = ImGui::FindWindowByName (name); window && window->Active) {
             const ImRect rect (window->Pos, window->Pos + window->Size);
             area = any ? ImRect (ImMin (area.Min, rect.Min), ImMax (area.Max, rect.Max)) : rect;

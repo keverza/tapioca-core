@@ -29,6 +29,8 @@ struct CaptureFrame {
     int shadowStyle = 0, shadowStep = 0;
     int startMinute = 540, endMinute = 900, divisions = 3, grip = 0;
     bool seasonal = false;
+    bool builder = false;
+    int reportType = 0, pageFormat = 0;
     std::vector<int> clocks;
     std::vector<std::string> captions;
     std::string seasonLabels[3];

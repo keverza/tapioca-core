@@ -10,6 +10,7 @@
 // range to DiligentScene::SetSunStudyFilter.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/LayoutReportStudy.hpp"
 #include "SunStudy/SunStudyKernels.hpp"
 #include "ArchViz/DiligentHudSunControls.hpp"
 #include "ArchViz/GradientPresetChoice.hpp"
@@ -641,6 +642,8 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
             ++view.fanCount;
         }
     }
+    if (state.captureFrame.builder && (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
+        ApplyReportPalette (ReportTemplate (state.captureFrame.reportType), view);
     return view;
 }
 

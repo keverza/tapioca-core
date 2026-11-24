@@ -49,6 +49,7 @@
 #include <vector>
 
 namespace Diligent {
+struct ITextureView;
 struct IDeviceContext;
 struct IRenderDevice;
 struct ISwapChain;
@@ -1021,7 +1022,8 @@ class DiligentHud final {
     // times the panel's text size so it reads the same on a 2x image. No input,
     // no panels; the next Draw restores the panel's style.
     void DrawCaptureLegend (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, float scale,
-                            const DiligentSceneStats& scene, const HudState& state, int captionRow = -1);
+                            const DiligentSceneStats& scene, const HudState& state, int captionRow = -1,
+                            Diligent::ITextureView* preview = nullptr);
     // The strip's height for `scale`: three lines and a thin margin.
     uint32_t CaptureLegendHeight (float scale) const;
     // Exposed surfaces' screenshot strip (SurfaceTakeoffShot.hpp): the area table

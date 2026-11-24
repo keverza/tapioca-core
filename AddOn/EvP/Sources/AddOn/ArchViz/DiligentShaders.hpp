@@ -1135,7 +1135,7 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         psOut.color = StudyOverlayColor (fan * shade);
         return;
     }
-    if (mode == 6) {
+    if (mode == 6 || mode == 9) {
         // Separate duration-weighted morning/evening, not ANY-shadow categories.
         uint steps = uint (g_sunStudyShadow.z + 0.5);
         uint first = min (uint (g_sunStudyPreview.y + 0.5), steps);
@@ -1143,6 +1143,7 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         uint split = clamp (uint (g_sunStudyShadow.y + 0.5), first, max (first, last));
         float am = ShadowFraction (texel, first, split);
         float pm = ShadowFraction (texel, split, last);
+        if (mode == 9) { am = am > 0 ? 1 : 0; pm = pm > 0 ? 1 : 0; }
         float shade = lerp (1.0, ShapeShade (psIn.normal), 0.5);
         psOut.color = StudyOverlayColor (AmPmDurationColor (am, pm) * shade);
         return;
