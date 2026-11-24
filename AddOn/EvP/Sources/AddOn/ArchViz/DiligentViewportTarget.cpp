@@ -333,6 +333,7 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
             view.Format = static_cast<Diligent::TEXTURE_FORMAT> (impl_->colorFormat);
             impl_->offscreenColor->CreateView (view, &impl_->offscreenView);
             view.ViewType = Diligent::TEXTURE_VIEW_SHADER_RESOURCE;
+            view.Format = Diligent::TEX_FORMAT_RGBA8_UNORM; // ImGui handles sRGB decoding.
             impl_->offscreenColor->CreateView (view, &impl_->capturePreview);
         }
 

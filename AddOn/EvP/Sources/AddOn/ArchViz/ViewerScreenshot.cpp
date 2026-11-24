@@ -245,7 +245,7 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
 {
     if (target_ != nullptr)
         return *target_;
-    if (state.captureFrame.active && state.captureFrame.builder && !state.captureFrame.editCamera)
+    if (state.captureFrame.active && state.captureFrame.builder)
         viewerhud::UpdateReportPaper (device, state.captureFrame, scene.Stats ().latitudeDegrees < 0);
     if (!state.sunShotRequested)
         return surface;

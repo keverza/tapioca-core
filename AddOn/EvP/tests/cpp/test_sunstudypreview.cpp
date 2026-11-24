@@ -382,6 +382,7 @@ TEST (SunStudyBands, RealShaderSteppedRampMatchesTheLegendAndTheOverlayIsOpaque)
     }
     EXPECT_FLOAT_EQ (rgba[4 * 2], rgba[4 * 3]) << "one flat colour across a band";
     EXPECT_FLOAT_EQ (rgba[35], 1.0f) << "the hours view is opaque: no sun shadow shows through";
+    EXPECT_FLOAT_EQ (rgba[32], 0.5f) << "an unshadowed receiver retains the picked colour";
     context->Unmap (staging.Get (), 0);
 }
 
@@ -617,9 +618,7 @@ RWStructuredBuffer<float4> result : register(u0);
     const float* rgba = static_cast<const float*> (mapped.pData);
     EXPECT_NEAR (rgba[0], 1.0f, 1e-6) << "the low-sun lane recolours the category";
     EXPECT_NEAR (rgba[1], 0.0f, 1e-6);
-    // The form shade of an up-facing patch, as ShapeShade computes it, half-applied.
-    const float key = 0.70f / std::sqrt (0.45f * 0.45f + 0.55f * 0.55f + 0.70f * 0.70f);
-    const float shaded = 0.5f * (1.0f + (0.55f + 0.25f + 0.20f * key)) * 0.5f;
+    const float shaded = 0.5f; // exact base colour before the explicit shadow overlay
     const float strength = 128.0f / 255.0f;
     EXPECT_NEAR (rgba[4], shaded + (1.0f - shaded) * strength, 1e-5) << "toward the shadow colour by its alpha";
     EXPECT_NEAR (rgba[5], shaded * (1.0f - strength), 1e-5);

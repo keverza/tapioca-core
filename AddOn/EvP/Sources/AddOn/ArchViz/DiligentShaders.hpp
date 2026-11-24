@@ -944,13 +944,13 @@ float3 SingleShadowColor (bool lit, float3 normal)
 }
 
 // The HOURS view's composite. ⚠️ OPAQUE, so the viewer's current sun shadows no
-// longer show through every patch: a neutral normal-based form shade keeps the
-// building's shape readable, and the optional SHADOW OVERLAY (g_sunStudyShadow.w,
+// longer show through every patch: equal hours have the legend colour on every
+// receiver orientation. The optional SHADOW OVERLAY (g_sunStudyShadow.w,
 // the scene's PCF map cast by the viewer's sun) is the only shadow in it. It
 // darkens without changing the patch's hue.
 float4 HoursOverlayColor (float3 colour, float3 worldPos, float3 normal)
 {
-    float3 shaded = colour * lerp (1.0, ShapeShade (normal), 0.5);
+    float3 shaded = colour;
     if (g_sunStudyShadow.w > 0.5 && StudyEdgeLight (worldPos, normal) == 0.0)
         shaded = lerp (shaded, SrgbToLinear (g_sunStudyShadowTint.rgb), g_sunStudyShadowTint.a);
     return float4 (shaded, 1.0);

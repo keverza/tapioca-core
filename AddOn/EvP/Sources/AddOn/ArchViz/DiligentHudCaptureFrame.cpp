@@ -345,7 +345,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
     frame.view = view;
     const bool dragging = !frame.builder && HasArea (frame.rect) && DragFrame (frame, view, 7.0f * dpiScale, minimum);
     const ScreenshotRect rect = ToPixels (frame.rect, view);
-    if (!frame.builder || frame.editCamera)
+    if (!frame.builder)
         DrawMask (rect, view, dpiScale, frame, dragging);
 
     const float bottomSpace = float (view.height) - rect.bottom;
@@ -353,8 +353,9 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
     ui::ScopedStyle style;
     UseCaptureLook (style, dpiScale);
     const float sidebar = hudshell::MenuPanelWidth (dpiScale * dock.fontScale, float (view.width));
+    bool cameraTile = false;
     if (frame.builder) {
-        if (!frame.editCamera) {
+        {
             const auto page = ReportPageFormat (frame.pageFormat);
             const float s = std::max (.001f, std::min ((view.width - sidebar - 2 * margin) / page.width,
                                                        (view.height - 2 * margin) / page.height));
@@ -369,26 +370,40 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                 draw->AddText ({ a.x + margin, a.y + margin }, IM_COL32_BLACK,
                                ReportTitle (ReportTemplate (frame.reportType)));
             const bool popup = ImGui::IsPopupOpen (nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-            if (!popup)
-                for (const auto& tile : frame.paperTiles) {
-                    ImVec2 tl { a.x + tile.x * (b.x - a.x), a.y + tile.y * (b.y - a.y) };
-                    ImVec2 br { tl.x + tile.w * (b.x - a.x), tl.y + tile.h * (b.y - a.y) };
-                    if (!ImGui::IsMouseHoveringRect (tl, br, false))
-                        continue;
-                    draw->AddRect (tl, br, IM_COL32 (82, 92, 105, 255));
-                    draw->AddRectFilled ({ br.x - margin, br.y - margin }, br, IM_COL32 (82, 92, 105, 255));
-                    if (ImGui::IsMouseHoveringRect ({ br.x - margin, br.y - margin }, br, false) &&
-                        ImGui::IsMouseClicked (0)) {
-                        frame.resizeX = tl.x;
-                        frame.resizeY = tl.y;
-                        frame.resizingTile = true;
-                    }
-                    else if (ImGui::IsMouseDoubleClicked (0)) {
-                        frame.editCamera = true;
-                        frame.paperDirty = true;
-                    }
-                    break;
+            for (const auto& tile : frame.paperTiles) {
+                ImVec2 tl { a.x + tile.x * (b.x - a.x), a.y + tile.y * (b.y - a.y) };
+                ImVec2 br { tl.x + tile.w * (b.x - a.x), tl.y + tile.h * (b.y - a.y) };
+                if (frame.liveImage) {
+                    const float sw = std::min (rect.Width (), rect.Height () * frame.tileAspect),
+                                sh = sw / frame.tileAspect;
+                    const float x = (rect.left + rect.right - sw) * .5f / view.width,
+                                y = (rect.top + rect.bottom - sh) * .5f / view.height;
+                    draw->AddImage (ImTextureID (frame.liveImage), tl, br, { x, y },
+                                    { x + sw / view.width, y + sh / view.height });
                 }
+                if (popup || !ImGui::IsMouseHoveringRect (tl, br, false))
+                    continue;
+                cameraTile = frame.editCamera;
+                if (cameraTile && (!frame.cameraNavHeld || frame.cameraTilePixels.Width () == 0)) {
+                    frame.cameraTilePixels = { tl.x, tl.y, br.x, br.y };
+                    const float sw = std::min (rect.Width (), rect.Height () * frame.tileAspect),
+                                sh = sw / frame.tileAspect;
+                    const float x = (rect.left + rect.right - sw) * .5f, y = (rect.top + rect.bottom - sh) * .5f;
+                    frame.cameraTileSource = { x, y, x + sw, y + sh };
+                }
+                draw->AddRect (tl, br, IM_COL32 (82, 92, 105, 255));
+                draw->AddRectFilled ({ br.x - margin, br.y - margin }, br, IM_COL32 (82, 92, 105, 255));
+                if (ImGui::IsMouseHoveringRect ({ br.x - margin, br.y - margin }, br, false) &&
+                    ImGui::IsMouseClicked (0)) {
+                    frame.resizeX = tl.x;
+                    frame.resizeY = tl.y;
+                    frame.resizingTile = true;
+                }
+                else if (ImGui::IsMouseDoubleClicked (0)) {
+                    frame.editCamera = true;
+                    frame.paperDirty = true;
+                }
+            }
             if (frame.resizingTile) {
                 auto mouse = ImGui::GetMousePos ();
                 frame.tileAspect =
@@ -464,13 +479,13 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             auto page = ReportPageFormat (frame.pageFormat);
             ImGui::Text ("Page 1   |   %u x %u px   |   150 dpi", page.width, page.height);
             ImGui::SliderFloat ("Tile W:H", &frame.tileAspect, .4f, 3.f, "%.2f");
-            if (ImGui::Button (frame.editCamera ? "Return to paper" : "Edit shared camera")) {
+            if (ImGui::Button (frame.editCamera ? "Finish camera edit" : "Edit shared camera")) {
                 frame.editCamera = !frame.editCamera;
                 frame.paperDirty = true;
             }
             ImGui::TextWrapped (
                 frame.editCamera
-                    ? "Navigate the 3D view to frame all tiles."
+                    ? "Over a tile: Shift + middle drag to orbit, middle drag to pan, wheel to zoom."
                     : "Drag a tile corner to resize the grid. Double-click a tile to edit its shared camera.");
             if (ImGui::Button ("Render preview")) {
                 state.sunShotFailed = false;
@@ -532,7 +547,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             ImGui::BringWindowToDisplayFront (ImGui::GetCurrentWindow ());
     }
     ImGui::End ();
-    return ownsMouse || (frame.builder && !frame.editCamera);
+    return ownsMouse || (frame.builder && (!cameraTile || frame.resizingTile));
 }
 
 void DrawCaptureRow (HudState& state, int kind)

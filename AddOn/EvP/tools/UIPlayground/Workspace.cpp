@@ -473,7 +473,7 @@ void DrawWorkspace (Workspace& w, const TapiocaUiFrame& frame, TapiocaUiResult& 
         style.Var (ImGuiStyleVar_ItemSpacing, { 4 * scale, 2 * scale });
     if (w.native.mocks.hud.captureFrame.active) {
         auto& capture = w.native.mocks.hud.captureFrame;
-        if (frame.renderDevice && capture.builder && !capture.editCamera)
+        if (frame.renderDevice && capture.builder)
             av::viewerhud::UpdateReportPaper (static_cast<Diligent::IRenderDevice*> (frame.renderDevice), capture,
                                               false);
         DrawNativeCapture (w.native, w.document, { uint32_t (frame.width), uint32_t (frame.height) },

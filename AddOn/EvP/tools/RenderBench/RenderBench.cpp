@@ -19,6 +19,7 @@
 #include "SunVisibility.hpp"
 #ifdef TAPIOCA_REPORT_FIXTURE
 #include "SeasonalReportFixture.hpp"
+#include "ArchViz/ReportPaperPreview.hpp"
 #endif
 
 #include "ArchViz/ArchVizLog.hpp"
@@ -919,6 +920,24 @@ int main (int argc, char** argv)
                     for (unsigned f = 0; f < o.frames; ++f)
                         RenderFrame (scene, context, targets, o, v, hud, frame++);
                     tile.rgba = ReadBack (context, targets, o.width, o.height);
+                    if (page.panels.empty ()) {
+                        // The draft paper samples the encoded scene, not an sRGB-decoded or HUD-painted copy.
+                        av::viewerhud::CaptureFrame live;
+                        live.active = live.builder = true;
+                        live.paperCache = std::make_shared<av::viewerhud::ReportPaperPreview> ();
+                        live.paperCache->page.pending = true;
+                        av::viewerhud::CopyPaperScene (
+                            live, device, context, targets.color->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET),
+                            targets.depth->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL));
+                        if (!live.liveImage ||
+                            live.paperCache->live->GetDesc ().Format != Diligent::TEX_FORMAT_RGBA8_UNORM)
+                            return 1;
+                        Targets copied;
+                        copied.color = live.paperCache->live;
+                        copied.staging = targets.staging;
+                        if (tile.rgba.empty () || ReadBack (context, copied, o.width, o.height) != tile.rgba)
+                            return 1;
+                    }
                     page.panels.push_back (std::move (tile));
                 }
             }

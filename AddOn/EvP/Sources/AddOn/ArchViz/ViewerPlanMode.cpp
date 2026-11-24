@@ -5,6 +5,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp" // ApplyArchicadCamera
 #include "ArchViz/OrbitAnchor.hpp"
@@ -145,7 +146,16 @@ bool NavigateViewer (Camera& camera, HudState& hud, const DiligentScene& scene, 
     moved = FollowViewPreset (camera, hud, scene, width, height) || moved;
     moved = FollowEditorFocus (camera, scene, width, height) || moved;
     FollowOrbitAnchor (camera, hud, scene, input);
-    moved = camera.ApplyInput (input, hud.wantsMouse || hud.viewpointOwnsMouse, width, height) || moved;
+    auto nav = input;
+    auto& frame = hud.captureFrame;
+    frame.cameraNavHeld = input.navButton;
+    const auto& tile = frame.cameraTilePixels;
+    if (frame.active && frame.builder && frame.editCamera && tile.Width () > 0 && tile.Height () > 0) {
+        const auto& source = frame.cameraTileSource;
+        nav.x = int32_t (source.left + (input.x - tile.left) * source.Width () / tile.Width ());
+        nav.y = int32_t (source.top + (input.y - tile.top) * source.Height () / tile.Height ());
+    }
+    moved = camera.ApplyInput (nav, hud.wantsMouse || hud.viewpointOwnsMouse, width, height) || moved;
     // A pan or an orbit about the anchor moved a parallel view's target: the model stays inside
     // its depth range. Not the top-down pose -- the plan's eye is on its cut, and a plan slaved to
     // Archicad is not this function's to move.

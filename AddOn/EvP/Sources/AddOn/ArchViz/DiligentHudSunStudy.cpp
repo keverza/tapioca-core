@@ -93,9 +93,10 @@ int ChosenMode (const HudState& state)
     if (!state.captureFrame.builder && state.captureFrame.entryMode >= 0 &&
         (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
         return state.captureFrame.entryMode;
-    if (state.captureFrame.builder && (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
+    if (state.captureFrame.builder && (state.sunShotRequested || state.sunShotBusy))
         return state.captureFrame.reportType == 2 ? 0 : state.captureFrame.reportType == 1 ? 9 : 5;
-    if ((state.captureFrame.active || state.sunShotBusy || state.sunShotRequested) && state.captureFrame.studyDay)
+    if (((state.captureFrame.active && !state.captureFrame.builder) || state.sunShotBusy || state.sunShotRequested) &&
+        state.captureFrame.studyDay)
         return state.captureFrame.shadowStyle == 0 ? 6 : 5;
     if (FanOnScreen (state) && state.sunFanInterval == kFanAmPm)
         return 6;
@@ -582,7 +583,8 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     if (!state.captureFrame.builder && state.captureFrame.entryStep >= 0 &&
         (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
         view.step = uint32_t (state.captureFrame.entryStep);
-    if ((state.captureFrame.active || state.sunShotBusy || state.sunShotRequested) && state.captureFrame.studyDay) {
+    if (((state.captureFrame.active && !state.captureFrame.builder) || state.sunShotBusy || state.sunShotRequested) &&
+        state.captureFrame.studyDay) {
         view.step = uint32_t (state.captureFrame.shadowStep);
         view.firstShadowStep = 0;
         view.endShadowStep = uint32_t (state.sunStepMinutes.size ());

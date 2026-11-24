@@ -35,7 +35,9 @@ struct CaptureFrame {
     bool builder = false;
     bool editCamera = false, previewOnly = false, paperDirty = true;
     float tileAspect = 1.5f;
-    uintptr_t paperImage = 0;
+    uintptr_t paperImage = 0, liveImage = 0;
+    ScreenshotRect cameraTilePixels, cameraTileSource;
+    bool cameraNavHeld = false;
     std::vector<PaperViewportRect> paperTiles;
     float resizeX = 0, resizeY = 0;
     bool resizingTile = false;

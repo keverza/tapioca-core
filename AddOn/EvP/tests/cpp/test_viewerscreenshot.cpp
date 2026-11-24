@@ -405,6 +405,9 @@ TEST_F (CaptureGui, BuilderChangesQuantityButKeepsAnalysisColoursAndBands)
     const auto original = SunStudyViewOf (state_);
     ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
     state_.captureFrame.builder = state_.captureFrame.studyDay = true;
+    EXPECT_EQ (SunStudyViewOf (state_).viewOverride, original.viewOverride);
+    state_.captureFrame.active = false;
+    state_.sunShotBusy = true;
     for (int i = 0; i < 3; ++i) {
         state_.captureFrame.reportType = i;
         const auto view = SunStudyViewOf (state_);
@@ -416,6 +419,26 @@ TEST_F (CaptureGui, BuilderChangesQuantityButKeepsAnalysisColoursAndBands)
         for (int j = 0; j < view.rampCount; ++j)
             EXPECT_EQ (view.ramp[j].rgba, original.ramp[j].rgba);
     }
+}
+
+TEST_F (CaptureGui, CameraEditingReleasesOnlyThePaperTileForNavigation)
+{
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
+    auto& f = state_.captureFrame;
+    f.builder = f.editCamera = true;
+    f.paperTiles = { { .25f, .25f, .5f, .5f } };
+    Frame ();
+    const auto* bar = ImGui::FindWindowByName ("##capture-bar");
+    ASSERT_NE (bar, nullptr);
+    const ImVec2 middle { (bar->Size.x + kView.width) * .5f, kView.height * .5f };
+    Frame (middle);
+    EXPECT_FALSE (ownsMouse_);
+    EXPECT_GT (f.cameraTileSource.Width (), 0.f);
+    Frame ({ float (kView.width) - 2, 2 });
+    EXPECT_TRUE (ownsMouse_);
+    Frame ({ 10, 10 });
+    EXPECT_TRUE (ownsMouse_);
+    EXPECT_TRUE (f.active);
 }
 
 TEST_F (CaptureGui, ATopViewCaptureCannotReplaceThePerspectiveRegion)

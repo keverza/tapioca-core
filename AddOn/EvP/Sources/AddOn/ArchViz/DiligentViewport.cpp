@@ -29,6 +29,7 @@
 #include "ArchViz/DiligentViewportSupport.hpp"
 #include "ArchViz/DiligentViewportTarget.hpp"
 #include "ArchViz/ViewerScreenshot.hpp"
+#include "ArchViz/ReportPaperPreview.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/HardwareInput.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
@@ -888,6 +889,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.width = width;
                 hudState.height = height;
                 hudState.frameLatency = target.FrameLatency ();
+                viewerhud::CopyPaperScene (hudState.captureFrame, device, context, rtv, dsv);
                 hud.Draw (context, width, height, input, hudScene, annotations, motionViewProj, hudState,
                           !annotationsOnly);
             }
