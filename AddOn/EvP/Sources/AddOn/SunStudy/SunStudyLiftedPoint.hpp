@@ -21,6 +21,7 @@
 namespace evp::sunstudy {
 
 struct StudyRecord;
+struct SunStudyOccluders;
 
 constexpr double kLiftedPointClearance = 0.10; // metres kept below anything overhead
 
@@ -41,6 +42,8 @@ struct LiftedPoint {
 // clamps on it, and a planting receptor layer (SunStudyReceptor) marks a
 // receptor Blocked on it with the same clearance arithmetic.
 double SunStudyOverheadDistance (const StudyRecord& record, const double surface[3]);
+// The same, against occluders before a record holds them (study preparation).
+double SunStudyOverheadDistance (const SunStudyOccluders& occluders, const double surface[3]);
 
 // Lifts `surface` by `height` (metres, Z up), clamped below anything overhead.
 bool LiftSunStudyPoint (const StudyRecord& record, const double surface[3], double height, LiftedPoint& lifted);

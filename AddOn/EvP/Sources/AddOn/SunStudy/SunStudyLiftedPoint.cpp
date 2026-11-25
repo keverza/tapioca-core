@@ -13,12 +13,12 @@ namespace {
 constexpr double kTMin = 0.001;
 
 // The nearest hit distance over both occluder engines, or < 0 for none.
-double NearestT (const StudyRecord& record, const double origin[3], const double direction[3])
+double NearestT (const SunStudyOccluders* occluders, const double origin[3], const double direction[3])
 {
-    if (record.occluders == nullptr)
+    if (occluders == nullptr)
         return -1.0;
     double best = -1.0;
-    for (const auto& engine : { record.occluders->analysis, record.occluders->context }) {
+    for (const auto& engine : { occluders->analysis, occluders->context }) {
         if (engine == nullptr)
             continue;
         const auto hit = engine->Raycast (origin, direction, 0.0);
@@ -38,7 +38,7 @@ bool SunStudySceneHit (const StudyRecord& record, const double origin[3], const 
         return false;
     for (double& component : unit)
         component /= length;
-    const double t = NearestT (record, origin, unit);
+    const double t = NearestT (record.occluders.get (), origin, unit);
     if (t < 0.0)
         return false;
     for (int axis = 0; axis < 3; ++axis)
@@ -46,12 +46,17 @@ bool SunStudySceneHit (const StudyRecord& record, const double origin[3], const 
     return true;
 }
 
-double SunStudyOverheadDistance (const StudyRecord& record, const double surface[3])
+double SunStudyOverheadDistance (const SunStudyOccluders& occluders, const double surface[3])
 {
     // Start just above the surface so the surface itself is not hit.
     const double up[3] = { 0.0, 0.0, 1.0 };
     const double origin[3] = { surface[0], surface[1], surface[2] + kTMin };
-    return NearestT (record, origin, up);
+    return NearestT (&occluders, origin, up);
+}
+
+double SunStudyOverheadDistance (const StudyRecord& record, const double surface[3])
+{
+    return record.occluders == nullptr ? -1.0 : SunStudyOverheadDistance (*record.occluders, surface);
 }
 
 bool LiftSunStudyPoint (const StudyRecord& record, const double surface[3], double height, LiftedPoint& lifted)
@@ -96,7 +101,7 @@ bool LiftedPointDay (const StudyRecord& record, const LiftedPoint& lifted, Point
         for (int axis = 0; axis < 3; ++axis)
             origin[axis] = lifted.position[axis] + kTMin * direction[axis];
         day.minutes.push_back (uint16_t (step.time.hour * 60 + step.time.minute));
-        day.lit.push_back (NearestT (record, origin, direction) < 0.0 ? 1.0 : 0.0);
+        day.lit.push_back (NearestT (record.occluders.get (), origin, direction) < 0.0 ? 1.0 : 0.0);
         day.facing.push_back (1.0); // omnidirectional: the sun is never behind it
     }
     double direct = 0.0;

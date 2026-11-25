@@ -95,6 +95,13 @@ class StartSunStudyCommand : public MainThreadCommand {
             if (!capture.ok)
                 return capture;
         }
+        bool receptorRequested = false;
+        evp::sunstudy::ReceptorOptions receptor;
+        if (GS::UniString why; !ReadSunStudyReceptor (params, receptorRequested, receptor, why))
+            return NativeCommandResult::Failure (why);
+        // A planting layer replaces its samples: it neither reuses nor is reused (#278).
+        if (receptorRequested || (reuseSource != nullptr && reuseSource->HasReceptor ()))
+            reuseSource = nullptr;
         const std::shared_ptr<const Snapshot>& snapshot = captured->snapshot;
         SunStudyPreparationTrace trace (snapshot->id);
         if (IsCancelled ())
@@ -237,6 +244,9 @@ class StartSunStudyCommand : public MainThreadCommand {
         sampleRequest.sampleMask = &sampleMask;
         sampleRequest.faceMasks = &receivers.faces;
         sampleRequest.reuseSource = reuseSource.get ();
+        sampleRequest.receptorRequested = receptorRequested;
+        sampleRequest.receptor = receptor;
+        sampleRequest.occluders = occluderParts;
         SunStudySampleSetup sampled;
         if (const NativeCommandResult sampling = PrepareSunStudySamples (
                 params, *snapshot, sampleRequest, *record, trace, [this] { return IsCancelled (); }, sampled);
@@ -282,6 +292,7 @@ class StartSunStudyCommand : public MainThreadCommand {
 
         if (IsCancelled ())
             return NativeCommandResult::Failure ("sun study preparation cancelled");
+        const SunStudyReceptorReport receptorReport = SunStudyReceptorReportOf (*record);
         const std::string id = SunStudyStore::Get ().Insert (std::move (record));
         if (id.empty ())
             return NativeCommandResult::Failure ("the sun study could not be stored");
@@ -328,6 +339,18 @@ class StartSunStudyCommand : public MainThreadCommand {
         os.Add ("atlasWidth", (GS::Int32) atlasWidth);
         os.Add ("atlasHeight", (GS::Int32) atlasHeight);
         os.Add ("atlasFaces", (GS::Int32) atlasFaces);
+        if (receptorReport.requested) {
+            // ⚠️ UNAVAILABLE IS NOT DARK: those receptors were not traced, and
+            // their area is reported beside the evaluated one, never in it.
+            os.Add ("receptorHeight", receptorReport.height);
+            os.Add ("receptorCount", (GS::Int32) receptorReport.count);
+            os.Add ("receptorAvailable", (GS::Int32) receptorReport.available);
+            os.Add ("receptorSteepHost", (GS::Int32) receptorReport.steepHost);
+            os.Add ("receptorBlocked", (GS::Int32) receptorReport.blocked);
+            os.Add ("receptorInvalidHost", (GS::Int32) receptorReport.invalidHost);
+            os.Add ("receptorAvailableArea", receptorReport.availableArea);
+            os.Add ("receptorUnavailableArea", receptorReport.unavailableArea);
+        }
         os.Add ("latitude", place.latitude);
         os.Add ("longitude", place.longitude);
         os.Add ("northDeg", place.north * 180.0 / 3.14159265358979323846);
@@ -640,7 +663,11 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "positionsPacked":{"type":"string"},
                 "normalsPacked":{"type":"string"},
                 "jitter":{"type":"number"},
-                "clipX":{"type":"number"},"clipY":{"type":"number"},"clipRadius":{"type":"number","minimum":0}
+                "clipX":{"type":"number"},"clipY":{"type":"number"},"clipRadius":{"type":"number","minimum":0},
+                "receptorHeight":{"type":"number","minimum":0,"maximum":100},
+                "receptorNormal":{"type":"string","enum":["up","surface"]},
+                "receptorArea":{"type":"string","enum":["plan","surface"]},
+                "receptorMinHostUp":{"type":"number","exclusiveMinimum":0,"maximum":1}
             },
             "additionalProperties":false
         })json",
@@ -668,6 +695,14 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "atlasWidth":{"type":"integer"},
                 "atlasHeight":{"type":"integer"},
                 "atlasFaces":{"type":"integer"},
+                "receptorHeight":{"type":"number"},
+                "receptorCount":{"type":"integer"},
+                "receptorAvailable":{"type":"integer"},
+                "receptorSteepHost":{"type":"integer"},
+                "receptorBlocked":{"type":"integer"},
+                "receptorInvalidHost":{"type":"integer"},
+                "receptorAvailableArea":{"type":"number"},
+                "receptorUnavailableArea":{"type":"number"},
                 "domain":{"type":"string"},
                 "patchCount":{"type":"integer"},
                 "analysisElementCount":{"type":"integer"},

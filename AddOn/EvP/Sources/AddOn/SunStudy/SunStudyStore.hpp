@@ -99,6 +99,21 @@ struct StudyRecord {
     bool analysisRestricted = false;
     // The analysis cylinder the samples were clipped to; radius 0 is none.
     double clipX = 0.0, clipY = 0.0, clipRadius = 0.0;
+    // Planting receptor layer (#278, SunStudyReceptor.hpp); height < 0 is none.
+    // ⚠️ THE SAMPLES ARE THE AVAILABLE RECEPTORS ONLY. Unavailable ones (steep
+    // host, blocked overhead) are not traced and carry no texel, so they draw as
+    // the ordinary model and never as zero hours; their count and plan area are
+    // kept here. Such a study is never a reuse source and never reuses one.
+    double receptorHeight = -1.0;
+    bool receptorUp = true;
+    bool receptorPlan = true;
+    size_t receptorCount = 0; // before removing unavailable receptors
+    size_t receptorSteepHost = 0, receptorBlocked = 0, receptorInvalidHost = 0;
+    double receptorUnavailableArea = 0.0;
+    bool HasReceptor () const
+    {
+        return receptorHeight >= 0.0;
+    }
 
     // The roles AS RESOLVED, one per snapshot mesh (an ElementRole value), for
     // the display's role view. ⚠️ ALIGNED WITH THE SNAPSHOT THE STUDY RAN ON;

@@ -79,4 +79,34 @@ bool BuildReceptorLayer (const SampleGrid& grid, double normalOffset, const Rece
     return true;
 }
 
+bool KeepAvailableReceptors (SampleGrid& grid, const ReceptorLayer& layer)
+{
+    const size_t count = grid.Count ();
+    const bool cells = !grid.cellColumns.empty ();
+    if (layer.Count () != count || grid.groups.size () != count ||
+        (cells && (grid.cellColumns.size () != count || grid.cellRows.size () != count)))
+        return false;
+    SampleGrid kept;
+    kept.layouts = std::move (grid.layouts);
+    kept.degenerateFaces = grid.degenerateFaces;
+    kept.excludedFaces = grid.excludedFaces;
+    kept.undersizedFaces = grid.undersizedFaces;
+    kept.valid = grid.valid;
+    for (size_t i = 0; i < count; ++i) {
+        if (layer.status[i] != ReceptorStatus::Available)
+            continue;
+        kept.positions.insert (kept.positions.end (), &layer.positions[i * 3], &layer.positions[i * 3] + 3);
+        kept.normals.insert (kept.normals.end (), &layer.normals[i * 3], &layer.normals[i * 3] + 3);
+        kept.areas.push_back (layer.areas[i]);
+        kept.faces.push_back (grid.faces[i]);
+        kept.groups.push_back (grid.groups[i]);
+        if (cells) {
+            kept.cellColumns.push_back (grid.cellColumns[i]);
+            kept.cellRows.push_back (grid.cellRows[i]);
+        }
+    }
+    grid = std::move (kept);
+    return true;
+}
+
 } // namespace evp::sunstudy

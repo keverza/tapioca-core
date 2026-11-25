@@ -78,6 +78,13 @@ struct ReceptorLayer {
 bool BuildReceptorLayer (const SampleGrid& grid, double normalOffset, const ReceptorOptions& options,
                          const OverheadDistance* overhead, ReceptorLayer& out, std::string& error);
 
+// Replaces `grid`'s samples with the layer's AVAILABLE receptors: positions,
+// normals and area weights from the layer; faces, groups and cell coordinates
+// filtered in step; layouts untouched, so the atlas still maps onto the host and
+// an unavailable cell keeps no texel. False (grid unchanged) when the layer does
+// not belong to the grid.
+bool KeepAvailableReceptors (SampleGrid& grid, const ReceptorLayer& layer);
+
 } // namespace evp::sunstudy
 
 #endif

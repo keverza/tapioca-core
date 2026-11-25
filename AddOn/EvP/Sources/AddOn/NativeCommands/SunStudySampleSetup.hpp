@@ -13,9 +13,12 @@
 #include "NativeCommands/SunStudyPreparation.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
+#include "SunStudy/SunStudyOccluders.hpp"
+#include "SunStudy/SunStudyReceptor.hpp"
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -33,7 +36,28 @@ struct SunStudySampleRequest {
     const std::vector<uint8_t>* sampleMask = nullptr;             // per element
     const std::vector<std::vector<uint8_t>>* faceMasks = nullptr; // per mesh receiver faces
     const evp::sunstudy::StudyRecord* reuseSource = nullptr;
+    // Planting receptor layer (#278): triangle-domain surfaces only. The
+    // occluders answer the overhead test before the record holds them.
+    bool receptorRequested = false;
+    evp::sunstudy::ReceptorOptions receptor;
+    std::shared_ptr<const evp::sunstudy::SunStudyOccluders> occluders;
 };
+
+// The receptor layer as the response reports it, read before the record moves
+// into the store. `requested` false for an ordinary study.
+struct SunStudyReceptorReport {
+    bool requested = false;
+    double height = 0.0;
+    size_t count = 0, available = 0, steepHost = 0, blocked = 0, invalidHost = 0;
+    double availableArea = 0.0, unavailableArea = 0.0; // m2, plan or surface per the request
+};
+SunStudyReceptorReport SunStudyReceptorReportOf (const evp::sunstudy::StudyRecord& record);
+
+// Reads receptorHeight / receptorNormal / receptorArea / receptorMinHostUp.
+// `requested` is false when receptorHeight is absent (the others are then
+// refused rather than ignored). False, with `error`, for an invalid value.
+bool ReadSunStudyReceptor (const GS::ObjectState& params, bool& requested, evp::sunstudy::ReceptorOptions& options,
+                           GS::UniString& error);
 
 // What the response and the core's inputs need from the sampling.
 struct SunStudySampleSetup {

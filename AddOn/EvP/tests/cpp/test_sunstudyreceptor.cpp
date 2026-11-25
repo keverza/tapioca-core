@@ -143,3 +143,46 @@ TEST (SunStudyReceptor, RefusedRequestLeavesNoLayer)
     EXPECT_EQ (layer.Count (), 0u);
     EXPECT_EQ (layer.available, 0u);
 }
+
+TEST (SunStudyReceptor, KeepAvailableReceptorsFiltersIdentityInStep)
+{
+    std::shared_ptr<geomsrv::Snapshot> snapshot;
+    StudyRecord record;
+    BalconyScene (snapshot, record);
+    const OverheadDistance overhead = [&record] (const double host[3]) {
+        return SunStudyOverheadDistance (*record.occluders, host);
+    };
+    SampleGrid grid = Bed ();
+    const SampleGrid before = grid;
+    ReceptorOptions tree;
+    tree.height = 3.0;
+    ReceptorLayer layer;
+    std::string error;
+    ASSERT_TRUE (BuildReceptorLayer (grid, kOffset, tree, &overhead, layer, error)) << error;
+    ASSERT_TRUE (KeepAvailableReceptors (grid, layer));
+    ASSERT_EQ (grid.Count (), layer.available);
+    ASSERT_EQ (grid.positions.size (), grid.Count () * 3);
+    ASSERT_EQ (grid.cellColumns.size (), grid.Count ());
+    EXPECT_EQ (grid.layouts.size (), before.layouts.size ()) << "layouts still map the host";
+    double area = 0.0;
+    size_t kept = 0;
+    for (size_t i = 0; i < before.Count (); ++i) {
+        if (layer.status[i] != ReceptorStatus::Available)
+            continue;
+        EXPECT_EQ (grid.faces[kept], before.faces[i]);
+        EXPECT_EQ (grid.cellColumns[kept], before.cellColumns[i]);
+        EXPECT_EQ (grid.cellRows[kept], before.cellRows[i]);
+        EXPECT_NEAR (grid.positions[kept * 3 + 2], 3.0, 1.0e-12);
+        EXPECT_GE (grid.positions[kept * 3], 4.0) << "nothing under the balcony is traced";
+        area += grid.areas[kept];
+        ++kept;
+    }
+    EXPECT_EQ (kept, grid.Count ());
+    EXPECT_NEAR (area, layer.availableArea, 1.0e-9);
+
+    ReceptorLayer foreign;
+    foreign.status.resize (1);
+    SampleGrid untouched = Bed ();
+    EXPECT_FALSE (KeepAvailableReceptors (untouched, foreign));
+    EXPECT_EQ (untouched.Count (), before.Count ());
+}

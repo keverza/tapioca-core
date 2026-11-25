@@ -5,8 +5,11 @@
 
 #include "NativeCommands/SunStudyCommandsSupport.hpp"
 #include "SunStudy/SunStudyKernels.hpp"
+#include "SunStudy/SunStudyLiftedPoint.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
 
+#include <cmath>
+#include <cstring>
 #include <tuple>
 
 namespace geomsrv {
@@ -14,8 +17,104 @@ namespace geomsrv {
 using sunstudysupport::AtlasRefusal;
 using sunstudysupport::GroundGridRefusal;
 using sunstudysupport::ReadDouble;
+using sunstudysupport::ReadString;
 using sunstudysupport::SurfaceSamplingRefusal;
 using sunstudysupport::UnpackDoubles;
+
+namespace {
+
+// The layer replaces the triangle grid's samples with its available receptors
+// and records what was left out. The sampling layout's per-mesh spans no longer
+// partition the grid, so it is invalidated (the study is never a reuse source).
+NativeCommandResult ApplyReceptorLayer (const SunStudySampleRequest& request, double normalOffset,
+                                        evp::sunstudy::SampleGrid& samples, evp::sunstudy::StudyRecord& record)
+{
+    if (request.occluders == nullptr)
+        return NativeCommandResult::Failure ("receptorHeight needs the study's occluders for the overhead test");
+    const auto occluders = request.occluders;
+    const evp::sunstudy::OverheadDistance overhead = [occluders] (const double host[3]) {
+        return evp::sunstudy::SunStudyOverheadDistance (*occluders, host);
+    };
+    evp::sunstudy::ReceptorLayer layer;
+    std::string error;
+    if (!evp::sunstudy::BuildReceptorLayer (samples, normalOffset, request.receptor, &overhead, layer, error))
+        return NativeCommandResult::Failure (GS::UniString ("the receptor layer was refused: ") +
+                                             GS::UniString (error.c_str (), CC_UTF8));
+    if (!evp::sunstudy::KeepAvailableReceptors (samples, layer))
+        return NativeCommandResult::Failure ("the receptor layer does not match the sampled grid");
+    record.receptorHeight = request.receptor.height;
+    record.receptorUp = request.receptor.faceUp;
+    record.receptorPlan = request.receptor.planArea;
+    record.receptorCount = layer.Count ();
+    record.receptorSteepHost = layer.steepHost;
+    record.receptorBlocked = layer.blocked;
+    record.receptorInvalidHost = layer.invalidHost;
+    record.receptorUnavailableArea = layer.unavailableArea;
+    record.samplingLayout.valid = false;
+    record.samplingLayout.meshes.clear ();
+    return GS::ObjectState ();
+}
+
+uint64_t HeightBits (double height)
+{
+    uint64_t bits = 0;
+    std::memcpy (&bits, &height, sizeof bits);
+    return bits;
+}
+
+} // namespace
+
+SunStudyReceptorReport SunStudyReceptorReportOf (const evp::sunstudy::StudyRecord& record)
+{
+    SunStudyReceptorReport report;
+    if (!record.HasReceptor ())
+        return report;
+    report.requested = true;
+    report.height = record.receptorHeight;
+    report.count = record.receptorCount;
+    report.available = record.sampleGrid.Count ();
+    report.steepHost = record.receptorSteepHost;
+    report.blocked = record.receptorBlocked;
+    report.invalidHost = record.receptorInvalidHost;
+    for (const double area : record.sampleGrid.areas)
+        report.availableArea += area;
+    report.unavailableArea = record.receptorUnavailableArea;
+    return report;
+}
+
+bool ReadSunStudyReceptor (const GS::ObjectState& params, bool& requested, evp::sunstudy::ReceptorOptions& options,
+                           GS::UniString& error)
+{
+    options = evp::sunstudy::ReceptorOptions ();
+    requested = params.Contains ("receptorHeight");
+    if (!requested) {
+        for (const char* key : { "receptorNormal", "receptorArea", "receptorMinHostUp" })
+            if (params.Contains (key)) {
+                error = GS::UniString (key) + " needs receptorHeight - it was refused, not ignored";
+                return false;
+            }
+        return true;
+    }
+    options.height = ReadDouble (params, "receptorHeight", -1.0);
+    if (!std::isfinite (options.height) || options.height < 0.0 || options.height > 100.0) {
+        error = "receptorHeight must be metres above the host, from 0 to 100";
+        return false;
+    }
+    const std::string normal = ReadString (params, "receptorNormal", "up");
+    const std::string area = ReadString (params, "receptorArea", "plan");
+    if ((normal != "up" && normal != "surface") || (area != "plan" && area != "surface")) {
+        error = "receptorNormal must be 'up' or 'surface' and receptorArea 'plan' or 'surface'";
+        return false;
+    }
+    options.faceUp = normal == "up";
+    options.planArea = area == "plan";
+    options.minHostUp = ReadDouble (params, "receptorMinHostUp", evp::sunstudy::kReceptorDefaultMinHostUp);
+    if (!std::isfinite (options.minHostUp) || options.minHostUp <= 0.0 || options.minHostUp > 1.0) {
+        error = "receptorMinHostUp must be a host-normal Z in (0, 1]";
+        return false;
+    }
+    return true;
+}
 
 NativeCommandResult PrepareSunStudySamples (const GS::ObjectState& params, const Snapshot& snapshot,
                                             const SunStudySampleRequest& request, evp::sunstudy::StudyRecord& record,
@@ -60,6 +159,12 @@ NativeCommandResult PrepareSunStudySamples (const GS::ObjectState& params, const
             GS::UniString ("domain='patch' needs samples='surfaces' - a patch is a coplanar run of the model's "
                            "own triangles, which samples='") +
             GS::UniString (sampleMode.c_str (), CC_UTF8) + "' does not produce");
+    }
+
+    if (request.receptorRequested && (!sampleSurfaces || patchDomain)) {
+        // A receptor lifts the triangle lattice's own samples; the patch domain,
+        // the ground grid and explicit points have no host lattice wired yet.
+        return NativeCommandResult::Failure ("receptorHeight needs samples='surfaces' and domain='triangle'");
     }
 
     if (sampleExplicit) {
@@ -171,6 +276,13 @@ NativeCommandResult PrepareSunStudySamples (const GS::ObjectState& params, const
             out.undersizedFaces = samples.undersizedFaces;
             out.degenerateFaces = samples.degenerateFaces;
             out.excludedSurfaces = samples.excludedFaces;
+            if (request.receptorRequested) {
+                if (const NativeCommandResult lifted = ApplyReceptorLayer (request, zOffset, samples, record);
+                    !lifted.ok)
+                    return lifted;
+                record.positions = samples.positions;
+                record.normals = samples.normals;
+            }
             record.atlas = evp::sunstudy::kernels::BuildStableTriangleAtlas (
                 samples, snapshot, record.triangleAllocations,
                 reuseSource != nullptr && !reuseSource->IsPatchDomain () && reuseSource->gridSpacing == spacing
@@ -185,6 +297,10 @@ NativeCommandResult PrepareSunStudySamples (const GS::ObjectState& params, const
             out.atlasFaces = record.atlas.placedFaces;
             out.gridVersion = static_cast<uint64_t> (samples.Count ()) * 73856093ull ^
                               static_cast<uint64_t> (faceCount * 3) * 19349663ull;
+            // Two layers can share every count; their heights must not share
+            // an identity in the core's sync.
+            if (request.receptorRequested)
+                out.gridVersion ^= HeightBits (request.receptor.height) * 2654435761ull;
             record.sampleGrid = std::move (samples);
         } // end of the triangle domain
     }
