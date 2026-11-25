@@ -11,6 +11,7 @@
 // Submit/Cancel/Current are safe from any thread. The run itself is on its own
 // thread; commands that need the host main thread go through MainThreadGate.
 
+#include "SunStudy/SunStudyPlantingAreas.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
 
 #include <cstddef>
@@ -310,6 +311,23 @@ void CancelActive ();
 bool ResumeFollowing (std::string& error);
 // Quit/unload: cancel and join.
 void Shutdown ();
+
+// ---- the planting area table (#278) ----------------------------------------
+//
+// Plan area per sunlight class for each host of a planting study and in total,
+// from the RAW hours with the exact comparator: a kept period's mean hours a day
+// when `studyId` is its carrier, else the day study's hours. `hostGuids` is
+// parallel to `table.hosts`. Copies the study's samples: call it when the study
+// or the edges change, not every frame. False, with `error`, when the study is
+// gone, has no cells, or the edges are refused.
+struct PlantingAreas {
+    std::string studyId;
+    bool period = false;
+    evp::sunstudy::PlantingAreaTable table;
+    std::vector<std::string> hostGuids;
+};
+bool ReadPlantingAreas (const std::string& studyId, const std::vector<double>& edges, PlantingAreas& out,
+                        std::string& error);
 
 } // namespace geomsrv::sunstudyhud
 

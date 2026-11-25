@@ -86,6 +86,20 @@ bool BuildReceptorLayer (const SampleGrid& grid, double normalOffset, const Rece
 // not belong to the grid.
 bool KeepAvailableReceptors (SampleGrid& grid, const ReceptorLayer& layer);
 
+// Unavailable plan area of one host (a grid group: the snapshot mesh), split by
+// why (#278 area table). Never shade: it is reported beside the classes.
+struct ReceptorHostLoss {
+    uint32_t group = 0;
+    double steepArea = 0.0;   // ReceptorStatus::SteepHost
+    double blockedArea = 0.0; // ReceptorStatus::Blocked
+    double invalidArea = 0.0; // ReceptorStatus::InvalidHost
+};
+
+// Per group, ascending, of `layer`'s non-available receptors, read from the grid
+// the layer was built from (before KeepAvailableReceptors). Empty when the layer
+// does not belong to the grid.
+std::vector<ReceptorHostLoss> UnavailableByGroup (const SampleGrid& grid, const ReceptorLayer& layer);
+
 // ⚠️ THE SECOND SENTINEL. An atlas texel below zero has no sample; one at
 // kUnavailableTexel is a receptor that exists but has no answer (steep host,
 // blocked overhead). The tint shader draws it as a neutral hatch rather than

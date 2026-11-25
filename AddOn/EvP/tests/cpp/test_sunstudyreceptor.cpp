@@ -231,3 +231,31 @@ TEST (SunStudyReceptor, UnavailableTexelsAreTheirOwnStateAndNeverOverwriteAMeasu
     EXPECT_EQ (small[0], 2.0f);
     EXPECT_EQ (small[1], kUnavailableTexel);
 }
+
+TEST (SunStudyReceptor, UnavailableAreaIsSplitByHostAndWhy)
+{
+    // #278 area table: the balcony's blocked strip, per host and by reason.
+    std::shared_ptr<geomsrv::Snapshot> snapshot;
+    StudyRecord record;
+    BalconyScene (snapshot, record);
+    const OverheadDistance overhead = [&record] (const double host[3]) {
+        return SunStudyOverheadDistance (record, host);
+    };
+    SampleGrid grid = Bed ();
+    for (size_t i = 0; i < grid.groups.size (); ++i)
+        grid.groups[i] = grid.positions[i * 3] < 5.0 ? 3u : 7u; // two hosts, split at x 5
+    ReceptorOptions tree;
+    tree.height = 3.0;
+    ReceptorLayer layer;
+    std::string error;
+    ASSERT_TRUE (BuildReceptorLayer (grid, kOffset, tree, &overhead, layer, error)) << error;
+    const auto losses = UnavailableByGroup (grid, layer);
+    ASSERT_EQ (losses.size (), 1u) << "only the west host is under the balcony";
+    EXPECT_EQ (losses[0].group, 3u);
+    EXPECT_NEAR (losses[0].blockedArea, layer.unavailableArea, 1.0e-9);
+    EXPECT_EQ (losses[0].steepArea, 0.0);
+    // After compaction the layer no longer matches: nothing, never a guess.
+    SampleGrid kept = grid;
+    ASSERT_TRUE (KeepAvailableReceptors (kept, layer));
+    EXPECT_TRUE (UnavailableByGroup (kept, layer).empty ());
+}

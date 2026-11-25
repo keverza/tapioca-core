@@ -820,7 +820,11 @@ bool SunStudyStore::Cells (const std::string& id, SampleCells& cells, std::strin
         cells.groups = grid.groups;
         cells.cellColumns = grid.cellColumns;
         cells.cellRows = grid.cellRows;
+        cells.unavailableByMesh = record.receptorUnavailableByMesh;
     }
+    if (record.snapshot != nullptr)
+        for (const auto& mesh : record.snapshot->meshes)
+            cells.meshGuids.push_back (mesh.guid);
     // ⚠️ REFUSED, NOT GUESSED: a ground or explicit study has no cells, and a
     // grid that disagrees with the samples cannot be joined to the hours.
     if (samples == 0 || cells.areas.size () != samples || cells.cellColumns.size () != samples) {

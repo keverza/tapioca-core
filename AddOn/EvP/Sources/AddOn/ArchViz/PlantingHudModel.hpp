@@ -12,6 +12,7 @@
 // same edges, so the legend and the numbers agree at every edge but the slack.
 
 #include "ArchViz/GradientLibrary.hpp"
+#include "SunStudy/SunStudyPlantingAreas.hpp"
 
 #include <cstdint>
 #include <string>
@@ -124,6 +125,19 @@ struct PlantingHud {
     std::string hoursPreset = "sun-hours-classic";
     bool hoursFlipped = false;
     std::vector<overlaylayers::ColourStop> hoursCustom;
+    // The area table on screen, and what it was read for: the study, its
+    // version (a day study converges) and the class edges.
+    struct Areas {
+        std::string studyId;
+        uint64_t version = 0;
+        std::vector<double> edges;
+        bool period = false;
+        evp::sunstudy::PlantingAreaTable table;
+        std::vector<std::string> hostGuids; // parallel to table.hosts
+        std::string error;
+        bool showShares = false; // percent of each row's measured area
+    } areas;
+
     // The Sun tab's display, held while this tab drives the shared tint.
     struct SunDisplayHold {
         bool held = false;
@@ -159,6 +173,13 @@ uint32_t ClassRgba (const PlantingHud& hud, int cls);
 // 0.5 h .. 9.5 h), so the stepped tint samples exactly it.
 void ClassBands (const PlantingHud& hud, float rampTop, int& count, float edges[], int edgeCapacity);
 std::vector<overlaylayers::ColourStop> ClassStops (const PlantingHud& hud, float rampTop);
+
+// The class edges as the area table asks for them.
+std::vector<double> AreaEdges (const PlantingHud& hud);
+// Whether the table must be read again for `studyId` at `version`.
+bool AreasStale (const PlantingHud& hud, const std::string& studyId, uint64_t version);
+// A short host label: its 1-based row and the GUID's last four characters.
+std::string HostLabel (size_t row, const std::string& guid);
 
 // The layer finished for `height`, or -1.
 int LayerAt (const PlantingHud& hud, float height);

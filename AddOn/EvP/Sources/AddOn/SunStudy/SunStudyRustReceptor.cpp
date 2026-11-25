@@ -121,6 +121,29 @@ size_t StampUnavailableTexels (std::vector<float>& image, const std::vector<uint
     return written;
 }
 
+std::vector<ReceptorHostLoss> UnavailableByGroup (const SampleGrid& grid, const ReceptorLayer& layer)
+{
+    std::vector<ReceptorHostLoss> losses;
+    const size_t count = grid.Count ();
+    if (layer.Count () != count || grid.groups.size () != count || layer.areas.size () != count)
+        return losses;
+    for (size_t i = 0; i < count; ++i) {
+        const ReceptorStatus status = layer.status[i];
+        if (status == ReceptorStatus::Available)
+            continue;
+        const uint32_t group = grid.groups[i];
+        auto at = std::lower_bound (losses.begin (), losses.end (), group,
+                                    [] (const ReceptorHostLoss& loss, uint32_t g) { return loss.group < g; });
+        if (at == losses.end () || at->group != group)
+            at = losses.insert (at, ReceptorHostLoss { group });
+        const double area = layer.areas[i];
+        (status == ReceptorStatus::SteepHost ? at->steepArea
+         : status == ReceptorStatus::Blocked ? at->blockedArea
+                                             : at->invalidArea) += area;
+    }
+    return losses;
+}
+
 bool KeepAvailableReceptors (SampleGrid& grid, const ReceptorLayer& layer)
 {
     const size_t count = grid.Count ();

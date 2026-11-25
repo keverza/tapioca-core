@@ -141,6 +141,33 @@ bool ReadPeriodPoints (const std::vector<size_t>&, PeriodPoint&)
 void RequestPeriodProfile (const std::vector<size_t>&)
 {
 }
+// The Planting tab's area table (#278): a fixed two-host courtyard, the west bed
+// partly under a balcony. No store or period is read.
+bool ReadPlantingAreas (const std::string& studyId, const std::vector<double>& edges, PlantingAreas& out,
+                        std::string& error)
+{
+    error.clear ();
+    out = PlantingAreas ();
+    out.studyId = studyId;
+    out.period = true;
+    const size_t classes = edges.size () + 1;
+    const auto row = [classes] (uint32_t group, std::vector<double> areas, double steep, double blocked) {
+        evp::sunstudy::PlantingAreaRow r;
+        r.group = group;
+        areas.resize (classes, 0.0);
+        r.classAreas = areas;
+        for (double a : areas)
+            r.evaluatedArea += a;
+        r.steepArea = steep;
+        r.blockedArea = blocked;
+        return r;
+    };
+    out.table.hosts = { row (0, { 122.0, 190.0, 108.0 }, 2.0, 3.0), row (1, { 0.0, 12.0, 64.0 }, 0.0, 0.0) };
+    out.table.total = row (0, { 122.0, 202.0, 172.0 }, 2.0, 3.0);
+    out.hostGuids = { "FIXTURE-COURTYARD-BED-0A1B", "FIXTURE-ROOF-TERRACE-9C2D" };
+    pg::LogMock ("Read planting areas -> fixed courtyard fixture; no store read");
+    return true;
+}
 bool ClearPeriodCache (std::string& error)
 {
     error.clear ();

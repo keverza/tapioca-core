@@ -33,6 +33,7 @@
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
 #include "SunStudy/SunStudyReading.hpp"
+#include "SunStudy/SunStudyReceptor.hpp"
 #include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunSeries.hpp"
 #include "SunStudy/SunStudyProgress.hpp"
@@ -111,6 +112,8 @@ struct StudyRecord {
     size_t receptorCount = 0; // before removing unavailable receptors
     size_t receptorSteepHost = 0, receptorBlocked = 0, receptorInvalidHost = 0;
     double receptorUnavailableArea = 0.0;
+    // That area per host mesh and why (the area table's N/A column).
+    std::vector<ReceptorHostLoss> receptorUnavailableByMesh;
     // Atlas texels of the unavailable receptors, stamped kUnavailableTexel on
     // every display image (SunStudyDisplayData) so they draw as "no answer".
     std::vector<uint32_t> receptorUnavailableTexels;
@@ -366,6 +369,10 @@ class SunStudyStore final {
         std::vector<uint32_t> owners; // source face (triangle) or patch span (patch)
         std::vector<uint32_t> groups; // triangle domain only
         std::vector<uint32_t> cellColumns, cellRows;
+        // Per snapshot mesh (index = group): its element GUID, and a planting
+        // layer's unavailable area by host (#278 area table).
+        std::vector<std::string> meshGuids;
+        std::vector<ReceptorHostLoss> unavailableByMesh;
     };
     bool Cells (const std::string& id, SampleCells& cells, std::string& error) const;
 

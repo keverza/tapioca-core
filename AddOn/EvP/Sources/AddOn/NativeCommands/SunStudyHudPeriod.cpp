@@ -538,4 +538,25 @@ std::shared_ptr<const PeriodProfile> LatestPeriodProfile ()
     return gProfile; // no per-frame deep copy of every traced day and step
 }
 
+bool period::MeanDailyHours (const std::string& carrierId, std::vector<double>& hours, std::string& error)
+{
+    hours.clear ();
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    std::shared_ptr<RetainedPeriod> retained;
+    {
+        std::lock_guard<std::mutex> lock (gPeriodMutex);
+        retained = gRetained;
+    }
+    if (retained == nullptr || retained->carrierId != carrierId)
+        return false; // not the kept period: the caller reads the day study
+    std::lock_guard<std::mutex> lock (retained->annualMutex);
+    double ceiling = 0.0;
+    return retained->annual->Values (rs::AnnualQuantity::Unoccluded, 0, true, hours, ceiling, error);
+#else
+    (void) carrierId;
+    (void) error;
+    return false;
+#endif
+}
+
 } // namespace geomsrv::sunstudyhud

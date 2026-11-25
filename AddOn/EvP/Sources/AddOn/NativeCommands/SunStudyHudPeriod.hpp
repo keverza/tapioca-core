@@ -35,6 +35,9 @@ bool ReleaseIfIdle ();
 void InvalidateSunPath ();
 // Quit/unload: drop pending requests, join the worker, release.
 void Shutdown ();
+// The kept period's mean direct-sun hours a day per sample, whole period
+// (#278 area table). False when `carrierId` is not the kept period's carrier.
+bool MeanDailyHours (const std::string& carrierId, std::vector<double>& hours, std::string& error);
 
 } // namespace geomsrv::sunstudyhud::period
 

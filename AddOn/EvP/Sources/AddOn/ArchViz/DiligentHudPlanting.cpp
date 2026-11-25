@@ -427,6 +427,29 @@ void plantinghud::RunHeights (HudState& state, std::vector<float> heights)
     SubmitNextHeight (state);
 }
 
+void plantinghud::RefreshAreas (HudState& state, const std::string& studyId, uint64_t version)
+{
+    pl::PlantingHud& hud = state.planting;
+    if (!pl::AreasStale (hud, studyId, version))
+        return;
+    auto& areas = hud.areas;
+    areas.studyId = studyId;
+    areas.version = version;
+    areas.edges = pl::AreaEdges (hud);
+    sunstudyhud::PlantingAreas read;
+    std::string error;
+    if (sunstudyhud::ReadPlantingAreas (studyId, areas.edges, read, error)) {
+        areas.period = read.period;
+        areas.table = std::move (read.table);
+        areas.hostGuids = std::move (read.hostGuids);
+        areas.error.clear ();
+        return;
+    }
+    areas.table = {};
+    areas.hostGuids.clear ();
+    areas.error = error.empty () ? "The area table could not be read." : error;
+}
+
 void ReleasePlantingDisplay (HudState& state)
 {
     auto& hold = state.planting.sunHold;

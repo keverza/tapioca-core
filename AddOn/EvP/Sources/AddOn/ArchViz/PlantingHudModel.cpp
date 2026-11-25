@@ -2,6 +2,7 @@
 #include "ArchViz/SunStudyPreview.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace geomsrv::archviz::planting {
@@ -188,6 +189,29 @@ std::vector<overlaylayers::ColourStop> ClassStops (const PlantingHud& hud, float
         stops.push_back (stop);
     }
     return stops;
+}
+
+std::vector<double> AreaEdges (const PlantingHud& hud)
+{
+    const std::vector<float> edges = ClassEdges (hud);
+    return std::vector<double> (edges.begin (), edges.end ());
+}
+
+bool AreasStale (const PlantingHud& hud, const std::string& studyId, uint64_t version)
+{
+    return hud.areas.studyId != studyId || hud.areas.version != version || hud.areas.edges != AreaEdges (hud);
+}
+
+std::string HostLabel (size_t row, const std::string& guid)
+{
+    std::string label = "Host " + std::to_string (row + 1);
+    std::string tail;
+    for (auto it = guid.rbegin (); it != guid.rend () && tail.size () < 4; ++it)
+        if (std::isalnum (static_cast<unsigned char> (*it)))
+            tail.insert (tail.begin (), char (std::toupper (static_cast<unsigned char> (*it))));
+    if (!tail.empty ())
+        label += " .." + tail;
+    return label;
 }
 
 int LayerAt (const PlantingHud& hud, float height)

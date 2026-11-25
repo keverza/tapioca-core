@@ -142,11 +142,57 @@ void LegendSection (HudState& state)
                        "shade: it is left out of the class areas.");
 }
 
-void AreaTable (const pl::PlantingHud& hud)
+// One area figure: m2, or its share of the row's measured area.
+void AreaCell (double area, double measured, bool share)
 {
+    if (share && measured > 0.0)
+        ImGui::Text ("%.0f%%", area / measured * 100.0);
+    else
+        ImGui::Text (area >= 100.0 ? "%.0f" : "%.1f", area);
+}
+
+void AreaRow (const char* name, const char* tip, const evp::sunstudy::PlantingAreaRow& row, int classes, bool share)
+{
+    ImGui::TableNextRow ();
+    ImGui::TableNextColumn ();
+    ImGui::TextUnformatted (name);
+    if (tip != nullptr && tip[0] != 0)
+        hudshell::ItemTip ("%s", tip);
+    for (int cls = 0; cls < classes; ++cls) {
+        ImGui::TableNextColumn ();
+        AreaCell (size_t (cls) < row.classAreas.size () ? row.classAreas[size_t (cls)] : 0.0, row.evaluatedArea, share);
+    }
+    ImGui::TableNextColumn ();
+    const double unavailable = row.UnavailableArea ();
+    ImGui::Text (unavailable >= 100.0 ? "%.0f" : "%.1f", unavailable);
+    if (unavailable > 0.0)
+        hudshell::ItemTip ("Unavailable, never shade:\n%.1f m2 too steep\n%.1f m2 under a ceiling\n%.1f m2 no host",
+                           row.steepArea, row.blockedArea, row.invalidArea);
+}
+
+void AreaTable (HudState& state, const SunStudyOverlayStatus& study)
+{
+    pl::PlantingHud& hud = state.planting;
     if (!ImGui::CollapsingHeader ("Areas (plan m2)", ImGuiTreeNodeFlags_DefaultOpen))
         return;
-    const int classes = pl::ClassCount (hud);
+    const bool planting =
+        study.drawing && std::any_of (hud.layers.begin (), hud.layers.end (),
+                                      [&] (const pl::Layer& layer) { return layer.studyId == study.studyId; });
+    if (!planting) {
+        ImGui::TextDisabled ("Run a layer, or show one, to measure its areas.");
+        return;
+    }
+    if (hud.runningRun != 0 && hud.areas.studyId != study.studyId) {
+        ImGui::TextDisabled ("Measured when the run finishes.");
+        return;
+    }
+    RefreshAreas (state, study.studyId, study.version);
+    const auto& areas = hud.areas;
+    if (!areas.error.empty ()) {
+        hudshell::ErrorNotice (areas.error);
+        return;
+    }
+    const int classes = int (areas.edges.size ()) + 1;
     const ImGuiTableFlags flags =
         ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
     if (ImGui::BeginTable ("##planting-areas", classes + 2, flags)) {
@@ -155,22 +201,26 @@ void AreaTable (const pl::PlantingHud& hud)
             ImGui::TableSetupColumn (pl::ClassName (hud, cls));
         ImGui::TableSetupColumn ("N/A");
         ImGui::TableHeadersRow ();
-        const auto row = [classes] (const char* name) {
-            ImGui::TableNextRow ();
-            ImGui::TableNextColumn ();
-            ImGui::TextUnformatted (name);
-            for (int c = 0; c <= classes; ++c) {
-                ImGui::TableNextColumn ();
-                ImGui::TextDisabled ("-");
-            }
-        };
-        row ("Per host");
-        row ("All hosts");
+        for (size_t i = 0; i < areas.table.hosts.size (); ++i) {
+            ImGui::PushID (int (i));
+            const std::string& guid = i < areas.hostGuids.size () ? areas.hostGuids[i] : std::string ();
+            AreaRow (pl::HostLabel (i, guid).c_str (), guid.c_str (), areas.table.hosts[i], classes,
+                     hud.areas.showShares);
+            ImGui::PopID ();
+        }
+        if (areas.table.hosts.size () != 1)
+            AreaRow ("All hosts", nullptr, areas.table.total, classes, hud.areas.showShares);
         ImGui::EndTable ();
     }
-    ImGui::TextDisabled ("Areas per host and zone: next slice.");
-    hudshell::ItemTip ("Plan area per class from the stored samples, exact at each edge (a value at 3.00 h is "
-                       "partial shade), with unavailable area split into steep host and blocked overhead.");
+    ImGui::Checkbox ("Shares##plantingareas", &hud.areas.showShares);
+    hudshell::ItemTip ("Each class as a percent of the row's measured area; N/A stays in m2.");
+    ImGui::SameLine ();
+    ImGui::TextDisabled ("%.1f m2 measured, %s", areas.table.total.evaluatedArea,
+                         areas.period ? "mean hours a day" : "hours of the day");
+    hudshell::ItemTip ("Exact classes from the raw hours: a value at an edge belongs to the upper class. Plan area. "
+                       "Unavailable area (N/A) is never counted as shade.");
+    if (areas.table.total.unclassified > 0)
+        ImGui::TextDisabled ("%zu sample(s) without a value left out.", areas.table.total.unclassified);
 }
 
 void InspectSection (HudState& state)
@@ -235,7 +285,7 @@ void DrawResults (HudState& state, const DiligentSceneStats& scene)
     ImGui::EndDisabled ();
     hudshell::ItemTip ("Later: the share of the period's days at or above the full-sun edge (consistency).");
     LegendSection (state);
-    AreaTable (hud);
+    AreaTable (state, study);
     InspectSection (state);
     ReportRow (state, scene);
 }

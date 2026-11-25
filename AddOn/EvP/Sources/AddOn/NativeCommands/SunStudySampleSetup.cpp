@@ -42,6 +42,7 @@ NativeCommandResult ApplyReceptorLayer (const SunStudySampleRequest& request, do
         return NativeCommandResult::Failure (GS::UniString ("the receptor layer was refused: ") +
                                              GS::UniString (error.c_str (), CC_UTF8));
     std::vector<evp::sunstudy::ReceptorCell> cells = evp::sunstudy::UnavailableReceptorCells (samples, layer);
+    record.receptorUnavailableByMesh = evp::sunstudy::UnavailableByGroup (samples, layer);
     if (!evp::sunstudy::KeepAvailableReceptors (samples, layer))
         return NativeCommandResult::Failure ("the receptor layer does not match the sampled grid");
     record.receptorHeight = request.receptor.height;

@@ -10,6 +10,7 @@
 #include <imgui.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace geomsrv::archviz {
@@ -29,6 +30,10 @@ std::vector<uint32_t> ShownClassColours (const planting::PlantingHud& hud);
 
 // Trace `heights` one after another, each its own planting study.
 void RunHeights (HudState& state, std::vector<float> heights);
+
+// Read the area table again when `studyId`, its `version` or the class edges
+// changed since it was last read (the runner copies the study's samples).
+void RefreshAreas (HudState& state, const std::string& studyId, uint64_t version);
 
 void DrawResults (HudState& state, const DiligentSceneStats& scene);
 void DrawPlantsTab (HudState& state);
