@@ -556,3 +556,19 @@ def test_traversal_threads_are_bounded_at_every_entry():
         assert 'ClampTraversalThreads (ReadInt (params, "maxParallel", 0))' in source, filename
     limits = (_ADDON / "SunStudy" / "SunStudyLimits.hpp").read_text(encoding="utf-8")
     assert "constexpr size_t kMaxTraversalThreads = 64;" in limits
+
+
+def test_planting_receptor_survives_follower_reruns():
+    # #278: a followed planting layer must rerun as the same layer, not as the
+    # bare surface. Metadata copy -> follower config -> rerun params -> signature.
+    store = (_ADDON / "SunStudy" / "SunStudyStore.cpp").read_text(encoding="utf-8")
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    signature = (_ADDON / "NativeCommands" / "SunStudyFollowerSignature.cpp").read_text(encoding="utf-8")
+    start_params = signature.split("GS::ObjectState StartParams (", 1)[1]
+    sampling_hash = signature.split("uint64_t SamplingHash (", 1)[1].split("\n}\n", 1)[0]
+    for field in ("receptorHeight", "receptorUp", "receptorPlan", "receptorMinHostUp"):
+        assert f"copyOfMetadata.{field} = source.{field}" in store
+        assert f"config.{field} = metadata.{field}" in display
+        assert f"config.{field}" in sampling_hash
+    for key in ("receptorHeight", "receptorNormal", "receptorArea", "receptorMinHostUp"):
+        assert f'params.Add ("{key}"' in start_params

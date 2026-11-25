@@ -223,6 +223,10 @@ NativeCommandResult ShowSunStudyForHud (const GS::ObjectState& params,
         config.clipX = metadata.clipX;
         config.clipY = metadata.clipY;
         config.clipRadius = metadata.clipRadius;
+        config.receptorHeight = metadata.receptorHeight;
+        config.receptorUp = metadata.receptorUp;
+        config.receptorPlan = metadata.receptorPlan;
+        config.receptorMinHostUp = metadata.receptorMinHostUp;
         config.backend = metadata.backend;
         config.placeInputHash = metadata.placeInputHash;
         config.debug = options.debug;

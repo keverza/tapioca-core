@@ -95,6 +95,10 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
     MixDouble (hash, config.clipX);
     MixDouble (hash, config.clipY);
     MixDouble (hash, config.clipRadius);
+    // The receptor layer moves every sample: a different height is a different study.
+    MixDouble (hash, config.receptorHeight);
+    Mix (hash, (config.receptorUp ? 1ull : 0ull) | (config.receptorPlan ? 2ull : 0ull));
+    MixDouble (hash, config.receptorMinHostUp);
     // Which elements are measured and which only cast shadow are sampling
     // inputs too: re-picking them must re-measure.
     MixGuids (hash, config.analysisElements);
@@ -217,6 +221,12 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
         params.Add ("clipX", config.clipX);
         params.Add ("clipY", config.clipY);
         params.Add ("clipRadius", config.clipRadius);
+    }
+    if (config.receptorHeight >= 0.0) {
+        params.Add ("receptorHeight", config.receptorHeight);
+        params.Add ("receptorNormal", GS::UniString (config.receptorUp ? "up" : "surface"));
+        params.Add ("receptorArea", GS::UniString (config.receptorPlan ? "plan" : "surface"));
+        params.Add ("receptorMinHostUp", config.receptorMinHostUp);
     }
     if (!config.preset.empty ()) {
         params.Add ("preset", GS::UniString (config.preset.c_str (), CC_UTF8));

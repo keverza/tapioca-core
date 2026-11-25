@@ -45,6 +45,7 @@ NativeCommandResult ApplyReceptorLayer (const SunStudySampleRequest& request, do
     record.receptorHeight = request.receptor.height;
     record.receptorUp = request.receptor.faceUp;
     record.receptorPlan = request.receptor.planArea;
+    record.receptorMinHostUp = request.receptor.minHostUp;
     record.receptorCount = layer.Count ();
     record.receptorSteepHost = layer.steepHost;
     record.receptorBlocked = layer.blocked;

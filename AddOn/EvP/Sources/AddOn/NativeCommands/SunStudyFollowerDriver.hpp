@@ -75,6 +75,12 @@ struct ActiveSunStudyConfig {
     bool analysisRestricted = false;
     // The analysis cylinder, a sampling input like the domain; radius 0 is none.
     double clipX = 0.0, clipY = 0.0, clipRadius = 0.0;
+    // The planting receptor layer (#278), a sampling input: a rerun without it
+    // would measure the bare surface. Height < 0 is none.
+    double receptorHeight = -1.0;
+    bool receptorUp = true;
+    bool receptorPlan = true;
+    double receptorMinHostUp = 0.5;
     std::string backend = "cpu";
     uint64_t placeInputHash = 0;
     // Display, carried so a rerun comes back looking the way the user left it --

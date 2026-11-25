@@ -832,6 +832,11 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     copyOfMetadata.clipX = source.clipX;
     copyOfMetadata.clipY = source.clipY;
     copyOfMetadata.clipRadius = source.clipRadius;
+    // And the planting receptor: a rerun without it measures the bare surface.
+    copyOfMetadata.receptorHeight = source.receptorHeight;
+    copyOfMetadata.receptorUp = source.receptorUp;
+    copyOfMetadata.receptorPlan = source.receptorPlan;
+    copyOfMetadata.receptorMinHostUp = source.receptorMinHostUp;
     copyOfMetadata.elementRoles = source.elementRoles;
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;

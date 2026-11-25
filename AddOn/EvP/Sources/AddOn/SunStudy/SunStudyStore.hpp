@@ -107,6 +107,7 @@ struct StudyRecord {
     double receptorHeight = -1.0;
     bool receptorUp = true;
     bool receptorPlan = true;
+    double receptorMinHostUp = 0.5;
     size_t receptorCount = 0; // before removing unavailable receptors
     size_t receptorSteepHost = 0, receptorBlocked = 0, receptorInvalidHost = 0;
     double receptorUnavailableArea = 0.0;
