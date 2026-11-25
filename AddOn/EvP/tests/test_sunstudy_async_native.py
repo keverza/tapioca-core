@@ -7,6 +7,16 @@ from pathlib import Path
 _ADDON = Path(__file__).parents[1] / "Sources" / "AddOn"
 
 
+def _follower_sources():
+    """The follower driver and its config translation (StartParams and the
+    staleness signature moved to SunStudyFollowerSignature.cpp, #278)."""
+    folder = _ADDON / "NativeCommands"
+    return "\n".join(
+        (folder / name).read_text(encoding="utf-8")
+        for name in ("SunStudyFollowerDriver.cpp", "SunStudyFollowerSignature.cpp")
+    )
+
+
 def test_follower_submits_calculation_without_native_advance_or_worker_join():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
     assert 'ExecuteNativeCommand ("AdvanceSunStudy"' not in source
@@ -230,7 +240,7 @@ def test_gpu_selection_is_explicit_for_both_producers_and_uses_role_filtered_sce
     assert "sunfollow::Disable ()" in commands
     request = re.findall(r'R"json\((.*?)\)json"', commands.split('{ "StartSunStudy",', 1)[1], re.DOTALL)[0]
     assert json.loads(request)["properties"]["backend"]["enum"] == ["cpu", "gpu"]
-    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    driver = _follower_sources()
     assert 'params.Add ("backend"' in driver
     display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
     assert "config.backend = metadata.backend" in display
@@ -396,7 +406,7 @@ def test_presets_glass_filter_and_live_analysis_survive_follower_adoption_and_st
     assert "result.emplace (index, material.GetTransparency ())" in extraction
     filtered = (_ADDON / "NativeCommands" / "SnapshotCommands.cpp").read_text(encoding="utf-8")
     assert "keep->materialTransparency = snap->materialTransparency" in filtered
-    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    driver = _follower_sources()
     display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
     for field in ("preset", "glassThreshold", "analysisRestricted"):
         assert f"config.{field} = metadata.{field}" in display
@@ -413,7 +423,7 @@ def test_viewer_and_follower_share_only_complete_revision_guarded_sliced_capture
     assert "SnapshotAssembly::CanUpdate" in extraction
     assert "modelwatch::CaptureStamp () != handle->captureStamp" in extraction
     assert "!gaveUp && !stopFlag_.load () && changedTo < 0" in extraction
-    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    driver = _follower_sources()
     refresh = driver.split("bool RefreshSnapshot ()", 1)[1].split("void StartReplacement", 1)[0]
     assert "MeshStore::Get ().Shared ()" in refresh
     assert "ExtractionWorker::Get ().Start (true)" in refresh
@@ -430,7 +440,7 @@ def test_viewer_and_follower_share_only_complete_revision_guarded_sliced_capture
 def test_bounded_hud_rerun_uses_current_snapshot_and_guide_visibility_is_display_only():
     runner = (_ADDON / "NativeCommands" / "SunStudyHudRunner.cpp").read_text(encoding="utf-8")
     commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
-    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    driver = _follower_sources()
     hud = (_ADDON / "ArchViz" / "DiligentHudSunRun.cpp").read_text(encoding="utf-8")
     assert 'params.Add ("clipRadius", request.radius)' in runner
     assert 'AddGuids (params, "analysisElements"' not in runner
@@ -472,7 +482,7 @@ def test_display_assembly_is_worker_owned_and_publication_is_guarded_after_prepa
     assert "SubmitManualSunStudyDisplay" in show
     for forbidden in ("DisplayData (", "StepMasks (", "BuildSunStudyElementMap", "ScatterToAtlas"):
         assert forbidden not in show
-    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    driver = _follower_sources()
     advance = driver.split("void AdvanceOneSlice", 1)[1].split("void DisableLocked", 1)[0]
     assert 'ExecuteNativeCommand ("ShowSunStudy"' not in advance
     assert "PrepareSunStudyDisplay (id, revision, snapshot, options, *output, cancelled)" in driver
@@ -521,7 +531,7 @@ def test_compact_result_requests_skip_unrequested_sample_and_atlas_transfers():
 
 
 def test_manual_publication_rechecks_sun_roles_and_capture_and_linearizes_record_cancellation():
-    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    driver = _follower_sources()
     publish = driver.split("bool PublishInSession", 1)[1].split("void Disable ()", 1)[0]
     assert "IsMainThread ()" in publish
     assert "ACAPI_GeoLocation_GetPlaceSets" in publish
