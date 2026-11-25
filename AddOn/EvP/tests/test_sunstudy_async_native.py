@@ -443,7 +443,11 @@ def test_bounded_hud_rerun_uses_current_snapshot_and_guide_visibility_is_display
     driver = _follower_sources()
     hud = (_ADDON / "ArchViz" / "DiligentHudSunRun.cpp").read_text(encoding="utf-8")
     assert 'params.Add ("clipRadius", request.radius)' in runner
-    assert 'AddGuids (params, "analysisElements"' not in runner
+    # A surface run is narrowed by the cylinder, never by analysis picks; only a
+    # planting run (#278) sends its hosts, inside its own receptor block.
+    planting_block = runner.split("if (planting) {", 1)[1].split("\n    }\n", 1)[0]
+    assert runner.count('AddGuids (params, "analysisElements"') == 1
+    assert 'AddGuids (params, "analysisElements", request.analysisElements)' in planting_block
     assert 'AddGuids (params, "contextElements", request.contextElements)' in runner
     assert 'params.Add ("clipRadius", config.clipRadius)' in driver
     assert "SplitByCylinder (*snapshot, clip, contextPicked, ignoredPicked, analysisPicked)" in commands
