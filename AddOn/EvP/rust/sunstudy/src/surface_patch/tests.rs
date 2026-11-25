@@ -198,3 +198,123 @@ fn bad_inputs_give_nothing() {
         assert_eq!(build_patch_grid(&p, &v, &t, spacing).cells, Vec::new());
     }
 }
+
+/// The all-pairs lattice as it was before #117: every triangle clipped against
+/// every cell. The reference the swept lattice must reproduce bit for bit.
+fn all_pairs_grid(
+    patch: &SurfacePatch,
+    vertices: &[f64],
+    triangles: &[u32],
+    spacing: f64,
+) -> PatchGrid {
+    let mut grid = PatchGrid::default();
+    let (origin, u_axis, v_axis) = (patch.origin, patch.u_axis, patch.v_axis);
+    let flat: Vec<[[f64; 2]; 3]> = patch
+        .triangles
+        .iter()
+        .filter_map(|&face| corners(triangles, face))
+        .map(|idx| {
+            idx.map(|i| {
+                let p = vertex_at(vertices, i).unwrap_or([f64::NAN; 3]);
+                let relative = sub(&p, &origin);
+                [dot(&relative, &u_axis), dot(&relative, &v_axis)]
+            })
+        })
+        .collect();
+    grid.columns = lattice_size(patch.u_extent, spacing);
+    grid.rows = lattice_size(patch.v_extent, spacing);
+    let world = |pu: f64, pv: f64| {
+        [
+            origin[0] + u_axis[0] * pu + v_axis[0] * pv,
+            origin[1] + u_axis[1] * pu + v_axis[1] * pv,
+            origin[2] + u_axis[2] * pu + v_axis[2] * pv,
+        ]
+    };
+    for row in 0..grid.rows {
+        for column in 0..grid.columns {
+            let min = [f64::from(column) * spacing, f64::from(row) * spacing];
+            let max = [min[0] + spacing, min[1] + spacing];
+            let (mut area, mut wu, mut wv) = (0.0, 0.0, 0.0);
+            for t in &flat {
+                let (piece, pu, pv) = clip_triangle_to_cell(t, min, max);
+                if piece <= 0.0 {
+                    continue;
+                }
+                area += piece;
+                wu += pu * piece;
+                wv += pv * piece;
+            }
+            if area.partial_cmp(&1e-12) != Some(std::cmp::Ordering::Greater) {
+                continue;
+            }
+            grid.cells.push(PatchCell {
+                column,
+                row,
+                centre: world(wu / area, wv / area),
+                area,
+                interior: area >= spacing * spacing * (1.0 - 1e-9),
+            });
+        }
+    }
+    grid
+}
+
+/// A tilted w x h plane as an n x n lattice of triangles, interior corners
+/// jittered within the plane so the triangles are irregular.
+fn jittered_plane(width: f64, height: f64, n: u32) -> (Vec<f64>, Vec<u32>) {
+    let mut vertices = Vec::new();
+    for j in 0..=n {
+        for i in 0..=n {
+            let inner = i > 0 && i < n && j > 0 && j < n;
+            let wobble = if inner {
+                f64::from((i * 7 + j * 13) % 11) / 11.0 - 0.5
+            } else {
+                0.0
+            };
+            let u = (f64::from(i) + 0.4 * wobble) * width / f64::from(n);
+            let v = (f64::from(j) - 0.3 * wobble) * height / f64::from(n);
+            vertices.extend_from_slice(&[u, v * 0.8, v * 0.6]);
+        }
+    }
+    let mut triangles = Vec::new();
+    for j in 0..n {
+        for i in 0..n {
+            let a = j * (n + 1) + i;
+            if (i + j) % 2 == 0 {
+                triangles.extend_from_slice(&[a, a + 1, a + n + 2, a, a + n + 2, a + n + 1]);
+            } else {
+                triangles.extend_from_slice(&[a, a + 1, a + n + 1, a + 1, a + n + 2, a + n + 1]);
+            }
+        }
+    }
+    (vertices, triangles)
+}
+
+#[test]
+fn the_swept_lattice_is_the_all_pairs_lattice_bit_for_bit() {
+    let cases = [
+        jittered_plane(7.3, 5.1, 9),
+        jittered_plane(3.0, 11.0, 4),
+        rectangle(9.0, 2.5, 6),
+    ];
+    for (vertices, triangles) in &cases {
+        for patch in patches(vertices, triangles, None) {
+            for spacing in [0.07, 0.33, 0.5, 1.0, 2.9, 40.0] {
+                let swept = build_patch_grid(&patch, vertices, triangles, spacing);
+                let reference = all_pairs_grid(&patch, vertices, triangles, spacing);
+                assert_eq!(
+                    swept.cells.len(),
+                    reference.cells.len(),
+                    "spacing {spacing}"
+                );
+                for (a, b) in swept.cells.iter().zip(&reference.cells) {
+                    assert_eq!((a.column, a.row, a.interior), (b.column, b.row, b.interior));
+                    assert_eq!(a.area.to_bits(), b.area.to_bits(), "spacing {spacing}");
+                    for (p, q) in a.centre.iter().zip(&b.centre) {
+                        assert_eq!(p.to_bits(), q.to_bits(), "spacing {spacing}");
+                    }
+                }
+            }
+        }
+    }
+}

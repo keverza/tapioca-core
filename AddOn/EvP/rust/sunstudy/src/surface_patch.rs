@@ -451,6 +451,50 @@ fn clip_triangle_to_cell(
     polygon_area_centroid(&top)
 }
 
+/// A flat triangle's box `[u_min, u_max, v_min, v_max]`; any NaN corner gives
+/// the infinite box, so the triangle is tried against every cell as before.
+fn triangle_box(t: &[[f64; 2]; 3]) -> [f64; 4] {
+    if t.iter().flatten().any(|c| c.is_nan()) {
+        return [
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+        ];
+    }
+    let (us, vs) = (t.map(|p| p[0]), t.map(|p| p[1]));
+    [
+        us.iter().copied().fold(f64::INFINITY, f64::min),
+        us.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        vs.iter().copied().fold(f64::INFINITY, f64::min),
+        vs.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+    ]
+}
+
+/// The columns a box may touch, widened by a whole cell on each side so float
+/// rounding never drops one; the per-cell test is still exact.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a clamped, finite column index"
+)]
+fn column_span(b: &[f64; 4], spacing: f64, columns: u32) -> std::ops::Range<u32> {
+    let last = f64::from(columns);
+    let lo = (b[0] / spacing).floor() - 1.0;
+    let hi = (b[1] / spacing).floor() + 2.0;
+    let lo = if lo.is_finite() {
+        lo.clamp(0.0, last)
+    } else {
+        0.0
+    };
+    let hi = if hi.is_finite() {
+        hi.clamp(0.0, last)
+    } else {
+        last
+    };
+    (lo as u32)..(hi as u32)
+}
+
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -527,38 +571,70 @@ pub fn build_patch_grid_within(
     let [cx, cy, radius] = clip;
     let reach = radius + spacing * std::f64::consts::SQRT_2 * 0.5;
     let mut skipped = false;
-    let cells = (0..grid.rows).flat_map(|row| (0..columns).map(move |column| (row, column)));
-    for (row, column) in cells {
-        let min = [f64::from(column) * spacing, f64::from(row) * spacing];
-        let max = [min[0] + spacing, min[1] + spacing];
-        if radius > 0.0 {
-            let centre = world(min[0] + 0.5 * spacing, min[1] + 0.5 * spacing);
+    // ⚠️ EACH TRIANGLE VISITS ONLY THE CELLS UNDER ITS OWN BOX (#117, #92).
+    // Clipping every triangle of a patch against every cell cost cells x
+    // triangles: live, a refusal at 0.35 m took 15 s, and one 1 M-cell slab
+    // took 0.8 s as 2 triangles but 32 s as 128. A triangle whose box misses a
+    // cell (strictly, so a NaN corner is never left out) clips to nothing
+    // there, and each cell still sums its pieces in triangle order, so every
+    // cell, sum and bit is what the all-pairs loop produced.
+    let boxes: Vec<[f64; 4]> = flat.iter().map(triangle_box).collect();
+    let mut sums = vec![(0.0_f64, 0.0_f64, 0.0_f64); usize::try_from(columns).unwrap_or(0)];
+    let mut far = vec![false; sums.len()];
+    for row in 0..grid.rows {
+        let v_min = f64::from(row) * spacing;
+        let v_max = v_min + spacing;
+        sums.fill((0.0, 0.0, 0.0));
+        for (column, out) in (0..columns).zip(far.iter_mut()) {
             // `>`, so a NaN centre is never skipped, as the clip keeps it.
-            if (centre[0] - cx).hypot(centre[1] - cy) > reach {
+            *out = radius > 0.0 && {
+                let centre = world(
+                    f64::from(column) * spacing + 0.5 * spacing,
+                    v_min + 0.5 * spacing,
+                );
+                (centre[0] - cx).hypot(centre[1] - cy) > reach
+            };
+        }
+        for (t, b) in flat.iter().zip(&boxes) {
+            if b[3] < v_min || b[2] > v_max {
+                continue;
+            }
+            for column in column_span(b, spacing, columns) {
+                let index = usize::try_from(column).unwrap_or(usize::MAX);
+                let min = [f64::from(column) * spacing, v_min];
+                let max = [min[0] + spacing, v_max];
+                if far.get(index).copied().unwrap_or(true) || b[1] < min[0] || b[0] > max[0] {
+                    continue;
+                }
+                let (piece, pu, pv) = clip_triangle_to_cell(t, min, max);
+                if piece <= 0.0 {
+                    continue;
+                }
+                if let Some((area, weighted_u, weighted_v)) = sums.get_mut(index) {
+                    *area += piece;
+                    *weighted_u += pu * piece;
+                    *weighted_v += pv * piece;
+                }
+            }
+        }
+        for (column, (&(area, weighted_u, weighted_v), &skip)) in
+            (0..columns).zip(sums.iter().zip(&far))
+        {
+            if skip {
                 skipped = true;
                 continue;
             }
-        }
-        let (mut area, mut weighted_u, mut weighted_v) = (0.0, 0.0, 0.0);
-        for t in &flat {
-            let (piece, cx, cy) = clip_triangle_to_cell(t, min, max);
-            if piece <= 0.0 {
-                continue;
+            if area.partial_cmp(&1e-12) != Some(std::cmp::Ordering::Greater) {
+                continue; // an uncovered cell emits nothing
             }
-            area += piece;
-            weighted_u += cx * piece;
-            weighted_v += cy * piece;
+            grid.cells.push(PatchCell {
+                column,
+                row,
+                centre: world(weighted_u / area, weighted_v / area),
+                area,
+                interior: area >= full * (1.0 - 1e-9),
+            });
         }
-        if area.partial_cmp(&1e-12) != Some(std::cmp::Ordering::Greater) {
-            continue; // an uncovered cell emits nothing
-        }
-        grid.cells.push(PatchCell {
-            column,
-            row,
-            centre: world(weighted_u / area, weighted_v / area),
-            area,
-            interior: area >= full * (1.0 - 1e-9),
-        });
     }
     if grid.cells.is_empty() && !skipped {
         let (mut cu, mut cv) = (0.0, 0.0);
