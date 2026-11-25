@@ -1,5 +1,6 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudCaptureFrame.hpp"
+#include "ArchViz/LayoutPageCamera.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "SunStudyHudTestServices.hpp"
@@ -21,6 +22,34 @@ namespace {
 using namespace geomsrv::archviz;
 using namespace geomsrv::archviz::viewerhud;
 using hudshell::DockEdge;
+
+TEST (ViewerScreenshot, ExportRestoresEachWorkflowCameraIncludingUnvisitedPages)
+{
+    CaptureFrame f;
+    Camera live;
+    live.SetDistance (25);
+    SwitchPageCamera (f, live);
+    live.SetDistance (10);
+    f.SelectWorkflow (1);
+    SwitchPageCamera (f, live);
+    EXPECT_FLOAT_EQ (live.Distance (), 25);
+    live.SetDistance (60);
+    const float expected[] = { 10, 60, 25 };
+    f.pageFormat = 2;
+    f.BeginPageExport ();
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_EQ (f.exportPage, i);
+        ASSERT_EQ (f.reportType, i);
+        SwitchPageCamera (f, live);
+        EXPECT_FLOAT_EQ (live.Distance (), expected[i]);
+        EXPECT_EQ (f.AdvancePageExport (), i < 2);
+    }
+    EXPECT_EQ (f.exportPage, -1);
+    EXPECT_EQ (f.reportType, 1);
+    EXPECT_EQ (f.pageFormat, 2);
+    SwitchPageCamera (f, live);
+    EXPECT_FLOAT_EQ (live.Distance (), 60);
+}
 
 TEST (ViewerScreenshot, ShadedFractionUsesMappedAreaAndTheCorrectStepWord)
 {
@@ -414,7 +443,7 @@ TEST_F (CaptureGui, BuilderChangesQuantityButKeepsAnalysisColoursAndBands)
     for (int i = 0; i < 3; ++i) {
         state_.captureFrame.reportType = i;
         const auto view = SunStudyViewOf (state_);
-        EXPECT_EQ (view.viewOverride, i == 0 ? 5 : i == 1 ? 9 : 0);
+        EXPECT_EQ (view.viewOverride, i == 0 ? 5 : i == 1 ? 6 : 0);
         state_.captureFrame.active = false;
         state_.sunShotBusy = true;
         EXPECT_EQ (SunStudyViewOf (state_).viewOverride, view.viewOverride);
@@ -441,9 +470,25 @@ TEST_F (CaptureGui, PaperShowsOnlyTheControlsForItsQuantity)
         Frame ({ -1, -1 }, false, &labels);
         const auto has = [&] (const char* s) { return labels.find (s) != std::string::npos; };
         EXPECT_EQ (has ("Stepped gradient"), workflow == 2) << labels;
-        EXPECT_EQ (has ("PM only"), workflow == 1) << labels;
+        EXPECT_EQ (has ("Evening"), workflow == 1) << labels;
         EXPECT_EQ (has ("Shaded"), workflow == 0) << labels;
     }
+}
+
+TEST_F (CaptureGui, CancelRetainsPaperTextureOwnerThroughImGuiSubmission)
+{
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
+    auto& f = state_.captureFrame;
+    f.builder = true;
+    auto owner = std::make_shared<int> (1);
+    std::weak_ptr<int> lifetime = owner;
+    f.paperCache = std::shared_ptr<ReportPaperPreview> (owner, nullptr);
+    owner.reset ();
+    f.paperImage = 1234;
+    Frame ();
+    Click (cancel_);
+    ASSERT_TRUE (f.cancelled);
+    EXPECT_FALSE (lifetime.expired ());
 }
 
 TEST_F (CaptureGui, CameraEditingReleasesOnlyThePaperTileForNavigation)

@@ -8,8 +8,13 @@
 #include <memory>
 #include <string>
 
+namespace evp::sunstudy {
+struct StudyRecord;
+}
 namespace geomsrv::archviz {
 
+struct SunStudyAtlasUpload;
+class Camera;
 struct HudState;
 struct SunStudyOverlayStatus;
 
@@ -44,7 +49,58 @@ struct CaptureFrame {
     float resizeX = 0, resizeY = 0;
     bool resizingTile = false;
     std::shared_ptr<ReportPaperPreview> paperCache;
+    struct Season {
+        std::shared_ptr<const SunStudyAtlasUpload> payload;
+        std::shared_ptr<const evp::sunstudy::StudyRecord> record;
+    };
+    Season seasons[3];
+    uint64_t seasonStamp = 0;
+    bool measuredDraft = false;
+    int liveStep = 0;
     int reportType = 0, pageFormat = 0;
+    int exportPage = -1, returnPage = 0, cameraPage = -1;
+    size_t navigationTile = 0;
+    std::shared_ptr<Camera> pageCameras[3];
+    int formats[3] = {};
+    float aspects[3] = { 1.5f, 1.5f, 1.5f };
+    int ClockAtDivision (int i) const
+    {
+        return startMinute + 5 * ((2 * i * (endMinute - startMinute) + 5 * divisions) / (10 * divisions));
+    }
+    void BeginPageExport ()
+    {
+        returnPage = reportType;
+        exportPage = 0;
+        SelectWorkflow (exportPage);
+    }
+    bool AdvancePageExport ()
+    {
+        if (++exportPage < 3) {
+            SelectWorkflow (exportPage);
+            return true;
+        }
+        exportPage = -1;
+        SelectWorkflow (returnPage);
+        return false;
+    }
+    void SelectWorkflow (int page)
+    {
+        formats[reportType] = pageFormat;
+        aspects[reportType] = tileAspect;
+        reportType = page;
+        pageFormat = formats[page];
+        tileAspect = aspects[page];
+        clocks.clear ();
+        if (page == 0) {
+            for (int i = 0; i <= divisions; ++i)
+                clocks.push_back (ClockAtDivision (i));
+        }
+        else
+            clocks.push_back (720);
+        panelSteps.assign (clocks.size (), -1);
+        paperDirty = true;
+        navigationTile = 0;
+    }
     std::vector<int> clocks;
     std::vector<std::string> captions;
     std::string seasonLabels[3];

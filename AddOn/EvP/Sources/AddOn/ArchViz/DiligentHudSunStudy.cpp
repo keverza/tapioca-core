@@ -94,7 +94,7 @@ int ChosenMode (const HudState& state)
         (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
         return state.captureFrame.entryMode;
     if (state.captureFrame.builder && (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
-        return state.captureFrame.reportType == 2 ? 0 : state.captureFrame.reportType == 1 ? 9 : 5;
+        return state.captureFrame.reportType == 2 ? 0 : state.captureFrame.reportType == 1 ? 6 : 5;
     if (((state.captureFrame.active && !state.captureFrame.builder) || state.sunShotBusy || state.sunShotRequested) &&
         state.captureFrame.studyDay)
         return state.captureFrame.shadowStyle == 0 ? 6 : 5;

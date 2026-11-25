@@ -159,8 +159,8 @@ bool ComposeReportPage (const LayoutReportPage& p, std::vector<uint8_t>& rgba,
             }
             else if (p.type == ReportTemplate::Patterns) {
                 d.Key (k, footer + 18, 0xffeeeeee, "Neither", 145);
-                d.Key (k, footer + 18, 0xff796ab1, "AM only", 155);
-                d.Key (k, footer + 18, 0xffdf9792, "PM only", 155);
+                d.Key (k, footer + 18, 0xff796ab1, "Morning", 155);
+                d.Key (k, footer + 18, 0xffdf9792, "Evening", 155);
                 d.Key (k, footer + 18, 0xffac819e, "Both", 130);
             }
             else {

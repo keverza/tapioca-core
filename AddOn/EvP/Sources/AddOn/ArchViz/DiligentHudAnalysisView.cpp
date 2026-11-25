@@ -42,6 +42,12 @@ void Mix (uint64_t& hash, const void* data, size_t size)
 
 void ApplyAnalysisView (DiligentScene& scene, HudState& state)
 {
+    // Cycling measured paper tiles is not a selection in the live analysis tabs.
+    const auto& frame = state.captureFrame;
+    if (frame.builder && frame.measuredDraft && (frame.active || state.sunShotBusy || state.sunShotRequested)) {
+        scene.SetSunStudyView (SunStudyViewOf (state));
+        return;
+    }
     const std::string shown = scene.ShownSunStudyId ();
     const uint32_t kind = scene.ShownAnalysisKind ();
     // The HUD's own run knows its origin; a command's is taken to be the

@@ -451,6 +451,8 @@ class DiligentScene final {
     // What it is drawing from, whole (no incremental base): an Analysis tab keeps
     // it to put back on screen. RENDER THREAD.
     std::shared_ptr<const SunStudyAtlasUpload> ShownAnalysisPayload () const;
+    bool RestoreAnalysisPayload (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                                 const SunStudyAtlasUpload& study);
 
     // How well surfaces are lit. ⚠️ A SEPARATE AXIS FROM RenderMode, not more
     // cases of it -- ViewerSettings.hpp says why, and it is the CameraSyncMode
@@ -921,6 +923,8 @@ class DiligentScene final {
     void SetMaterialTextures (bool enabled);
 
   private:
+    void ApplySunStudy (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                        std::unique_ptr<SunStudyAtlasUpload> study);
     struct Impl;
 
     // Resize the G-buffer to the viewport and rebind the debug SRB. False when
@@ -966,10 +970,6 @@ class DiligentScene final {
     // compile for it, and a failure must LATCH rather than retry every frame.
     bool CreateSunStudyPipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
                                  uint32_t depthBufferFormat, std::string& error);
-    // Take ownership of a completed study: upload the atlas, build one side
-    // buffer per element it names, and drop the previous study's resources.
-    void ApplySunStudy (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                        std::unique_ptr<SunStudyAtlasUpload> study);
     // Forget it. ⚠️ ALSO CALLED ON A FULL GEOMETRY BATCH: a side buffer is
     // indexed by triangle, so geometry that changed under a study leaves every
     // face reading a neighbour's tile -- which draws as a result.

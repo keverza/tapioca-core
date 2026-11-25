@@ -20,6 +20,7 @@
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "ArchViz/ShadowCaptureArea.hpp"
 #include "ArchViz/LayoutReportStudy.hpp"
+#include "ArchViz/LayoutPageCamera.hpp"
 #include "ArchViz/ReportPaperPreview.hpp"
 #include "ArchViz/SurfaceTakeoffShot.hpp"
 #include "ArchViz/ViewerEditor.hpp"
@@ -108,7 +109,11 @@ bool ExposedShotCurrent (const surfacetakeoff::ShotTable& table)
 
 void Fail (HudState& state, const std::string& reason)
 {
-    if (state.captureFrame.previewOnly) {
+    if (state.captureFrame.exportPage >= 0) {
+        state.captureFrame.SelectWorkflow (state.captureFrame.returnPage);
+        state.captureFrame.exportPage = -1;
+    }
+    if (state.captureFrame.builder || state.captureFrame.previewOnly) {
         state.captureFrame.previewOnly = false;
         state.captureFrame.active = true;
     }
@@ -126,7 +131,8 @@ bool SaveImage (const std::vector<uint8_t>& image, uint32_t width, uint32_t heig
     if (!EncodeRgbaPng (image, width, height, png, error) || !ExportDirectory (directory, error))
         return false;
     std::error_code ec;
-    path = ShotPath (directory, kind, scale, ec);
+    if (path.empty ())
+        path = ShotPath (directory, kind, scale, ec);
     if (ec) {
         error = "could not choose an export filename: " + ec.message ();
         return false;
@@ -143,9 +149,10 @@ bool SaveImage (const std::vector<uint8_t>& image, uint32_t width, uint32_t heig
 
 // Use the same per-sample lit mask as the single-shadow shader. Padding and
 // duplicated border texels have no receiver area and never enter the sum.
-std::string ShadeMetric (const SunStudyAtlasUpload& payload, int step, double& percent)
+std::string ShadeMetric (const viewerhud::CaptureFrame::Season& day, int step, double& percent)
 {
-    const auto rec = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (payload.studyId);
+    const auto& rec = day.record;
+    const auto& payload = *day.payload;
     const size_t plane = size_t (payload.width) * payload.height;
     if (!rec || !plane || step < 0 || uint32_t (step) >= payload.stepCount || !payload.stepMasks ||
         payload.stepMasks->size () / plane <= size_t (step / 32))
@@ -168,17 +175,53 @@ std::string ShadeMetric (const SunStudyAtlasUpload& payload, int step, double& p
     return text;
 }
 
+int ClockStep (const SunStudyAtlasUpload& p, int minute)
+{
+    const auto it = std::find (p.stepMinutes.begin (), p.stepMinutes.end (), minute);
+    return it == p.stepMinutes.end () ? -1 : int (it - p.stepMinutes.begin ());
+}
+
+void DescribeSeason (ReportPanel& panel, const viewerhud::CaptureFrame::Season& day, ReportTemplate type, int step,
+                     double& percent)
+{
+    const auto& p = *day.payload;
+    if (!p.stepMinutes.empty ()) {
+        int a = p.stepMinutes.front (), b = p.stepMinutes.back ();
+        char text[64];
+        std::snprintf (text, sizeof (text), "Measured %02d:%02d - %02d:%02d", a / 60, a % 60, b / 60, b % 60);
+        panel.window = text;
+    }
+    if (type == ReportTemplate::Analysis) {
+        panel.metric = step < 0 ? "Not measured" : ShadeMetric (day, step, percent);
+        return;
+    }
+    panel.metric = "No measured area";
+    if (const auto& rec = day.record) {
+        bool patch = rec->IsPatchDomain ();
+        const auto& areas = patch ? rec->patchGrid.areas : rec->sampleGrid.areas;
+        if (patch || rec->atlas.texels.size () == areas.size ())
+            panel.metric = SeasonalMetric (
+                p, areas,
+                [&] (size_t i) {
+                    return patch ? rec->patchAtlas.TexelOf (rec->patchGrid, i) : int64_t (rec->atlas.texels[i]);
+                },
+                type);
+    }
+}
+
 void StartSeason (HudState& state, size_t row, bool south)
 {
     auto& f = state.captureFrame;
     f.month = row == 0 ? 3 : (row == 1) != south ? 6 : 12;
     f.day = row == 0 ? 20 : 21; // same seasonal dates as the Sun Path arcs
     f.requestedRun = 0;
+    if (f.seasons[row].payload)
+        return;
     // The form is restored immediately. All columns are on the five-minute
     // clock; trace the inclusive last clock even at a whole hour.
     const int from = state.sunRunHourFrom, to = state.sunRunHourTo, step = state.sunRunTimestep;
-    state.sunRunHourFrom = f.reportType ? 0 : f.startMinute / 60;
-    state.sunRunHourTo = f.reportType ? 24 : f.endMinute / 60 + 1;
+    state.sunRunHourFrom = 0;
+    state.sunRunHourTo = 24;
     state.sunRunTimestep = 0;
     RunSunStudyDay (state, f.month, f.day, &f.requestedRun);
     state.sunRunHourFrom = from;
@@ -207,6 +250,29 @@ void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scen
 {
     state.viewpointOwnsMouse = state.captureFrame.active ? false : state.viewpointOwnsMouse;
     state.captureTopView = camera.IsTopDown ();
+    auto& frame = state.captureFrame;
+    if (frame.builder && (frame.active || state.sunShotRequested) && viewerhud::SwitchPageCamera (frame, camera)) {
+        scene.ResetTemporalAntiAliasingHistory ();
+    }
+    if ((frame.active || state.sunShotRequested) && frame.builder && frame.paperCache && frame.seasons[2].payload) {
+        auto& cache = *frame.paperCache;
+        std::array<float, 32> matrices {};
+        camera.GetViewMatrix (matrices.data ());
+        camera.GetProjMatrix (matrices.data () + 16,
+                              float ((std::max) (1u, frame.view.width)) / (std::max) (1u, frame.view.height));
+        if (cache.camera != matrices) {
+            // Keep the measured sheet visible underneath the live tiles. Moving
+            // the camera changes no caption, legend or seasonal statistic.
+            if (cache.camera != std::array<float, 32> {} && !cache.page.pending && frame.clockImages.empty ()) {
+                frame.clockImages.resize (cache.page.panels.size ());
+                cache.clockTextures.resize (frame.clockImages.size ());
+            }
+            cache.camera = matrices;
+            cache.tilesToRefresh = frame.clockImages.size ();
+            if (frame.editCamera)
+                cache.navigationUntil = std::chrono::steady_clock::now () + std::chrono::milliseconds (150);
+        }
+    }
     if (state.sunShotRequested && state.captureFrame.studyDay)
         comparisonCamera_ = std::make_unique<Camera> (camera);
     else if (!Active ())
@@ -221,7 +287,7 @@ void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scen
                 state.captureRegions[slot] = r;
         }
     }
-    if (state.captureFrame.active || state.captureFrame.previewOnly) {
+    if (state.captureFrame.active || state.captureFrame.previewOnly || frame.exportPage >= 0) {
         if (!framingCamera_) {
             framingCamera_ = std::make_unique<Camera> (camera);
             framingUserNavigated_ = userHasNavigated;
@@ -235,6 +301,8 @@ void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scen
         state.orbitAnchor = framingOrbitAnchor_;
         scene.ResetTemporalAntiAliasingHistory ();
     }
+    if (frame.cancelled && frame.builder)
+        frame = {};
     state.captureFrame.cancelled = false;
     framingCamera_.reset ();
 }
@@ -251,11 +319,28 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     if (state.captureFrame.active && state.captureFrame.builder) {
         auto& f = state.captureFrame;
         const auto stats = scene.Stats ();
-        if (f.paperCache && f.paperCache->page.pending &&
+        f.measuredDraft = f.seasons[0].payload && f.seasons[1].payload && f.seasons[2].payload &&
+                          f.seasonStamp == MeshStore::Get ().CaptureStamp ();
+        if (!f.measuredDraft && f.paperCache && f.paperCache->page.pending &&
             (f.paperCache->study != stats.sunStudy.studyId || f.paperCache->version != stats.sunStudy.version))
             f.paperDirty = true;
         viewerhud::UpdateReportPaper (device, f, stats.latitudeDegrees < 0, [&] (LayoutReportPage& page) {
-            const auto payload = scene.ShownAnalysisPayload ();
+            const auto payload = f.measuredDraft ? f.seasons[0].payload : scene.ShownAnalysisPayload ();
+            if (f.measuredDraft && !f.clocks.empty ()) {
+                double previous = -1;
+                for (size_t i = 0; i < page.panels.size (); ++i) {
+                    const auto& day = f.seasons[i / f.clocks.size ()];
+                    double percent = -1;
+                    DescribeSeason (page.panels[i], day, page.type,
+                                    ClockStep (*day.payload, f.clocks[i % f.clocks.size ()]), percent);
+                    if (i % f.clocks.size () && percent >= 0 && previous >= 0) {
+                        char delta[32];
+                        std::snprintf (delta, sizeof (delta), " (%+.1f pp)", percent - previous);
+                        page.panels[i].metric += delta;
+                    }
+                    previous = percent;
+                }
+            }
             state.captureFrame.legendPlan = payload ? payload->capturePlan : nullptr;
             std::string error;
             // An export frame submitted to the interactive ImGui context would cancel active drags/popups.
@@ -268,7 +353,29 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         });
         f.paperCache->study = stats.sunStudy.studyId;
         f.paperCache->version = stats.sunStudy.version;
-        if (f.paperCache->page.pending && f.reportType == int (ReportTemplate::Analysis) && !f.panelSteps.empty ()) {
+        if (f.measuredDraft && !f.clockImages.empty () && !f.clocks.empty ()) {
+            f.liveStep = -1;
+            if (f.paperCache->tilesToRefresh) {
+                if (f.editCamera && std::chrono::steady_clock::now () < f.paperCache->navigationUntil)
+                    f.liveColumn = (std::min) (f.navigationTile, f.clockImages.size () - 1);
+                else {
+                    --f.paperCache->tilesToRefresh;
+                    f.liveColumn = (f.liveColumn + 1) % f.clockImages.size ();
+                }
+                const auto& p = *f.seasons[f.liveColumn / f.clocks.size ()].payload;
+                const bool switched = scene.ShownSunStudyId () != p.studyId;
+                f.liveStep = scene.RestoreAnalysisPayload (device, context, p)
+                                 ? (f.reportType == 0 ? ClockStep (p, f.clocks[f.liveColumn % f.clocks.size ()]) : 0)
+                                 : -1;
+                const int previous = f.shadowStep;
+                f.shadowStep = (std::max) (0, f.liveStep);
+                state.sunStepMinutes = p.stepMinutes;
+                if (switched || previous != f.shadowStep)
+                    scene.ResetTemporalAntiAliasingHistory ();
+            }
+        }
+        else if (f.paperCache->page.pending && f.reportType == int (ReportTemplate::Analysis) &&
+                 !f.panelSteps.empty ()) {
             f.liveColumn = (f.liveColumn + 1) % f.panelSteps.size ();
             f.shadowStep = (std::max) (0, f.panelSteps[f.liveColumn]);
         }
@@ -296,22 +403,9 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     const int preset = std::clamp (state.sunShotPreset, 0, kViewerScreenshotScaleCount - 1);
     scale_ = kViewerScreenshotScales[preset];
     auto& paper = state.captureFrame;
-    if (kind_ == kShotSunStudy && paper.builder && !paper.previewOnly && !paper.paperDirty && paper.paperCache &&
-        !paper.paperCache->page.pending && !paper.paperCache->page.panels.empty ()) {
-        auto& page = paper.paperCache->page;
-        page.tileAspect = paper.tileAspect;
-        const auto format = ReportPageFormat (page.format);
-        std::vector<uint8_t> pixels;
-        std::filesystem::path path;
-        std::string error = "could not compose the analysis page";
-        if (ComposeReportPage (page, pixels) &&
-            SaveImage (pixels, format.width, format.height, kind_, scale_, path, error)) {
-            state.sunShotFailed = false;
-            state.sunShotResult = Utf8 (path);
-        }
-        else
-            Fail (state, error);
+    if (paper.builder && paper.seasons[0].payload && paper.seasonStamp != MeshStore::Get ().CaptureStamp ()) {
         paper.active = true;
+        Fail (state, "Model changed; reopen Layout Builder for a new seasonal study");
         return surface;
     }
     const ScreenshotSize size = ViewerScreenshotTargetSize (surface.Width (), surface.Height (), scale_);
@@ -437,9 +531,13 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         if (sourceStamp_ != MeshStore::Get ().CaptureStamp ())
             return abort ("model changed during shadow comparison");
         if (waitingDay_) {
+            auto& day = f.seasons[panelIndex_ / columns];
+            if (day.payload && !scene.RestoreAnalysisPayload (device_, context, *day.payload))
+                return abort ("Could not display the retained seasonal study");
             const auto& shown = scene.Stats ().sunStudy;
             std::string detail;
-            const auto phase = viewerhud::PollStudyDay (state, shown, detail);
+            const auto phase =
+                day.payload ? viewerhud::StudyDayState::Ready : viewerhud::PollStudyDay (state, shown, detail);
             if (phase == viewerhud::StudyDayState::Publishing) {
                 const auto now = std::chrono::steady_clock::now ();
                 if (publishingSince_ == std::chrono::steady_clock::time_point {})
@@ -452,6 +550,13 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             if (phase == viewerhud::StudyDayState::Failed)
                 return abort (detail);
             if (phase == viewerhud::StudyDayState::Ready) {
+                if (!day.payload) {
+                    day.payload = scene.ShownAnalysisPayload ();
+                    if (!day.payload)
+                        return abort ("Seasonal study has no display payload");
+                    day.record = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (shown.studyId);
+                    f.seasonStamp = sourceStamp_;
+                }
                 if (panelIndex_ == 0) {
                     const auto first = scene.ShownAnalysisPayload ();
                     f.legendPlan = first ? first->capturePlan : nullptr;
@@ -477,6 +582,10 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         }
         f.progress =
             float (panelIndex_ + (!waitingDay_ ? float (frames_) / kViewerScreenshotSettleFrames : 0)) / float (total);
+        if (f.exportPage >= 0) {
+            f.progressText = std::string (ReportTitle (report_.type)) + " | " + f.progressText;
+            f.progress = (f.exportPage + f.progress) / 3;
+        }
         if (frames_ % 6 == 0 && progressSurface_) {
             Diligent::ITextureView *rtv = nullptr, *dsv = nullptr;
             if (progressSurface_->BeginFrame (rtv, dsv)) {
@@ -541,7 +650,6 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         const size_t cols = frame.panelSteps.size (), total = cols * (frame.seasonal ? 3 : 1),
                      column = panelIndex_ % cols, rowIndex = panelIndex_ / cols;
         const int step = frame.panelSteps[column];
-        const auto payload = scene.ShownAnalysisPayload ();
         ReportPanel panel;
         panel.season = rowIndex == 0 ? "Equinox" : rowIndex == 1 ? "Summer solstice" : "Winter solstice";
         char date[48];
@@ -550,36 +658,18 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
                        : frame.month == 6 ? "June"
                                           : "December");
         panel.date = date;
-        if (!frame.layoutMinutes.empty ()) {
-            const int a = frame.layoutMinutes.front (), b = frame.layoutMinutes.back ();
-            std::snprintf (date, sizeof (date), "Measured %02d:%02d - %02d:%02d", a / 60, a % 60, b / 60, b % 60);
-            panel.window = date;
-        }
+        double percent = -1;
+        if (frame.seasons[rowIndex].payload)
+            DescribeSeason (panel, frame.seasons[rowIndex], report_.type, step, percent);
+        else
+            panel.metric = "No data";
         if (report_.type == ReportTemplate::Analysis) {
-            double percent = -1;
-            panel.metric = step < 0 ? "Not measured" : payload ? ShadeMetric (*payload, step, percent) : "No data";
             if (column && percent >= 0 && previousShaded_ >= 0) {
                 char delta[32];
                 std::snprintf (delta, sizeof (delta), " (%+.1f pp)", percent - previousShaded_);
                 panel.metric += delta;
             }
             previousShaded_ = percent;
-        }
-        else {
-            panel.metric = "No measured area";
-            const auto rec =
-                payload ? evp::sunstudy::SunStudyStore::Get ().CompletedRecord (payload->studyId) : nullptr;
-            if (rec) {
-                bool patch = rec->IsPatchDomain ();
-                const auto& areas = patch ? rec->patchGrid.areas : rec->sampleGrid.areas;
-                if (patch || rec->atlas.texels.size () == areas.size ())
-                    panel.metric = SeasonalMetric (
-                        *payload, areas,
-                        [&] (size_t i) {
-                            return patch ? rec->patchAtlas.TexelOf (rec->patchGrid, i) : int64_t (rec->atlas.texels[i]);
-                        },
-                        report_.type);
-            }
         }
         panel.width = width;
         panel.height = viewHeight;
@@ -654,6 +744,27 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         image.insert (image.end (), strip.begin (), strip.end ());
     }
     std::filesystem::path path;
+    if (ok && reporting_ && f.exportPage >= 0) {
+        if (f.exportPage == 0) {
+            std::filesystem::path directory;
+            ok = ExportDirectory (directory, error);
+            if (ok) {
+                std::error_code ec;
+                const auto stem = ShotPath (directory, kind_, scale_, ec).stem ().wstring ();
+                for (unsigned i = 0; !ec; ++i) {
+                    exportFolder_ = directory / (stem + L"-layouts" + (i ? L"-" + std::to_wstring (i) : L""));
+                    if (std::filesystem::create_directory (exportFolder_, ec))
+                        break;
+                }
+                if (ec) {
+                    error = "Could not create layout export folder: " + ec.message ();
+                    ok = false;
+                }
+            }
+        }
+        path = exportFolder_ /
+               (std::string ("0") + std::to_string (f.exportPage + 1) + " - " + ReportTitle (report_.type) + ".png");
+    }
     ok = ok && SaveImage (image, width, viewHeight + (strip.empty () ? 0u : stripHeight), kind_, scale_, path, error);
     if (!ok)
         Fail (state, error);
@@ -674,6 +785,25 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         ArchVizLog ("viewer screenshot: saved " + state.sunShotResult);
     }
 
+    if (reporting_) {
+        f.active = true;
+        if (ok && f.exportPage >= 0) {
+            if (f.AdvancePageExport ()) {
+                state.sunShotRequested = true;
+                f.active = false;
+            }
+            else {
+                state.sunShotResult = "Saved 3 layouts: " + Utf8 (exportFolder_);
+            }
+        }
+        else if (ok) {
+            f.clockImages.clear ();
+            f.liveImage = 0;
+            f.paperCache = std::make_shared<viewerhud::ReportPaperPreview> ();
+            f.paperCache->page = std::move (report_);
+            f.paperDirty = false;
+        }
+    }
     Destroy (context);
     // Back to the window: its history is now the screenshot's size.
     scene.ResetTemporalAntiAliasingHistory ();
@@ -689,7 +819,6 @@ void ViewerScreenshot::Destroy (Diligent::IDeviceContext* context)
     frames_ = 0;
     report_ = {};
     reporting_ = false;
-    framingCamera_.reset ();
     table_.reset ();
     if (target_ == nullptr)
         return;

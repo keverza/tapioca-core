@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <chrono>
+#include <filesystem>
 #include <memory>
 
 namespace Diligent {
@@ -96,6 +97,7 @@ class ViewerScreenshot final {
     uint64_t sourceStamp_ = 0;
     DiligentViewportTarget* progressSurface_ = nullptr;
     LayoutReportPage report_;
+    std::filesystem::path exportFolder_;
     bool reporting_ = false;
     std::shared_ptr<const surfacetakeoff::ShotTable> table_;
 };

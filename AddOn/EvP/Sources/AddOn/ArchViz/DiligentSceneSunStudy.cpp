@@ -769,6 +769,16 @@ uint32_t DiligentScene::ShownAnalysisKind () const
     return impl_ != nullptr ? impl_->sunAnalysisKind : 0u;
 }
 
+bool DiligentScene::RestoreAnalysisPayload (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                                            const SunStudyAtlasUpload& study)
+{
+    auto shown = ShownAnalysisPayload ();
+    if (!shown || shown->texels != study.texels || shown->studyId != study.studyId || shown->version != study.version)
+        ApplySunStudy (device, context, std::make_unique<SunStudyAtlasUpload> (study));
+    shown = ShownAnalysisPayload ();
+    return shown && shown->texels == study.texels && shown->studyId == study.studyId && shown->version == study.version;
+}
+
 std::shared_ptr<const SunStudyAtlasUpload> DiligentScene::ShownAnalysisPayload () const
 {
     return impl_ != nullptr && impl_->sunAtlasSRV != nullptr ? impl_->sunStudyPayload : nullptr;

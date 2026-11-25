@@ -7,7 +7,7 @@
 namespace geomsrv::archviz {
 inline void ApplyReportPalette (ReportTemplate type, SunStudyViewSettings& v)
 {
-    v.viewOverride = type == ReportTemplate::Patterns ? 9 : type == ReportTemplate::Analysis ? 5 : 0;
+    v.viewOverride = type == ReportTemplate::Patterns ? 6 : type == ReportTemplate::Analysis ? 5 : 0;
     v.singleLitRgba = 0xeeeeeeff;
     v.singleShadowedRgba = 0x545454ff;
     v.amPmSunlitRgba = 0xeeeeeeff;

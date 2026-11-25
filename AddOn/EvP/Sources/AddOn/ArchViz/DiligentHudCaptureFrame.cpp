@@ -51,7 +51,7 @@ void ShadowClockRange (CaptureFrame& f, float dpi)
     f.clocks.clear ();
     int closest = 0;
     for (int i = 0; i <= f.divisions; ++i) {
-        int m = f.startMinute + 5 * int (std::lround (double (i) * (f.endMinute - f.startMinute) / (5 * f.divisions)));
+        int m = f.ClockAtDivision (i);
         f.clocks.push_back (m);
         if (std::abs (mx - x (m)) < std::abs (mx - x (f.clocks[closest])))
             closest = i;
@@ -374,10 +374,10 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             for (const auto& tile : frame.paperTiles) {
                 ImVec2 tl { a.x + tile.x * (b.x - a.x), a.y + tile.y * (b.y - a.y) };
                 ImVec2 br { tl.x + tile.w * (b.x - a.x), tl.y + tile.h * (b.y - a.y) };
-                const uintptr_t image =
-                    frame.reportType == int (ReportTemplate::Analysis) && !frame.clockImages.empty ()
-                        ? frame.clockImages[tileIndex % frame.clockImages.size ()]
-                        : frame.liveImage;
+                const uintptr_t image = (frame.measuredDraft || frame.reportType == int (ReportTemplate::Analysis)) &&
+                                                !frame.clockImages.empty ()
+                                            ? frame.clockImages[tileIndex % frame.clockImages.size ()]
+                                            : frame.liveImage;
                 ++tileIndex;
                 if (image) {
                     const float sw = std::min (rect.Width (), rect.Height () * frame.tileAspect),
@@ -393,6 +393,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                     continue;
                 cameraTile = frame.editCamera;
                 if (cameraTile && (!frame.cameraNavHeld || frame.cameraTilePixels.Width () == 0)) {
+                    frame.navigationTile = tileIndex - 1;
                     frame.cameraTilePixels = { tl.x, tl.y, br.x, br.y };
                     const float sw = std::min (rect.Width (), rect.Height () * frame.tileAspect),
                                 sh = sw / frame.tileAspect;
@@ -410,7 +411,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                 }
                 else if (ImGui::IsMouseDoubleClicked (0)) {
                     frame.editCamera = true;
-                    frame.paperDirty = true;
+                    frame.paperDirty |= !frame.measuredDraft;
                 }
             }
             if (frame.resizingTile) {
@@ -436,7 +437,9 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             const char* templates[] = { ReportTitle (ReportTemplate::Analysis), ReportTitle (ReportTemplate::Patterns),
                                         ReportTitle (ReportTemplate::Access) };
             ImGui::SetNextItemWidth (190 * dpiScale);
-            frame.paperDirty |= ImGui::Combo ("Workflow output", &frame.reportType, templates, 3);
+            int workflow = frame.reportType;
+            if (ImGui::Combo ("Workflow output", &workflow, templates, 3))
+                frame.SelectWorkflow (workflow);
         }
         if (frame.kind == kShotSunStudy &&
             (frame.builder ? frame.reportType == int (ReportTemplate::Access) : frame.entryMode == 0)) {
@@ -453,8 +456,10 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             else if (frame.reportType == int (ReportTemplate::Patterns))
                 frame.paperDirty |= DrawShadowPalette (
                     "ampm", { { &state.sunAmPmSunlitRgba, kAmPmSunlitRgba, "Neither", "Never shaded" },
-                              { &state.sunAmPmMorningRgba, kAmPmMorningRgba, "AM only", "Shaded before noon" },
-                              { &state.sunAmPmEveningRgba, kAmPmEveningRgba, "PM only", "Shaded after noon" } });
+                              { &state.sunAmPmMorningRgba, kAmPmMorningRgba, "Morning",
+                                "Intensity follows morning shadow duration" },
+                              { &state.sunAmPmEveningRgba, kAmPmEveningRgba, "Evening",
+                                "Intensity follows evening shadow duration" } });
             ImGui::SetNextItemWidth (190 * dpiScale);
             frame.paperDirty |= ImGui::Combo ("Page format", &frame.pageFormat, papers, 4);
             ImGui::TextDisabled ("Equinox  /  Summer solstice  /  Winter solstice");
@@ -472,13 +477,14 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                     if (it != shown->stepMinutes.end ())
                         frame.panelSteps[i] = int (it - shown->stepMinutes.begin ());
                 }
-            frame.paperDirty |= frame.panelSteps != previousSteps && !frame.clockImages.empty ();
+            frame.paperDirty |=
+                !frame.measuredDraft && frame.panelSteps != previousSteps && !frame.clockImages.empty ();
             auto page = ReportPageFormat (frame.pageFormat);
-            ImGui::Text ("Page 1   |   %u x %u px   |   150 dpi", page.width, page.height);
+            ImGui::Text ("Page %d / 3   |   %u x %u px   |   150 dpi", frame.reportType + 1, page.width, page.height);
             ImGui::SliderFloat ("Tile W:H", &frame.tileAspect, .4f, 3.f, "%.2f");
             if (ImGui::Button (frame.editCamera ? "Finish camera edit" : "Edit shared camera")) {
                 frame.editCamera = !frame.editCamera;
-                frame.paperDirty = true;
+                frame.paperDirty |= !frame.measuredDraft;
             }
             ImGui::TextWrapped (
                 frame.editCamera
@@ -492,7 +498,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                 state.sunShotPreset = frame.preset;
                 state.sunShotRequested = true;
             }
-            if (state.sunShotFailed)
+            if (state.sunShotFailed || state.sunShotResult.starts_with ("Saved 3 layouts:"))
                 ImGui::TextWrapped ("%s", state.sunShotResult.c_str ());
         }
         const float barWidth = ImGui::CalcTextSize ("Capture   Cancel   16:9   1.5x   12345 x 12345").x +
@@ -520,7 +526,9 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
         ImGui::SameLine ();
         ImGui::BeginDisabled (ShotPending (state) || !crop.Width () || !crop.Height ());
-        if (ImGui::Button ("Capture")) {
+        if (ImGui::Button (frame.builder ? "Capture all 3" : "Capture")) {
+            if (frame.builder)
+                frame.BeginPageExport ();
             frame.previewOnly = false;
             state.captureRegions[frame.viewSlot] = frame.rect;
             state.shotKind = frame.kind;
@@ -533,9 +541,12 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
         ImGui::EndDisabled ();
         ImGui::SameLine ();
         if (ImGui::Button ("Cancel")) {
-            CancelStudyDay (frame);
+            if (!frame.builder)
+                CancelStudyDay (frame);
             frame.active = false;
             frame.cancelled = true;
+            // The draw list still borrows paper and tile texture views until Render().
+            // The frame loop releases the session on its next iteration.
             state.exposedShot.reset ();
         }
         ownsMouse = ownsMouse || ImGui::IsWindowHovered (ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) ||

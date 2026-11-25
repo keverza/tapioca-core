@@ -7,6 +7,8 @@
 #include <Texture.h>
 #include <RefCntAutoPtr.hpp>
 #include <functional>
+#include <array>
+#include <chrono>
 
 namespace geomsrv::archviz::viewerhud {
 struct ReportPaperPreview {
@@ -17,6 +19,9 @@ struct ReportPaperPreview {
     std::string study;
     uint64_t version = 0;
     float composedAspect = -1;
+    std::array<float, 32> camera {};
+    size_t tilesToRefresh = 0;
+    std::chrono::steady_clock::time_point navigationUntil {};
 };
 
 // Copy the settled scene before ImGui paints the paper over the swap-chain buffer.
@@ -25,11 +30,13 @@ inline void CopyPaperScene (CaptureFrame& f, Diligent::IRenderDevice* device, Di
                             Diligent::ITextureView* colour, Diligent::ITextureView* depth)
 {
     f.liveImage = 0;
-    if (!f.active || !f.builder || !f.paperCache || !f.paperCache->page.pending || !colour)
+    if (!f.active || !f.builder || !f.paperCache ||
+        (!f.paperCache->page.pending && !(f.measuredDraft && !f.clockImages.empty ())) || !colour)
         return;
-    const bool byClock = f.reportType == int (ReportTemplate::Analysis) && !f.panelSteps.empty ();
-    if (byClock && (f.liveColumn >= f.panelSteps.size () || f.liveColumn >= f.clockImages.size () ||
-                    f.liveColumn >= f.paperCache->clockTextures.size () || f.panelSteps[f.liveColumn] < 0))
+    const bool byClock = f.measuredDraft || (f.reportType == int (ReportTemplate::Analysis) && !f.panelSteps.empty ());
+    if (byClock &&
+        (f.liveColumn >= f.clockImages.size () || f.liveColumn >= f.paperCache->clockTextures.size () ||
+         (f.measuredDraft ? f.liveStep < 0 : f.liveColumn >= f.panelSteps.size () || f.panelSteps[f.liveColumn] < 0)))
         return;
     auto& live = byClock ? f.paperCache->clockTextures[f.liveColumn] : f.paperCache->live;
     const auto& src = colour->GetTexture ()->GetDesc ();
@@ -68,9 +75,10 @@ inline void UpdateReportPaper (Diligent::IRenderDevice* device, CaptureFrame& f,
     auto& cache = *f.paperCache;
     auto& p = cache.page;
     if (f.paperDirty) {
-        f.clockImages.assign (f.panelSteps.size (), 0);
+        f.clockImages.assign (f.panelSteps.size () * (f.measuredDraft ? 3 : 1), 0);
         cache.clockTextures.clear ();
         cache.clockTextures.resize (f.clockImages.size ());
+        cache.tilesToRefresh = f.clockImages.size ();
         f.liveColumn = 0;
         p = {};
         p.type = ReportTemplate (f.reportType);

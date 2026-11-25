@@ -869,16 +869,13 @@ int main (int argc, char** argv)
         hud.shadowsEnabled = false;
         hud.temporalConvergence = false;
         unsigned frame = 0;
-        for (unsigned row = 0; row < 3; ++row) {
-            auto day = fixture.Day (row);
-            queue.PushAnalysisAtlas (queue.ClaimAnalysisDisplay (0), std::make_unique<av::SunStudyAtlasUpload> (day));
-            while (scene.Consume (device, 64, context) > 0) {
-            }
-            if (scene.Stats ().sunStudy.elementsAttached != 1) {
-                av::ArchVizLog ("report fixture receiver failed to attach");
-                return 1;
-            }
-            for (auto& page : pages) {
+        const av::SunStudyAtlasUpload days[] = { fixture.Day (0), fixture.Day (1), fixture.Day (2) };
+        for (auto& page : pages) {
+            for (unsigned row = 0; row < 3; ++row) {
+                const auto& day = days[row];
+                if (!scene.RestoreAnalysisPayload (device, context, day) ||
+                    scene.Stats ().sunStudy.elementsAttached != 1)
+                    return 1;
                 bool matrix = page.type == av::ReportTemplate::Analysis;
                 double previous = -1;
                 for (size_t i = 0; i < (matrix ? page.clocks.size () : 1); ++i) {
@@ -920,25 +917,40 @@ int main (int argc, char** argv)
                     for (unsigned f = 0; f < o.frames; ++f)
                         RenderFrame (scene, context, targets, o, v, hud, frame++);
                     tile.rgba = ReadBack (context, targets, o.width, o.height);
-                    if (page.panels.empty ()) {
+                    if (page.type == av::ReportTemplate::Patterns && i == 0) {
+                        // A camera edit must produce new pixels from the same measured day.
+                        auto moved = v;
+                        moved.eye[0] += 16;
+                        scene.ResetTemporalAntiAliasingHistory ();
+                        for (unsigned f = 0; f < o.frames; ++f)
+                            RenderFrame (scene, context, targets, o, moved, hud, frame++);
+                        if (ReadBack (context, targets, o.width, o.height) == tile.rgba ||
+                            scene.ShownAnalysisPayload ()->stepMasks != day.stepMasks)
+                            return 1;
+                        scene.ResetTemporalAntiAliasingHistory ();
+                        for (unsigned f = 0; f < o.frames; ++f)
+                            RenderFrame (scene, context, targets, o, v, hud, frame++);
+                        tile.rgba = ReadBack (context, targets, o.width, o.height);
+                    }
+                    if (i == 0) {
                         // The draft paper samples the encoded scene, not an sRGB-decoded or HUD-painted copy.
                         av::viewerhud::CaptureFrame live;
                         live.active = live.builder = true;
                         live.reportType = int (page.type);
                         live.paperCache = std::make_shared<av::viewerhud::ReportPaperPreview> ();
                         live.paperCache->page.pending = true;
-                        if (matrix) {
-                            live.panelSteps = { -1, int (settings.step) };
-                            live.clockImages.resize (2);
-                            live.paperCache->clockTextures.resize (2);
-                            live.liveColumn = 1;
-                        }
+                        live.measuredDraft = true;
+                        live.liveStep = matrix ? int (settings.step) : 0;
+                        const size_t columns = matrix ? page.clocks.size () : 1;
+                        live.panelSteps.resize (columns);
+                        live.clockImages.resize (3 * columns);
+                        live.paperCache->clockTextures.resize (3 * columns);
+                        live.liveColumn = row * columns + i;
                         av::viewerhud::CopyPaperScene (
                             live, device, context, targets.color->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET),
                             targets.depth->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL));
-                        auto texture = matrix ? live.paperCache->clockTextures[1] : live.paperCache->live;
-                        if (!live.liveImage || !texture ||
-                            (matrix && (live.clockImages[0] || live.clockImages[1] != live.liveImage)) ||
+                        auto texture = live.paperCache->clockTextures[live.liveColumn];
+                        if (!live.liveImage || !texture || live.clockImages[live.liveColumn] != live.liveImage ||
                             texture->GetDesc ().Format != Diligent::TEX_FORMAT_RGBA8_UNORM)
                             return 1;
                         Targets copied;
