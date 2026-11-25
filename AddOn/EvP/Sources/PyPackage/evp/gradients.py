@@ -94,6 +94,7 @@ GRADIENTS = (
     Gradient('view-study-stepped', 'View Study (stepped)', 'view', True, 0.0, 100.0),
     Gradient('daylight-autonomy', 'Daylight Autonomy', 'daylight', True, 0.0, 100.0),
     Gradient('annual-sun-exposure', 'Annual Sun Exposure', 'daylight', True, 0.0, 100.0),
+    Gradient('planting-light-classes', 'Planting Light Classes', 'sun', True, 0.0, 9.0),
     Gradient('glare-stepped', 'Glare (stepped)', 'daylight', True, 0.0, 1.0),
     Gradient('shade-benefit-stepped', 'Shade Benefit (stepped)', 'sun', True, 0.0, 100.0),
     Gradient('solar-irradiation-low', 'Solar Irradiation Low', 'sun', True, 0.0, 1000.0),

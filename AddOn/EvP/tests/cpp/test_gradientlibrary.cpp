@@ -19,8 +19,8 @@ namespace layers = geomsrv::archviz::overlaylayers;
 TEST (GradientLibrary, EveryPresetIsAValidRamp)
 {
     std::set<std::string> ids;
-    ASSERT_EQ (layers::GradientPresets ().size (), 85u)
-        << "ten originals, the classic sun hours and seventy-four library presets";
+    ASSERT_EQ (layers::GradientPresets ().size (), 86u)
+        << "ten originals, the classic sun hours, seventy-four library presets and planting light classes (#278)";
     for (const layers::GradientPreset& preset : layers::GradientPresets ()) {
         EXPECT_TRUE (ids.insert (preset.id).second) << preset.id << " is listed twice";
         ASSERT_GE (preset.count, 2) << preset.id;
@@ -252,4 +252,18 @@ TEST (GradientLibrary, AFlippedPresetRecoloursTheLayerEndForEndAndIsRemembered)
     layers::Set (Study ("sunhours"));
     EXPECT_FALSE (Stored ("gradient-study").legends[0].colormap.flipped);
     layers::ClearAll ();
+}
+
+// #278: three flat bands over 0..9 h, edges at 3 and 6, distinct from the warm
+// sun-hours ramp. Classes themselves come from the exact comparator, not this.
+TEST (GradientLibrary, PlantingLightClassesAreThreeBandsAtThreeAndSixHours)
+{
+    const layers::GradientPreset* preset = layers::FindGradientPreset ("planting-light-classes");
+    ASSERT_NE (preset, nullptr);
+    EXPECT_TRUE (preset->stepped);
+    EXPECT_DOUBLE_EQ (preset->defaultMin, 0.0);
+    EXPECT_DOUBLE_EQ (preset->defaultMax, 9.0);
+    ASSERT_EQ (preset->count, 4);
+    EXPECT_NEAR (preset->stops[1].at * preset->defaultMax, 3.0, 1.0e-5);
+    EXPECT_NEAR (preset->stops[2].at * preset->defaultMax, 6.0, 1.0e-5);
 }

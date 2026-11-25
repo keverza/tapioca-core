@@ -36,10 +36,11 @@ def test_every_generated_copy_is_current():
     assert _generator().main(["--check"]) == 0, "run tools/generate_gradient_presets.py"
 
 
-def test_the_list_keeps_the_original_ten_first_and_adds_seventy_five():
+def test_the_list_keeps_the_original_ten_first_and_adds_seventy_six():
+    # 86 since #278 added planting-light-classes.
     ids = [preset["id"] for preset in _presets()]
     assert tuple(ids[:10]) == LEGACY
-    assert len(ids) == 85 and len(set(ids)) == 85
+    assert len(ids) == 86 and len(set(ids)) == 86
 
 
 def test_every_preset_is_a_valid_ramp():
