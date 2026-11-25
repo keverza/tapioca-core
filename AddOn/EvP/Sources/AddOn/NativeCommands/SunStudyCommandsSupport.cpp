@@ -117,11 +117,32 @@ evp::sunstudy::AnalysisLimits MachineAnalysisLimits (size_t steps, bool patchDom
 GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing)
 {
     char text[320];
+    if (limits.maxSamples == 0) {
+        // A measured budget too small for one sample: no grid fits, so do not
+        // send the user hunting for a coarser one.
+        std::snprintf (text, sizeof (text),
+                       "this machine has too little free %s for any sun study right now - close other studies or "
+                       "applications and try again",
+                       evp::sunstudy::LimitBindingName (limits.binding));
+        return GS::UniString (text, CC_UTF8);
+    }
     std::snprintf (text, sizeof (text),
                    "the study would exceed this machine's limit of %zu samples (set by %s) at a %.2f m grid - ask "
                    "for a coarser grid; the viewer's sun study panel shows the finest grid this model allows",
                    limits.maxSamples, evp::sunstudy::LimitBindingName (limits.binding), spacing);
     return GS::UniString (text, CC_UTF8);
+}
+
+GS::UniString GroundGridRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing, const double aabbMin[3],
+                                 const double aabbMax[3])
+{
+    if (!std::isfinite (spacing) || spacing <= 0.0)
+        return "the ground sample grid needs a positive, finite grid spacing";
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!std::isfinite (aabbMin[axis]) || !std::isfinite (aabbMax[axis]) || aabbMin[axis] > aabbMax[axis])
+            return "the ground sample grid has no site to cover - the model's bounding box is empty or not finite";
+    }
+    return LimitRefusal (limits, spacing);
 }
 
 bool ReadAnalysisCylinder (const GS::ObjectState& params, bool patchSurfaces, evp::sunstudy::AnalysisCylinder& out,

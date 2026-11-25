@@ -44,6 +44,7 @@ using evp::sunstudy::SunStudyStore;
 // Shared parameter/packing helpers keep the calculation and display wire formats
 // identical; each command translation unit still exports one domain provider.
 using sunstudysupport::AddBackendReport;
+using sunstudysupport::GroundGridRefusal;
 using sunstudysupport::LimitRefusal;
 using sunstudysupport::MachineAnalysisLimits;
 using sunstudysupport::PackBits;
@@ -262,7 +263,8 @@ class StartSunStudyCommand : public MainThreadCommand {
         size_t atlasFaces = 0;
         size_t patchCount = 0;
         size_t excludedSurfaces = 0; // context faces (triangle) or surfaces (patch)
-
+        // One admission decision for the surface and ground samplers (#117).
+        const auto limits = MachineAnalysisLimits (record->series.StepCount (), patchDomain);
         if (sampleExplicit) {
             // ⚠️ THE SEAM THAT MAKES THIS A CORE RATHER THAN A COMMAND. A
             // consumer that already has a sample set -- the browser page, a
@@ -313,7 +315,6 @@ class StartSunStudyCommand : public MainThreadCommand {
             // Sampling the model's own faces asks no such question, and it is
             // also what the browser-side study measures -- which is what lets
             // the two be diffed sample for sample rather than merely compared.
-            const auto limits = MachineAnalysisLimits (record->series.StepCount (), patchDomain);
             evp::sunstudy::SurfaceSamplingOptions options;
             options.domain = patchDomain ? evp::sunstudy::SamplingDomain::SurfacePatch
                                          : evp::sunstudy::SamplingDomain::TriangleLegacy;
@@ -395,12 +396,10 @@ class StartSunStudyCommand : public MainThreadCommand {
         else {
             const evp::sunstudy::GroundGrid grid = evp::sunstudy::kernels::MakeGroundSampleGrid (
                 evp::sunstudy::Vec3 { snapshotMin[0], snapshotMin[1], snapshotMin[2] },
-                evp::sunstudy::Vec3 { snapshotMax[0], snapshotMax[1], snapshotMax[2] }, spacing, pad, zOffset);
-            if (!grid.valid) {
-                return NativeCommandResult::Failure (
-                    "the ground sample grid was refused - check that grid spacing is positive and not so fine that "
-                    "the site exceeds the sample ceiling");
-            }
+                evp::sunstudy::Vec3 { snapshotMax[0], snapshotMax[1], snapshotMax[2] }, spacing, pad, zOffset,
+                limits.maxSamples);
+            if (!grid.valid)
+                return NativeCommandResult::Failure (GroundGridRefusal (limits, spacing, snapshotMin, snapshotMax));
 
             record->positions = grid.positions;
             record->normals = grid.normals;

@@ -136,9 +136,15 @@ pub fn compute_analysis_limits(
         max_atlas_dimension: ATLAS_PACKER_MAX_DIMENSION,
         ..AnalysisLimits::default()
     };
+    // `None` = the resource was not measured and does not bind. A MEASURED
+    // budget that truncates to zero samples is `Some(0)` and binds: a machine
+    // with almost no free memory must refuse, not fall back to the sampler cap
+    // (#117). The breakdown fields below still print 0 for both.
+    let mut ram_cap = None;
+    let mut gpu_cap = None;
     if machine.available_ram_bytes > 0 {
         let budget = bytes_to_f64(machine.available_ram_bytes) * RAM_BUDGET_FRACTION;
-        out.ram_cap = to_count(budget / system_bytes_per_sample(steps, occ));
+        ram_cap = Some(to_count(budget / system_bytes_per_sample(steps, occ)));
     }
     if machine.gpu_known {
         if machine.max_texture_dimension > 0 {
@@ -146,19 +152,23 @@ pub fn compute_analysis_limits(
         }
         if machine.gpu_memory_bytes > 0 {
             let budget = bytes_to_f64(machine.gpu_memory_bytes) * GPU_BUDGET_FRACTION;
-            out.gpu_cap = to_count(budget / gpu_bytes_per_texel(steps) * occ);
+            gpu_cap = Some(to_count(budget / gpu_bytes_per_texel(steps) * occ));
         }
     }
     let side = f64::from(out.max_atlas_dimension);
     out.texture_cap = to_count(side * side * occ);
+    out.ram_cap = ram_cap.unwrap_or(0);
+    out.gpu_cap = gpu_cap.unwrap_or(0);
 
     out.max_samples = out.sampler_cap;
     for (cap, why) in [
-        (out.ram_cap, LimitBinding::SystemMemory),
-        (out.gpu_cap, LimitBinding::GpuMemory),
-        (out.texture_cap, LimitBinding::TextureSize),
+        (ram_cap, LimitBinding::SystemMemory),
+        (gpu_cap, LimitBinding::GpuMemory),
+        (Some(out.texture_cap), LimitBinding::TextureSize),
     ] {
-        if cap > 0 && cap < out.max_samples {
+        if let Some(cap) = cap
+            && cap < out.max_samples
+        {
             out.max_samples = cap;
             out.binding = why;
         }

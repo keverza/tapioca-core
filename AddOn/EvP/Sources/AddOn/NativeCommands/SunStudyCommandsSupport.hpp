@@ -60,6 +60,11 @@ evp::sunstudy::AnalysisLimits MachineAnalysisLimits (size_t steps, bool patchDom
 // The refusal a study over that ceiling gets: the ceiling, what bound it, and
 // the grid it was asked at -- so the next attempt is a number, not a guess.
 GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing);
+// Why a ground grid over the box `aabbMin`..`aabbMax` was refused: a spacing
+// that is not a positive number, a model box with no finite extent, or else
+// the sample ceiling -- the only cause left once those two are ruled out (#117).
+GS::UniString GroundGridRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing, const double aabbMin[3],
+                                 const double aabbMax[3]);
 
 // The analysis cylinder's clipX/clipY/clipRadius (SunStudy/SunStudyBounds.hpp);
 // radius 0 when absent. False with `error` for a non-finite or negative value,

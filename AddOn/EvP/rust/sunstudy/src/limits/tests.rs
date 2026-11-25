@@ -40,6 +40,34 @@ fn a_little_system_memory_binds() {
 }
 
 #[test]
+fn measured_system_memory_too_small_for_one_sample_binds_at_zero() {
+    let machine = MachineResources {
+        available_ram_bytes: 64,
+        ..MachineResources::default()
+    };
+    let limits = compute_analysis_limits(&machine, 49, PATCH_ATLAS_OCCUPANCY);
+    assert_eq!(limits.binding, LimitBinding::SystemMemory);
+    assert_eq!(limits.max_samples, 0);
+    assert_eq!(limits.max_rays, 0);
+}
+
+#[test]
+fn measured_gpu_memory_too_small_for_one_sample_binds_at_zero() {
+    let limits = compute_analysis_limits(&gpu(8, 16384), 49, PATCH_ATLAS_OCCUPANCY);
+    assert_eq!(limits.binding, LimitBinding::GpuMemory);
+    assert_eq!(limits.max_samples, 0);
+}
+
+#[test]
+fn unmeasured_resources_do_not_bind() {
+    // gpu_known with zero memory and zero texture limit: unknown, not empty.
+    let limits = compute_analysis_limits(&gpu(0, 0), 49, PATCH_ATLAS_OCCUPANCY);
+    assert_eq!(limits.binding, LimitBinding::SamplerCap);
+    assert_eq!(limits.max_samples, SAMPLER_MAX_SAMPLES);
+    assert_eq!(limits.max_atlas_dimension, ATLAS_PACKER_MAX_DIMENSION);
+}
+
+#[test]
 fn a_small_texture_ceiling_binds_and_caps_the_atlas() {
     let limits = compute_analysis_limits(&gpu(24 << 30, 2048), 49, PATCH_ATLAS_OCCUPANCY);
     assert_eq!(limits.binding, LimitBinding::TextureSize);
