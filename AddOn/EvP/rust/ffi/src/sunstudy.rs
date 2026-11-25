@@ -33,6 +33,7 @@ mod surface;
 mod viewpoint_seen;
 mod views;
 mod visibility;
+mod weather;
 mod winding;
 
 pub use annual::{
@@ -150,6 +151,12 @@ pub use visibility::{
     tapioca_sunstudy_visibility_read, tapioca_sunstudy_visibility_run,
     tapioca_sunstudy_visibility_summary,
 };
+pub use weather::{
+    StationDistanceRequest, WeatherDayOut, WeatherMonthOut, WeatherReadOutput, WeatherReadRequest,
+    WeatherRecordOut, WeatherSeasonRequest, WeatherSeasonResult, WeatherSummary,
+    tapioca_sunstudy_station_distance, tapioca_sunstudy_weather_read,
+    tapioca_sunstudy_weather_season,
+};
 pub use winding::{
     WindingOutput, WindingReportOutput, WindingRequest, tapioca_sunstudy_orient_outward,
 };
@@ -192,6 +199,15 @@ const _: () = {
     assert!(size_of::<ClassAreasRequest>() == 48);
     assert!(size_of::<ClassAreasSummary>() == 24);
     assert!(size_of::<ClassAreasOutput>() == 32);
+    assert!(size_of::<WeatherReadRequest>() == 16);
+    assert!(size_of::<WeatherRecordOut>() == 224);
+    assert!(size_of::<WeatherDayOut>() == 32);
+    assert!(size_of::<WeatherMonthOut>() == 64);
+    assert!(size_of::<WeatherSummary>() == 1288);
+    assert!(size_of::<WeatherReadOutput>() == 48);
+    assert!(size_of::<WeatherSeasonRequest>() == 40);
+    assert!(size_of::<WeatherSeasonResult>() == 24);
+    assert!(size_of::<StationDistanceRequest>() == 32);
     assert!(size_of::<ReceptorLayerRequest>() == 96);
     assert!(size_of::<ReceptorLayerSummary>() == 56);
     assert!(size_of::<ReceptorLayerOutput>() == 56);

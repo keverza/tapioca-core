@@ -35,10 +35,11 @@ pub mod surface_sampling;
 pub mod texture_delta;
 pub mod viewpoint;
 pub mod visibility;
+pub mod weather;
 pub mod winding;
 
 /// Version of the sun-study C ABI surface (`SunStudyRustFfi.h`).
 ///
 /// Bumped only when an exported sun-study record or call changes shape, so the
 /// C++ wrapper can refuse a mismatched archive instead of misreading it.
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;

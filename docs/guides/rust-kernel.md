@@ -1599,6 +1599,19 @@ has no sun-study core".
   the tint shader's display band, which carries a small slack. Export
   `tapioca_sunstudy_class_areas`; C++ `ClassifyLightAreas`
   (`SunStudyLightClass.hpp`).
+- **EPW weather (#155 P1):** `weather` parses an EnergyPlus weather file from its
+  bytes (no path, no IO): header, one data period of 1-60 records per hour, 27
+  numeric fields per record with missing markers and out-of-range values as NaN
+  and counted per field, never zero-filled; records out of sequence, truncated
+  files and unreadable numbers are refused with their line and column. A record
+  covers the interval before its timestamp in the station's standard time;
+  radiation is a mean rate (Wh/m2 per hour), so interval energy is value x
+  1/recordsPerHour. Also SHA-256 of the bytes, daily/monthly summaries, a
+  temperature growing season (`weather::season`) and great-circle station
+  distance. Exports `tapioca_sunstudy_weather_read` (a refused file is a
+  successful call with `refusal != 0`), `_weather_season` and
+  `_station_distance` (sun-study ABI v6); C++ `SunStudyWeather.hpp`. Not a sky
+  or irradiance model: nothing may feed a light quantity before #155 P2.
 
 Parity was **bit-for-bit**, not within a tolerance: until P7b,
 `test_sunstudy_rust_parity.cpp` ran each kernel and its C++ original over

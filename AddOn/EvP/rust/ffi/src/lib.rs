@@ -263,6 +263,12 @@ pub use sunstudy::{
     tapioca_sunstudy_session_read, tapioca_sunstudy_session_seed, tapioca_sunstudy_session_sync,
 };
 pub use sunstudy::{
+    StationDistanceRequest, WeatherDayOut, WeatherMonthOut, WeatherReadOutput, WeatherReadRequest,
+    WeatherRecordOut, WeatherSeasonRequest, WeatherSeasonResult, WeatherSummary,
+    tapioca_sunstudy_station_distance, tapioca_sunstudy_weather_read,
+    tapioca_sunstudy_weather_season,
+};
+pub use sunstudy::{
     StudyAdvanceRequest, StudyArraysOutput, StudyCreateRequest, StudyHandle, StudyImageOutput,
     StudyImageSummary, StudyInfo, StudyMeshesView, StudyReadAtRequest, StudyReadingRecord,
     StudyReuseOutcome, StudyReuseRequest, StudySampleStepsOutput, StudyStepMaskOutput,

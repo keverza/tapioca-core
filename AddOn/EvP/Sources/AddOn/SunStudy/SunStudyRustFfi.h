@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (5)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (6)
 
 #ifdef __cplusplus
 extern "C" {
@@ -378,6 +378,119 @@ typedef struct {
 
 TapiocaStatus tapioca_sunstudy_class_areas (const TapiocaClassAreasRequest* request,
                                             const TapiocaClassAreasOutput* output, char* error, size_t errorCapacity);
+
+/* EPW weather files (#155 P1). A refused file is a successful call whose
+ * summary carries refusal != 0 (RefusalKind order + 1: 1 empty, 2 header,
+ * 3 location, 4 data period, 5 several periods, 6 records per hour,
+ * 7 columns, 8 number, 9 count, 10 sequence) with line/column/expected/found;
+ * records, days and months are then untouched. Radiation values are mean
+ * Wh/m2 per hour over the interval ending at the timestamp; multiply by
+ * 1/recordsPerHour for the interval's energy. NaN is missing or invalid. */
+#define TAPIOCA_WEATHER_FIELDS 27
+
+typedef struct {
+    TapiocaByteView bytes;
+} TapiocaWeatherReadRequest;
+
+typedef struct {
+    int32_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour; /* 1..24, the hour the interval ends in */
+    uint8_t minute;
+    double values[TAPIOCA_WEATHER_FIELDS];
+} TapiocaWeatherRecord;
+
+typedef struct {
+    uint8_t month;
+    uint8_t day;
+    uint8_t reserved[6];
+    double meanDryBulbC;
+    double globalHorizontalWhM2;
+    size_t globalMissing;
+} TapiocaWeatherDay;
+
+typedef struct {
+    size_t records;
+    size_t globalMissing;
+    double meanDryBulbC;
+    double minDryBulbC;
+    double maxDryBulbC;
+    double globalHorizontalKwhM2;
+    double diffuseHorizontalKwhM2;
+    double precipitationMm;
+} TapiocaWeatherMonth;
+
+typedef struct {
+    uint32_t refusal;
+    uint32_t recordsPerHour;
+    size_t line;
+    size_t column;
+    size_t expected;
+    size_t found;
+    size_t records;
+    size_t days;
+    double latitude;
+    double longitude;
+    double timeZoneHours;
+    double elevationM;
+    size_t radiationInDark;
+    size_t missing[TAPIOCA_WEATHER_FIELDS];
+    size_t outOfRange[TAPIOCA_WEATHER_FIELDS];
+    uint8_t sha256[32];
+    uint8_t leapYear;
+    uint8_t periodStart[2];
+    uint8_t periodEnd[2];
+    uint8_t reserved[3];
+    char city[64]; /* NUL-terminated UTF-8 */
+    char region[32];
+    char country[32];
+    char source[64];
+    char wmo[16];
+    char comments1[256];
+    char comments2[256];
+} TapiocaWeatherSummary;
+
+typedef struct {
+    TapiocaWeatherRecord* records;
+    size_t recordCapacity;
+    TapiocaWeatherDay* days;
+    size_t dayCapacity;          /* 366 covers any period */
+    TapiocaWeatherMonth* months; /* exactly 12 */
+    TapiocaWeatherSummary* summary;
+} TapiocaWeatherReadOutput;
+
+TapiocaStatus tapioca_sunstudy_weather_read (const TapiocaWeatherReadRequest* request,
+                                             const TapiocaWeatherReadOutput* output, char* error, size_t errorCapacity);
+
+/* Longest run of the centred running mean (odd window) at or above the
+ * threshold; last < first when it wraps over New Year. */
+typedef struct {
+    TapiocaDoubleView dailyMeanC;
+    size_t windowDays;
+    double thresholdC;
+    uint8_t wraps;
+    uint8_t reserved[7];
+} TapiocaWeatherSeasonRequest;
+
+typedef struct {
+    uint8_t found;
+    uint8_t reserved[7];
+    size_t first;
+    size_t last;
+} TapiocaWeatherSeasonResult;
+
+TapiocaStatus tapioca_sunstudy_weather_season (const TapiocaWeatherSeasonRequest* request,
+                                               TapiocaWeatherSeasonResult* result, char* error, size_t errorCapacity);
+
+/* Great-circle distance between two latitude/longitude points (degrees). */
+typedef struct {
+    double a[2];
+    double b[2];
+} TapiocaStationDistanceRequest;
+
+TapiocaStatus tapioca_sunstudy_station_distance (const TapiocaStationDistanceRequest* request, double* metres,
+                                                 char* error, size_t errorCapacity);
 
 /* Planting receptor layer (#278): a sampled grid lifted vertically above its
  * host. Empty ceilings means no overhead test. status bytes: 0 available,
