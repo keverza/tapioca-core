@@ -81,6 +81,18 @@ constexpr uint32_t kAtlasPackerMaxDimension = 8192;
 constexpr double kPatchAtlasOccupancy = 0.70;
 constexpr double kTriangleAtlasOccupancy = 0.15;
 
+// The most traversal threads a command may ask for (#117), the visibility
+// study's precedent. An explicit count is obeyed exactly below the commands
+// (a measurement knob), so the ceiling sits at the entry: schema and native.
+constexpr size_t kMaxTraversalThreads = 64;
+// A requested `maxParallel`: 0 or less decides, above the ceiling is the ceiling.
+constexpr size_t ClampTraversalThreads (int64_t requested)
+{
+    return requested <= 0                                ? size_t (0)
+           : requested >= int64_t (kMaxTraversalThreads) ? kMaxTraversalThreads
+                                                         : size_t (requested);
+}
+
 // The fraction of free memory a study may take.
 constexpr double kRamBudgetFraction = 0.50;
 constexpr double kGpuBudgetFraction = 0.25;

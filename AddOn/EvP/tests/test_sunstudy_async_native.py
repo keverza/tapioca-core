@@ -535,3 +535,14 @@ def test_manual_publication_rechecks_sun_roles_and_capture_and_linearizes_record
     for filename in ("SunStudyDisplayPreparation.cpp", "SunStudyFollowerDriver.cpp"):
         source = (_ADDON / "NativeCommands" / filename).read_text(encoding="utf-8")
         assert "PublishDisplayRecord" in source
+
+
+def test_traversal_threads_are_bounded_at_every_entry():
+    # #117: an explicit maxParallel is obeyed exactly below the commands, so the
+    # ceiling sits at the entry -- the schema rejects, the native read clamps.
+    for filename in ("SunStudyCommands.cpp", "VisibilityStudyCommands.cpp"):
+        source = (_ADDON / "NativeCommands" / filename).read_text(encoding="utf-8")
+        assert '"maxParallel":{"type":"integer","minimum":0,"maximum":64}' in source, filename
+        assert 'ClampTraversalThreads (ReadInt (params, "maxParallel", 0))' in source, filename
+    limits = (_ADDON / "SunStudy" / "SunStudyLimits.hpp").read_text(encoding="utf-8")
+    assert "constexpr size_t kMaxTraversalThreads = 64;" in limits

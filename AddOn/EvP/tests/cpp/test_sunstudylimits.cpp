@@ -98,6 +98,17 @@ TEST (SunStudyLimits, DisplayRefusesAnAtlasLargerThanTheDevice)
     EXPECT_FALSE (AtlasDisplayRefusal (16, 8193, 8192).empty ());
 }
 
+TEST (SunStudyLimits, TraversalThreadsAreBoundedAtTheEntry)
+{
+    // #117: maxParallel reached the tracer verbatim; 0 decides, 1 is inline.
+    static_assert (ClampTraversalThreads (0) == 0);
+    EXPECT_EQ (ClampTraversalThreads (-5), 0u);
+    EXPECT_EQ (ClampTraversalThreads (1), 1u);
+    EXPECT_EQ (ClampTraversalThreads (64), 64u);
+    EXPECT_EQ (ClampTraversalThreads (65), kMaxTraversalThreads);
+    EXPECT_EQ (ClampTraversalThreads (INT64_MAX), kMaxTraversalThreads);
+}
+
 // ---- the limits readout (#117) -------------------------------------------------
 
 namespace {

@@ -540,13 +540,13 @@ class AdvanceSunStudyCommand : public MainThreadCommand {
 
         // Small default slice: the caller's responsiveness budget is unknown.
         const GS::Int32 maxSteps = std::max<GS::Int32> (1, ReadInt (params, "maxSteps", 4));
-        const GS::Int32 maxParallel = std::max<GS::Int32> (0, ReadInt (params, "maxParallel", 0));
+        const size_t maxParallel = evp::sunstudy::ClampTraversalThreads (ReadInt (params, "maxParallel", 0));
         const double tmin = ReadDouble (params, "tmin", 0.001);
         const double tmax = ReadDouble (params, "tmax", 0.0);
 
         size_t advanced = 0;
         std::string error;
-        if (!SunStudyStore::Get ().Advance (id, (size_t) maxSteps, (size_t) maxParallel, tmin, tmax, advanced, error))
+        if (!SunStudyStore::Get ().Advance (id, (size_t) maxSteps, maxParallel, tmin, tmax, advanced, error))
             return NativeCommandResult::Failure (Text (error));
 
         StudyProgress progress;
@@ -865,7 +865,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
             "properties":{
                 "studyId":{"type":"string"},
                 "maxSteps":{"type":"integer"},
-                "maxParallel":{"type":"integer"},
+                "maxParallel":{"type":"integer","minimum":0,"maximum":64},
                 "tmin":{"type":"number"},
                 "tmax":{"type":"number"}
             },

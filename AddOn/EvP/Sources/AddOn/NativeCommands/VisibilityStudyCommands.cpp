@@ -86,7 +86,7 @@ class RunVisibilityStudyCommand : public MainThreadCommand {
         options.tmin = ReadDouble (params, "tmin", 0.001);
         options.coneDegrees = ReadDouble (params, "coneDegrees", 90.0);
         options.maxAimPoints = static_cast<size_t> (std::max<GS::Int32> (1, ReadInt (params, "maxAimPoints", 32)));
-        options.maxParallel = static_cast<size_t> (std::max<GS::Int32> (0, ReadInt (params, "maxParallel", 0)));
+        options.maxParallel = evp::sunstudy::ClampTraversalThreads (ReadInt (params, "maxParallel", 0));
         bool show = true;
         params.Get ("show", show);
         const uint64_t displayGeneration = show ? archviz::SceneCmdQueue::Get ().ClaimAnalysisDisplay (1) : 0;
