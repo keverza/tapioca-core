@@ -459,6 +459,39 @@ std::string RunPeriod (const Request& request, const std::shared_ptr<tapioca::Su
 #endif
 }
 
+// Put `id` on screen and wait for the display to be prepared. "" when shown,
+// "cancelled", or the refusal. `follow` lets the follower adopt a day study;
+// `hoursMax` > 0 is a period's display ceiling.
+std::string ShowStudy (const GS::UniString& id, bool follow, double hoursMax,
+                       const std::shared_ptr<tapioca::SunStudyRunTicket>& ticket)
+{
+    const auto& cancel = ticket->cancelled;
+    GS::ObjectState show;
+    show.Add ("studyId", id);
+    show.Add ("show", true);
+    show.Add ("debug", (GS::Int32) 0);
+    show.Add ("depth", (GS::Int32) 0);
+    if (!follow) {
+        show.Add ("follow", false);
+        if (hoursMax > 0.0)
+            show.Add ("hoursMax", hoursMax);
+    }
+    if (cancel)
+        return "cancelled";
+    if (const auto shown = ShowSunStudyForHud (show, ticket); !shown.ok)
+        return Utf8 (shown.error);
+    while (ManualSunStudyDisplayStatus ().preparing) {
+        if (cancel) {
+            CancelManualSunStudyDisplays ();
+            while (ManualSunStudyDisplayBusy ())
+                std::this_thread::sleep_for (std::chrono::milliseconds (10));
+            return "cancelled";
+        }
+        std::this_thread::sleep_for (std::chrono::milliseconds (10));
+    }
+    return ManualSunStudyDisplayStatus ().error;
+}
+
 void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
 {
     const auto& gCancel = ticket->cancelled;
@@ -506,6 +539,26 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
     };
     const auto failed = [&] (const NativeCommandResult& result) { finish ("failed", Utf8 (result.error)); };
 
+    // Show-only (#278): a kept planting layer back on screen; nothing traced.
+    // ⚠️ `studyId` STAYS EMPTY UNTIL IT IS SHOWN: finish erases a failed run's
+    // study, and this one belongs to the registry.
+    if (!request.showStudy.empty ()) {
+        uint64_t keptRevision = 0;
+        double keptMax = 0.0;
+        if (!plantinglayers::Find (request.showStudy, keptRevision, keptMax))
+            return finish ("failed", "that planting layer is no longer kept; trace it again");
+        SetStage ("showing");
+        sunfollow::Disable ();
+        const std::string shown =
+            ShowStudy (GS::UniString (request.showStudy.c_str (), CC_UTF8), false, keptMax, ticket);
+        if (shown == "cancelled" || gCancel)
+            return finish ("cancelled", "");
+        if (!shown.empty ())
+            return finish ("failed", shown);
+        studyId = request.showStudy;
+        return finish ("done", "");
+    }
+
     // The previous follower would otherwise see this snapshot and rerun its
     // own study underneath this one.
     SetStage ("snapshot");
@@ -537,6 +590,7 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
 
     GS::UniString id;
     double hoursMax = 0.0; // 0: the day's own daylight
+    const bool planting = request.receptorHeight >= 0.0;
     if (request.period != "day") {
         SetStage ("starting");
         const std::string periodError = RunPeriod (request, ticket, studyId, revision);
@@ -592,35 +646,22 @@ void Run (Request request, std::shared_ptr<tapioca::SunStudyRunTicket> ticket)
             return finish ("failed", advanceError);
         if (gCancel)
             return finish ("cancelled", "");
+        // ⚠️ A PLANTING DAY IS NOT FOLLOWED EITHER (#278): its id is the layer
+        // the Planting tab shows again, and a rerun would replace it.
+        if (planting)
+            sunfollow::Disable ();
     }
 
     // Shown, the follower adopts a day and keeps it current through edits.
     SetStage ("showing");
-    GS::ObjectState show;
-    show.Add ("studyId", id);
-    show.Add ("show", true);
-    show.Add ("debug", (GS::Int32) 0);
-    show.Add ("depth", (GS::Int32) 0);
-    if (request.period != "day") {
-        show.Add ("follow", false);
-        if (hoursMax > 0.0)
-            show.Add ("hoursMax", hoursMax);
-    }
-    if (gCancel)
+    if (const std::string shown = ShowStudy (id, request.period == "day" && !planting, hoursMax, ticket);
+        shown == "cancelled" || gCancel)
         return finish ("cancelled", "");
-    if (const auto shown = ShowSunStudyForHud (show, ticket); !shown.ok)
-        return failed (shown);
-    while (ManualSunStudyDisplayStatus ().preparing) {
-        if (gCancel) {
-            CancelManualSunStudyDisplays ();
-            while (ManualSunStudyDisplayBusy ())
-                std::this_thread::sleep_for (std::chrono::milliseconds (10));
-            return finish ("cancelled", "");
-        }
-        std::this_thread::sleep_for (std::chrono::milliseconds (10));
-    }
-    if (const auto display = ManualSunStudyDisplayStatus (); !display.error.empty ())
-        return finish ("failed", display.error);
+    else if (!shown.empty ())
+        return finish ("failed", shown);
+    // Kept for the layer switch before the next run can release it.
+    if (planting)
+        plantinglayers::Keep (studyId, revision, hoursMax);
     // The result's fingerprint, so two runs of one model -- the other backend,
     // another build -- can be compared from the log (#97).
     evp::sunstudy::SunStudyResultSummary summary;

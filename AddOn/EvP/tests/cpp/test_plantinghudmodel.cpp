@@ -110,3 +110,16 @@ TEST (PlantingHudModel, ALayerAtTheSameHeightIsReplaced)
     EXPECT_TRUE (hud.layers[1].period);
     EXPECT_EQ (LayerAt (hud, 3.0f), -1);
 }
+
+TEST (PlantingHudModel, ALayerKeepsItsOwnPeriodLabel)
+{
+    // #278 layer switch: an earlier period layer says its own period, not the
+    // newest run's.
+    PlantingHud hud;
+    KeepLayer (hud, 0.15f, "sun-1", true, "2026-04-28 to 2026-10-01");
+    KeepLayer (hud, 1.5f, "sun-2", true, "2026-06-01 to 2026-08-31 (estimate)");
+    EXPECT_EQ (hud.layers[0].label, "2026-04-28 to 2026-10-01");
+    KeepLayer (hud, 0.15f, "sun-3", false);
+    EXPECT_TRUE (hud.layers[0].label.empty ()) << "a day layer has no period label";
+    EXPECT_EQ (kLayersKept, 8u);
+}

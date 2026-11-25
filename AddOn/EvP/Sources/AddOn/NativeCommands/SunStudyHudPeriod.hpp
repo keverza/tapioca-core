@@ -41,6 +41,15 @@ bool MeanDailyHours (const std::string& carrierId, std::vector<double>& hours, s
 
 } // namespace geomsrv::sunstudyhud::period
 
+namespace geomsrv::sunstudyhud::plantinglayers {
+// The runner's side of the kept planting layers (SunStudyHudPlantingLayers.cpp;
+// the HUD's calls are in SunStudyHudRunner.hpp). Keep after a planting run is
+// done; the oldest beyond kPlantingLayersKept is erased from the store.
+// `hoursMax` is the display ceiling the study was shown with (0: its day).
+void Keep (const std::string& studyId, uint64_t revision, double hoursMax);
+bool Find (const std::string& studyId, uint64_t& revision, double& hoursMax);
+} // namespace geomsrv::sunstudyhud::plantinglayers
+
 namespace geomsrv::sunstudyhud::sunpath {
 // Quit/unload: stop the capture worker and join it (SunStudySunPath.cpp).
 void Shutdown ();

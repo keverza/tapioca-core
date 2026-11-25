@@ -587,3 +587,19 @@ def test_hud_planting_run_sends_the_receptor_on_the_triangle_domain():
     for key in ("receptorHeight", "receptorNormal", "receptorArea", "receptorMinHostUp"):
         assert f'params.Add ("{key}"' in start_params
     assert 'AddGuids (params, "analysisElements", request.analysisElements)' in start_params
+
+
+def test_planting_layers_are_kept_unfollowed_and_shown_without_tracing():
+    # #278 layer switch: a finished planting study is kept (the registry owns it),
+    # a period release spares it, a planting day is never followed, and a
+    # show-only request puts it back without capturing or tracing.
+    runner = (_ADDON / "NativeCommands" / "SunStudyHudRunner.cpp").read_text(encoding="utf-8")
+    period = (_ADDON / "NativeCommands" / "SunStudyHudPeriod.cpp").read_text(encoding="utf-8")
+    run = runner.split("void Run (Request request,", 1)[1]
+    show_only = run.split("if (!request.showStudy.empty ()) {", 1)[1].split("\n    }\n", 1)[0]
+    assert "plantinglayers::Find (request.showStudy" in show_only
+    assert "CaptureOnMain" not in show_only and "AdvanceToConvergence" not in show_only
+    assert show_only.index("ShowStudy (") < show_only.index("studyId = request.showStudy")
+    assert 'request.period == "day" && !planting' in run
+    assert "plantinglayers::Keep (studyId, revision, hoursMax)" in run
+    assert "!IsPlantingLayerKept (carrierId)" in period

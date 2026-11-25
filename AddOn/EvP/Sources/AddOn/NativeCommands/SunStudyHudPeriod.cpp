@@ -373,7 +373,8 @@ bool ReleaseRetained (bool onlyIfIdle)
     // its remaining store owner too, but never clear unrelated studies or hide
     // the renderer's last published frame. The shared handle keeps the record
     // alive for any frame-local reader until that reader finishes.
-    if (!carrierId.empty ())
+    // A kept planting layer (#278) outlives its totals: the registry owns it.
+    if (!carrierId.empty () && !IsPlantingLayerKept (carrierId))
         evp::sunstudy::SunStudyStore::Get ().Erase (carrierId, carrierRevision);
     return true;
 }

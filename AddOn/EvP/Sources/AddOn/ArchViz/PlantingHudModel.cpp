@@ -222,16 +222,17 @@ int LayerAt (const PlantingHud& hud, float height)
     return -1;
 }
 
-void KeepLayer (PlantingHud& hud, float height, const std::string& studyId, bool period)
+void KeepLayer (PlantingHud& hud, float height, const std::string& studyId, bool period, const std::string& label)
 {
     const int at = LayerAt (hud, height);
     if (at >= 0) {
         hud.layers[size_t (at)].studyId = studyId;
         hud.layers[size_t (at)].period = period;
+        hud.layers[size_t (at)].label = label;
         hud.shownLayer = at;
         return;
     }
-    hud.layers.push_back ({ height, studyId, period });
+    hud.layers.push_back ({ height, studyId, period, label });
     std::sort (hud.layers.begin (), hud.layers.end (),
                [] (const Layer& a, const Layer& b) { return a.height < b.height; });
     hud.shownLayer = LayerAt (hud, height);

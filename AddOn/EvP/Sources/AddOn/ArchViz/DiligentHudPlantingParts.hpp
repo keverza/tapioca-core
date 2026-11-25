@@ -31,6 +31,12 @@ std::vector<uint32_t> ShownClassColours (const planting::PlantingHud& hud);
 // Trace `heights` one after another, each its own planting study.
 void RunHeights (HudState& state, std::vector<float> heights);
 
+// Show layer `index` again: a kept planting study goes back on screen without
+// tracing; one no longer kept is traced again.
+void ShowLayer (HudState& state, size_t index);
+// Erase every kept layer and forget them here.
+void ClearLayers (HudState& state);
+
 // Read the area table again when `studyId`, its `version` or the class edges
 // changed since it was last read (the runner copies the study's samples).
 void RefreshAreas (HudState& state, const std::string& studyId, uint64_t version);

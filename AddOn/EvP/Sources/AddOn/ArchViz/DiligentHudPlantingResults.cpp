@@ -80,14 +80,26 @@ void LayerRow (HudState& state, const SunStudyOverlayStatus& study)
                                ImGui::GetStyleColorVec4 (shown ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
         char label[24];
         std::snprintf (label, sizeof (label), "%.2f m", layer.height);
-        ImGui::BeginDisabled (hud.runningRun != 0);
+        ImGui::BeginDisabled (hud.runningRun != 0 || hud.showingRun != 0);
         if (ImGui::SmallButton (label) && !shown)
-            RunHeights (state, { layer.height });
+            ShowLayer (state, i);
         ImGui::EndDisabled ();
         ImGui::PopStyleColor ();
-        hudshell::ItemTip (shown ? "On screen." : "Not on screen: tracing it again shows it (the period keeps one).");
+        hudshell::ItemTip (shown ? "On screen."
+                                 : "Show this layer again: kept, not traced again. Month views and playback stay "
+                                   "with the newest period.");
         ImGui::PopID ();
     }
+    if (hud.showingRun != 0) {
+        ImGui::SameLine ();
+        ImGui::TextDisabled ("showing...");
+    }
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (hud.runningRun != 0 || hud.showingRun != 0);
+    if (ImGui::SmallButton ("Clear##plantinglayers"))
+        ClearLayers (state);
+    ImGui::EndDisabled ();
+    hudshell::ItemTip ("Forget every layer and free the studies kept for them (at most %d).", int (pl::kLayersKept));
 }
 
 void LegendSection (HudState& state)
@@ -271,10 +283,14 @@ void DrawResults (HudState& state, const DiligentSceneStats& scene)
         ImGui::TextDisabled ("Run a layer to see its light classes.");
     else
         LayerRow (state, study);
-    state.sunShowsPeriod = study.drawing && !state.sunPeriodStudyId.empty () && state.sunPeriodStudyId == study.studyId;
+    // The shown layer's own period, kept with it: an earlier layer is shown
+    // from its stored mean hours a day, not from the newest period's totals.
+    const auto shownLayer = std::find_if (hud.layers.begin (), hud.layers.end (), [&] (const pl::Layer& layer) {
+        return study.drawing && layer.studyId == study.studyId;
+    });
+    state.sunShowsPeriod = shownLayer != hud.layers.end () && shownLayer->period;
     if (state.sunShowsPeriod)
-        ImGui::TextDisabled ("%s%s: mean a day", state.sunPeriodLabel.c_str (),
-                             state.sunPeriodEstimate ? " (estimate)" : "");
+        ImGui::TextDisabled ("%s: mean a day", shownLayer->label.c_str ());
     ImGui::RadioButton ("Sun class##plantingmetric", &hud.metric, pl::kSunClass);
     ImGui::SameLine ();
     ImGui::RadioButton ("Hours a day##plantingmetric", &hud.metric, pl::kHoursADay);

@@ -87,6 +87,12 @@ struct Request {
     double receptorHeight = -1.0;
     double receptorMinHostUp = 0.5;
     std::vector<std::string> analysisElements;
+    // A finished planting run is KEPT (KeepsPlantingLayers below) and never
+    // followed: its id is the layer's identity in the Planting tab.
+    //
+    // Show-only (#278 layer switch): put this kept planting study back on
+    // screen. Nothing is captured or traced, and every other field is ignored.
+    std::string showStudy;
 };
 
 struct Status {
@@ -311,6 +317,19 @@ void CancelActive ();
 bool ResumeFollowing (std::string& error);
 // Quit/unload: cancel and join.
 void Shutdown ();
+
+// ---- planting layers (#278) ------------------------------------------------
+//
+// Every finished planting study is kept in the store, newest last, at most
+// kPlantingLayersKept: a later run does not erase it, so the Planting tab can
+// show an earlier layer again (Submit with showStudy) without re-tracing. A
+// period layer keeps its presented mean hours a day, not its annual totals, so
+// month views and playback stay with the newest period only. The oldest beyond
+// the bound is erased.
+constexpr size_t kPlantingLayersKept = 8;
+bool IsPlantingLayerKept (const std::string& studyId);
+// Erase every kept planting study (the tab's Clear layers).
+void ForgetPlantingLayers ();
 
 // ---- the planting area table (#278) ----------------------------------------
 //

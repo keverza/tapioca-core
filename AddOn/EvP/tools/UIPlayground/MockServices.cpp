@@ -141,6 +141,16 @@ bool ReadPeriodPoints (const std::vector<size_t>&, PeriodPoint&)
 void RequestPeriodProfile (const std::vector<size_t>&)
 {
 }
+// Kept planting layers (#278): the mock keeps none, so a layer click re-traces
+// through the deterministic Submit above.
+bool IsPlantingLayerKept (const std::string&)
+{
+    return false;
+}
+void ForgetPlantingLayers ()
+{
+    pg::LogMock ("Forget planting layers (mock; nothing kept)");
+}
 // The Planting tab's area table (#278): a fixed two-host courtyard, the west bed
 // partly under a balcony. No store or period is read.
 bool ReadPlantingAreas (const std::string& studyId, const std::vector<double>& edges, PlantingAreas& out,

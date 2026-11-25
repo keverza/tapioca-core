@@ -39,6 +39,7 @@
 namespace geomsrv::archviz {
 
 namespace pl = planting;
+static_assert (pl::kLayersKept == sunstudyhud::kPlantingLayersKept, "the tab's count is the runner's");
 
 namespace {
 
@@ -427,6 +428,38 @@ void plantinghud::RunHeights (HudState& state, std::vector<float> heights)
     SubmitNextHeight (state);
 }
 
+void plantinghud::ShowLayer (HudState& state, size_t index)
+{
+    pl::PlantingHud& hud = state.planting;
+    if (index >= hud.layers.size () || hud.runningRun != 0 || hud.showingRun != 0)
+        return;
+    const pl::Layer& layer = hud.layers[index];
+    if (!sunstudyhud::IsPlantingLayerKept (layer.studyId)) {
+        RunHeights (state, { layer.height });
+        return;
+    }
+    sunstudyhud::Request request;
+    request.showStudy = layer.studyId;
+    request.receptorHeight = layer.height;
+    uint64_t accepted = 0;
+    hud.runError.clear ();
+    if (sunstudyhud::Submit (request, hud.runError, &accepted)) {
+        hud.showingRun = accepted;
+        hud.showingHeight = layer.height;
+    }
+}
+
+void plantinghud::ClearLayers (HudState& state)
+{
+    pl::PlantingHud& hud = state.planting;
+    if (hud.runningRun != 0 || hud.showingRun != 0)
+        return;
+    sunstudyhud::ForgetPlantingLayers ();
+    hud.layers.clear ();
+    hud.shownLayer = -1;
+    hud.areas = {};
+}
+
 void plantinghud::RefreshAreas (HudState& state, const std::string& studyId, uint64_t version)
 {
     pl::PlantingHud& hud = state.planting;
@@ -470,6 +503,20 @@ void ReleasePlantingDisplay (HudState& state)
 void ServicePlantingRuns (HudState& state)
 {
     pl::PlantingHud& hud = state.planting;
+    if (hud.showingRun != 0) {
+        const auto status = sunstudyhud::CurrentJob ();
+        if (status.runs != hud.showingRun || !status.running) {
+            const float height = hud.showingHeight;
+            const bool lost = status.runs == hud.showingRun && status.stage == "failed";
+            hud.showingRun = 0;
+            hud.showingHeight = -1.0f;
+            // Evicted between the click and the show: trace it again.
+            if (lost && hud.runningRun == 0) {
+                hud.runError.clear ();
+                plantinghud::RunHeights (state, { height });
+            }
+        }
+    }
     if (hud.runningRun == 0)
         return;
     const auto status = sunstudyhud::CurrentJob ();
@@ -487,7 +534,8 @@ void ServicePlantingRuns (HudState& state)
     if (status.running)
         return;
     if (status.stage == "done" && !status.studyId.empty ()) {
-        pl::KeepLayer (hud, hud.runningHeight, status.studyId, status.period);
+        pl::KeepLayer (hud, hud.runningHeight, status.studyId, status.period,
+                       status.period ? status.periodLabel + (status.estimate ? " (estimate)" : "") : std::string ());
         analysistabs::MarkPlanting (state.analysisFocus, status.studyId);
         if (status.period) {
             state.sunPeriodStudyId = status.studyId;

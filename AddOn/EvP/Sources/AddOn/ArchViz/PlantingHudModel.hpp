@@ -59,6 +59,10 @@ constexpr float kDefaultHeights[kHeightCount] = { 0.15f, 0.50f, 1.50f, 3.00f };
 const char* HeightName (int slot); // "Ground cover", "Low planting", "Shrubs", "Trees"
 constexpr float kMaxHeight = 100.0f;
 
+// Finished layers the runner keeps for the layer switch: its
+// kPlantingLayersKept (asserted equal in DiligentHudPlanting.cpp).
+constexpr size_t kLayersKept = 8;
+
 // ---- the classes ------------------------------------------------------------
 // Edges in hours a day, ascending: [deep shade,] shade|partial, partial|sun.
 constexpr float kDefaultDeepShade = 1.0f;
@@ -78,6 +82,7 @@ struct Layer {
     float height = 0.0f;
     std::string studyId;
     bool period = false;
+    std::string label; // a period's "2026-04-28 to 2026-10-01", with " (estimate)"
 };
 
 struct PlantingHud {
@@ -110,6 +115,9 @@ struct PlantingHud {
     int queueTotal = 0;
     std::vector<Layer> layers;
     int shownLayer = -1;
+    // A kept layer being put back on screen (no tracing): its run and height.
+    uint64_t showingRun = 0;
+    float showingHeight = -1.0f;
     std::string runError;
 
     // Display.
@@ -184,7 +192,7 @@ std::string HostLabel (size_t row, const std::string& guid);
 // The layer finished for `height`, or -1.
 int LayerAt (const PlantingHud& hud, float height);
 // Record a finished layer, replacing an older one at the same height.
-void KeepLayer (PlantingHud& hud, float height, const std::string& studyId, bool period);
+void KeepLayer (PlantingHud& hud, float height, const std::string& studyId, bool period, const std::string& label = {});
 
 } // namespace geomsrv::archviz::planting
 
