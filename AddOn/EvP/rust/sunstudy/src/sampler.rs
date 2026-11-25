@@ -106,6 +106,8 @@ pub struct SampleGrid {
     pub excluded_faces: usize,
     /// Faces that emitted a centroid instead of cells.
     pub undersized_faces: usize,
+    /// Refused because the sample count exceeded `max_samples`.
+    pub sample_limit_exceeded: bool,
     /// False when refused (no input, bad spacing, or over `max_samples`).
     pub valid: bool,
 }
@@ -380,6 +382,7 @@ pub fn build_sample_grid(
             grid.cell_rows.extend(emitted.cells.iter().map(|c| c.1));
         }
         if grid.faces.len() + count > options.max_samples {
+            grid.sample_limit_exceeded = true;
             return grid;
         }
         if let Some(layout) = grid.layouts.get_mut(face) {

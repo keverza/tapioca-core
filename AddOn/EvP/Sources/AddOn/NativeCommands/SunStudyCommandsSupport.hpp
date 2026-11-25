@@ -21,6 +21,7 @@
 #include "ObjectState.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
+#include "SunStudy/SunStudySurfaceSampling.hpp"
 
 #include <cstdint>
 #include <string>
@@ -63,6 +64,10 @@ GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double 
 // Why a ground grid over the box `aabbMin`..`aabbMax` was refused: a spacing
 // that is not a positive number, a model box with no finite extent, or else
 // the sample ceiling -- the only cause left once those two are ruled out (#117).
+// Why surface sampling was refused, from the sampler's own reason: only
+// `SampleLimit` is reported as this machine's ceiling (#117).
+GS::UniString SurfaceSamplingRefusal (evp::sunstudy::SamplingRefusal refusal,
+                                      const evp::sunstudy::AnalysisLimits& limits, double spacing);
 GS::UniString GroundGridRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing, const double aabbMin[3],
                                  const double aabbMax[3]);
 

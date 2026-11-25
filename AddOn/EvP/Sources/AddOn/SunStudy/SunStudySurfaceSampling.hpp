@@ -47,6 +47,16 @@ struct SurfaceSamplingLayout {
     bool valid = false;
 };
 
+// Why a sampling was refused; mirrors Rust `SamplingRefusal` (C ABI values).
+// The host names the real cause instead of blaming the sample ceiling (#117).
+enum class SamplingRefusal : uint8_t {
+    None = 0,
+    InvalidInput = 1,
+    SampleLimit = 2,
+    NoSurfaces = 3, // patch domain: nothing analysed produced a sample
+    Cancelled = 4,
+};
+
 struct SurfaceSamplingResult {
     SampleGrid triangles;
     PatchSampleGrid patches;
@@ -57,6 +67,7 @@ struct SurfaceSamplingResult {
     size_t reusedSamples = 0;
     size_t generatedSamples = 0;
     bool valid = false;
+    SamplingRefusal refusal = SamplingRefusal::None;
 };
 
 } // namespace evp::sunstudy

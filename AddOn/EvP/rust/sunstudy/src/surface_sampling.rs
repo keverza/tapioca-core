@@ -19,6 +19,25 @@ use std::collections::BTreeMap;
 mod copy;
 use copy::{append_patches, append_triangles, can_copy, compatible, face_count};
 
+/// Why a sampling was refused, so the host can say so instead of blaming the
+/// sample ceiling for every failure (#117). Discriminants are the C ABI values.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SamplingRefusal {
+    /// Not refused (`valid == true`).
+    #[default]
+    None = 0,
+    /// Malformed settings, masks or meshes, or an index range overflow.
+    InvalidInput = 1,
+    /// More samples than `max_samples`.
+    SampleLimit = 2,
+    /// Patch domain: no analysed surface produced a sample (every surface
+    /// excluded, clipped away, or degenerate).
+    NoSurfaces = 3,
+    /// The caller cancelled.
+    Cancelled = 4,
+}
+
 /// Which domain a study measures. Discriminants are the C ABI values.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -122,6 +141,18 @@ pub struct SurfaceSamplingResult {
     pub generated_samples: usize,
     /// False when refused.
     pub valid: bool,
+    /// Why, when refused.
+    pub refusal: SamplingRefusal,
+}
+
+impl SurfaceSamplingResult {
+    /// The empty, refused result: no partial grid.
+    fn refused(refusal: SamplingRefusal) -> Self {
+        Self {
+            refusal,
+            ..Self::default()
+        }
+    }
 }
 
 /// One snapshot mesh.
@@ -240,7 +271,7 @@ fn fresh_scene(request: &SurfaceSamplingRequest<'_>) -> SurfaceSamplingResult {
     let Ok((oriented, winding)) =
         orient_outward(&vertices, &triangles, Some(&groups), DEFAULT_WELD_TOLERANCE)
     else {
-        return SurfaceSamplingResult::default();
+        return SurfaceSamplingResult::refused(SamplingRefusal::InvalidInput);
     };
     result.winding = winding;
     let face_filter = (!request.face_masks.is_empty()).then_some(faces.as_slice());
@@ -253,6 +284,11 @@ fn fresh_scene(request: &SurfaceSamplingRequest<'_>) -> SurfaceSamplingResult {
         result.patches =
             build_patch_sample_grid(&vertices, &oriented, Some(&groups), &elements, &settings);
         result.valid = result.patches.valid;
+        result.refusal = if result.patches.sample_limit_exceeded {
+            SamplingRefusal::SampleLimit
+        } else {
+            SamplingRefusal::NoSurfaces
+        };
         result.generated_samples = result.patches.count();
     } else {
         let settings = SamplerOptions {
@@ -262,13 +298,19 @@ fn fresh_scene(request: &SurfaceSamplingRequest<'_>) -> SurfaceSamplingResult {
         };
         result.triangles = build_sample_grid(&vertices, &oriented, Some(&groups), &settings);
         result.valid = result.triangles.valid;
+        result.refusal = if result.triangles.sample_limit_exceeded {
+            SamplingRefusal::SampleLimit
+        } else {
+            SamplingRefusal::InvalidInput
+        };
         result.generated_samples = result.triangles.count();
     }
     result.rebuilt_meshes = request.meshes.len();
     if result.valid {
+        result.refusal = SamplingRefusal::None;
         result
     } else {
-        SurfaceSamplingResult::default()
+        SurfaceSamplingResult::refused(result.refusal)
     }
 }
 
@@ -322,6 +364,8 @@ struct Builder<'r, 'a> {
     request: &'r SurfaceSamplingRequest<'a>,
     old: Option<(PreviousSampling<'a>, BTreeMap<String, usize>)>,
     result: SurfaceSamplingResult,
+    /// Set when a `None` from a step was the sample ceiling, not bad input.
+    limit_hit: bool,
 }
 
 impl Builder<'_, '_> {
@@ -354,6 +398,7 @@ impl Builder<'_, '_> {
             return Some(false);
         }
         if old_span.sample_count > options.max_samples.wrapping_sub(span.first_sample) {
+            self.limit_hit = true;
             return None;
         }
         if options.domain == SamplingDomain::SurfacePatch {
@@ -408,6 +453,7 @@ impl Builder<'_, '_> {
             let mut grid =
                 build_patch_sample_grid(item.vertices, &oriented, None, &[item.guid], &settings);
             if grid.sample_limit_exceeded {
+                self.limit_hit = true;
                 return None;
             }
             if grid.patch_of_triangle.is_empty() {
@@ -428,6 +474,7 @@ impl Builder<'_, '_> {
             let groups = vec![0_u32; span.face_count];
             let grid = build_sample_grid(item.vertices, &oriented, Some(&groups), &settings);
             if span.face_count != 0 && !grid.valid {
+                self.limit_hit = grid.sample_limit_exceeded;
                 return None;
             }
             local.sample_count = grid.count();
@@ -455,20 +502,26 @@ impl Builder<'_, '_> {
 }
 
 /// Sample every mesh, reusing an earlier study's grids where identity is
-/// exact. An invalid result (refusal, malformed input, cancellation) is the
-/// default value: no partial grid.
+/// exact. An invalid result (refusal, malformed input, cancellation) carries
+/// no partial grid, only its [`SamplingRefusal`].
 #[must_use]
 pub fn build_surface_sampling(request: &SurfaceSamplingRequest<'_>) -> SurfaceSamplingResult {
+    use SamplingRefusal::{Cancelled, InvalidInput, NoSurfaces, SampleLimit};
+    let refused = SurfaceSamplingResult::refused;
     if !inputs_valid(request) {
-        return SurfaceSamplingResult::default();
+        return refused(InvalidInput);
     }
     if totals(request).is_none() {
-        return SurfaceSamplingResult::default();
+        return refused(if cancelled(request) {
+            Cancelled
+        } else {
+            InvalidInput
+        });
     }
     if index_meshes(request.meshes).is_none() {
         let result = fresh_scene(request);
         return if cancelled(request) {
-            SurfaceSamplingResult::default()
+            refused(Cancelled)
         } else {
             result
         };
@@ -483,12 +536,13 @@ pub fn build_surface_sampling(request: &SurfaceSamplingRequest<'_>) -> SurfaceSa
         request,
         old,
         result: SurfaceSamplingResult::default(),
+        limit_hit: false,
     };
     builder.result.layout.options = request.options;
     let mut first_face = 0;
     for (mesh, item) in request.meshes.iter().enumerate() {
         if cancelled(request) {
-            return SurfaceSamplingResult::default();
+            return refused(Cancelled);
         }
         let mut span = SurfaceMeshSampling {
             first_face,
@@ -499,11 +553,17 @@ pub fn build_surface_sampling(request: &SurfaceSamplingRequest<'_>) -> SurfaceSa
             sample_faces: request.face_masks.get(mesh).cloned().unwrap_or_default(),
             ..SurfaceMeshSampling::default()
         };
-        let Some(copied) = builder.try_copy(mesh, &mut span) else {
-            return SurfaceSamplingResult::default();
+        let step = match builder.try_copy(mesh, &mut span) {
+            Some(true) => Some(()),
+            Some(false) => builder.rebuild(mesh, &mut span),
+            None => None,
         };
-        if !copied && builder.rebuild(mesh, &mut span).is_none() {
-            return SurfaceSamplingResult::default();
+        if step.is_none() {
+            return refused(if builder.limit_hit {
+                SampleLimit
+            } else {
+                InvalidInput
+            });
         }
         let w = &mut builder.result.winding;
         w.groups += span.winding.groups;
@@ -514,7 +574,7 @@ pub fn build_surface_sampling(request: &SurfaceSamplingRequest<'_>) -> SurfaceSa
         builder.result.layout.meshes.push(span);
     }
     if cancelled(request) {
-        return SurfaceSamplingResult::default();
+        return refused(Cancelled);
     }
     let mut result = builder.result;
     result.triangles.valid = request.options.domain == SamplingDomain::TriangleLegacy;
@@ -524,7 +584,8 @@ pub fn build_surface_sampling(request: &SurfaceSamplingRequest<'_>) -> SurfaceSa
     if result.valid {
         result
     } else {
-        SurfaceSamplingResult::default()
+        // Only the patch domain gets here: every mesh sampled, no span made.
+        refused(NoSurfaces)
     }
 }
 

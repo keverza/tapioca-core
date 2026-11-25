@@ -244,6 +244,11 @@ bool Read (const TapiocaSurfaceResult* handle, SurfaceSamplingResult& out, std::
     result.reusedSamples = summary.counts[2];
     result.generatedSamples = summary.counts[3];
     result.valid = summary.flags[0] != 0;
+    if (summary.flags[5] > static_cast<uint8_t> (SamplingRefusal::Cancelled)) {
+        error = "Tapioca Rust surface sampling returned unknown refusal " + std::to_string (summary.flags[5]);
+        return false;
+    }
+    result.refusal = static_cast<SamplingRefusal> (summary.flags[5]);
     out = std::move (result);
     return true;
 }

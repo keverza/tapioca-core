@@ -311,6 +311,8 @@ TEST_P (SurfaceSampling, SettingsChangesRebuildAndGlobalCapRefusesRatherThanTrun
              { static_cast<const StudyRecord*> (nullptr), static_cast<const StudyRecord*> (source.get ()) }) {
             const auto result = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, changed, previous);
             EXPECT_EQ (result.valid, cap >= count);
+            // #117: the ceiling is named only when it is the cause.
+            EXPECT_EQ (result.refusal, cap >= count ? SamplingRefusal::None : SamplingRefusal::SampleLimit);
             if (cap >= count)
                 ExpectSame (result, WholeScene (*scene, { 1, 1, 1 }, changed));
             else {
@@ -395,6 +397,7 @@ TEST_P (SurfaceSampling, CancellationAndMalformedInputsPublishNoPartialGrid)
         const auto result = kernels::BuildSurfaceSampling (*scene, { 1, 1, 1 }, options, source.get (),
                                                            [&] { return ++checks >= cancelAt; });
         EXPECT_FALSE (result.valid);
+        EXPECT_EQ (result.refusal, SamplingRefusal::Cancelled);
         EXPECT_FALSE (result.layout.valid);
         EXPECT_EQ (result.triangles.Count (), 0u);
         EXPECT_EQ (result.patches.Count (), 0u);
@@ -409,9 +412,13 @@ TEST_P (SurfaceSampling, CancellationAndMalformedInputsPublishNoPartialGrid)
             damaged.meshes[0].triangles[0] = UINT32_MAX;
         if (bad == 3)
             damaged.meshes[0].vertices[0] = std::numeric_limits<double>::quiet_NaN ();
-        EXPECT_FALSE (kernels::BuildSurfaceSampling (damaged, { 1, 1, 1 }, options, source.get ()).valid);
+        const auto result = kernels::BuildSurfaceSampling (damaged, { 1, 1, 1 }, options, source.get ());
+        EXPECT_FALSE (result.valid);
+        EXPECT_EQ (result.refusal, SamplingRefusal::InvalidInput);
     }
-    EXPECT_FALSE (kernels::BuildSurfaceSampling (*scene, {}, options).valid);
+    const auto unmasked = kernels::BuildSurfaceSampling (*scene, {}, options);
+    EXPECT_FALSE (unmasked.valid);
+    EXPECT_EQ (unmasked.refusal, SamplingRefusal::InvalidInput);
 }
 
 TEST_P (SurfaceSampling, FaceReceiverChangesRebuildOnlyTheirMeshAndNeverMergeIntoContext)

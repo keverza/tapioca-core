@@ -996,7 +996,7 @@ typedef struct {
     size_t triangleCounters[3];
     size_t patchCounters[3];
     TapiocaSurfaceOptions options; /* the layout's */
-    uint8_t flags[5];              /* result, triangle grid, patch grid, layout valid; sample limit */
+    uint8_t flags[6];              /* result, triangle grid, patch grid, layout valid; sample limit; SamplingRefusal */
 } TapiocaSurfaceResultSummary;
 
 TapiocaStatus tapioca_sunstudy_surface_summary (const TapiocaSurfaceResult* handle, TapiocaSurfaceResultSummary* out,

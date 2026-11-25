@@ -133,6 +133,23 @@ GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double 
     return GS::UniString (text, CC_UTF8);
 }
 
+GS::UniString SurfaceSamplingRefusal (evp::sunstudy::SamplingRefusal refusal,
+                                      const evp::sunstudy::AnalysisLimits& limits, double spacing)
+{
+    switch (refusal) {
+        case evp::sunstudy::SamplingRefusal::SampleLimit:
+            return LimitRefusal (limits, spacing);
+        case evp::sunstudy::SamplingRefusal::NoSurfaces:
+            return "no analysed surface produced a sample - check the analysis surfaces and the analysis cylinder "
+                   "(clipX/clipY/clipRadius), which may exclude every surface";
+        case evp::sunstudy::SamplingRefusal::Cancelled:
+            return "sun study preparation cancelled";
+        default:
+            return "surface sampling could not run - the model's meshes or the sampling settings (grid spacing, "
+                   "normal offset, jitter) are not valid";
+    }
+}
+
 GS::UniString GroundGridRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing, const double aabbMin[3],
                                  const double aabbMax[3])
 {

@@ -285,6 +285,7 @@ pub(super) unsafe fn sample_grid_of(
             degenerate_faces,
             excluded_faces,
             undersized_faces,
+            sample_limit_exceeded: false,
             valid: g.valid != 0,
         })
     }
@@ -553,8 +554,9 @@ pub struct SurfaceResultSummary {
     pub patch_counters: [usize; 3],
     /// The layout's settings.
     pub options: SurfaceOptionsRecord,
-    /// Result, triangle grid, patch grid, layout validity; patch limit flag.
-    pub flags: [u8; 5],
+    /// Result, triangle grid, patch grid, layout validity; patch limit flag;
+    /// the result's `SamplingRefusal` discriminant.
+    pub flags: [u8; 6],
 }
 
 /// Read a result's sizes and counters.
@@ -626,6 +628,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_surface_summary(
                     u8::from(pat.valid),
                     u8::from(lay.valid),
                     u8::from(pat.sample_limit_exceeded),
+                    res.refusal as u8,
                 ],
             });
             Ok(())

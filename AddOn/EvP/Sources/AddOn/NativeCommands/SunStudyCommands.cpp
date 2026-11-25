@@ -45,7 +45,6 @@ using evp::sunstudy::SunStudyStore;
 // identical; each command translation unit still exports one domain provider.
 using sunstudysupport::AddBackendReport;
 using sunstudysupport::GroundGridRefusal;
-using sunstudysupport::LimitRefusal;
 using sunstudysupport::MachineAnalysisLimits;
 using sunstudysupport::PackBits;
 using sunstudysupport::PackDoubles;
@@ -55,6 +54,7 @@ using sunstudysupport::ReadStartBackend;
 using sunstudysupport::ReadString;
 using sunstudysupport::ReadStringList;
 using sunstudysupport::ReadStudyId;
+using sunstudysupport::SurfaceSamplingRefusal;
 using sunstudysupport::Text;
 using sunstudysupport::UnpackDoubles;
 using sunstudysupport::Utf8;
@@ -330,7 +330,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             if (IsCancelled ())
                 return NativeCommandResult::Failure ("sun study preparation cancelled");
             if (!sampling.valid)
-                return NativeCommandResult::Failure (LimitRefusal (limits, spacing));
+                return NativeCommandResult::Failure (SurfaceSamplingRefusal (sampling.refusal, limits, spacing));
             record->samplingLayout = std::move (sampling.layout);
             closedGroups = sampling.winding.closed;
             flippedGroups = sampling.winding.flipped;

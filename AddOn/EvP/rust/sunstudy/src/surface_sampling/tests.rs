@@ -199,7 +199,71 @@ fn a_settings_change_rebuilds_everything_and_the_cap_refuses() {
         max_samples: 10,
         ..options(SamplingDomain::TriangleLegacy)
     };
-    assert!(!sample(&meshes, capped, None).valid);
+    let refused = sample(&meshes, capped, None);
+    assert!(!refused.valid);
+    assert_eq!(refused.refusal, SamplingRefusal::SampleLimit);
+}
+
+#[test]
+fn the_cap_is_named_as_the_refusal_in_every_domain_and_path() {
+    // #117: the host reported every invalid sampling as the sample ceiling.
+    // The ceiling must still be named when it IS the cause, on the fresh,
+    // reuse and whole-scene paths, in both domains.
+    let scene = Scene::new();
+    let meshes = scene.meshes();
+    for domain in [SamplingDomain::TriangleLegacy, SamplingDomain::SurfacePatch] {
+        let capped = SurfaceSamplingOptions {
+            max_samples: 10,
+            ..options(domain)
+        };
+        assert_eq!(
+            sample(&meshes, capped, None).refusal,
+            SamplingRefusal::SampleLimit,
+            "{domain:?} fresh"
+        );
+        let first = sample(&meshes, options(domain), None);
+        assert!(first.valid);
+        let reused = sample(&meshes, capped, Some(previous(&meshes, &first, domain)));
+        assert_eq!(
+            reused.refusal,
+            SamplingRefusal::SampleLimit,
+            "{domain:?} reuse"
+        );
+    }
+    let mut ambiguous = Scene::new();
+    if let Some(part) = ambiguous.parts.get_mut(2) {
+        part.0 = "{NEAR}".into();
+    }
+    let whole = ambiguous.meshes();
+    for domain in [SamplingDomain::TriangleLegacy, SamplingDomain::SurfacePatch] {
+        let capped = SurfaceSamplingOptions {
+            max_samples: 10,
+            ..options(domain)
+        };
+        assert_eq!(
+            sample(&whole, capped, None).refusal,
+            SamplingRefusal::SampleLimit,
+            "{domain:?} whole scene"
+        );
+    }
+}
+
+#[test]
+fn a_clip_that_excludes_every_surface_is_not_a_sample_limit() {
+    let scene = Scene::new();
+    let meshes = scene.meshes();
+    // A 1 m cylinder far from every box: no patch cell survives.
+    let clipped = SurfaceSamplingOptions {
+        clip: [500.0, 500.0, 1.0],
+        ..options(SamplingDomain::SurfacePatch)
+    };
+    let result = sample(&meshes, clipped, None);
+    assert!(!result.valid);
+    assert_eq!(result.refusal, SamplingRefusal::NoSurfaces);
+    assert_eq!(
+        sample(&meshes, options(SamplingDomain::SurfacePatch), None).refusal,
+        SamplingRefusal::None
+    );
 }
 
 #[test]
@@ -231,7 +295,10 @@ fn cancellation_and_malformed_inputs_publish_no_partial_grid() {
         face_masks: &[],
         is_cancelled: Some(&stop),
     });
-    assert_eq!(cancelled, SurfaceSamplingResult::default());
+    assert_eq!(
+        cancelled,
+        SurfaceSamplingResult::refused(SamplingRefusal::Cancelled)
+    );
     let short_mask = build_surface_sampling(&SurfaceSamplingRequest {
         meshes: &meshes,
         sample_mask: &[1, 1],
@@ -240,12 +307,18 @@ fn cancellation_and_malformed_inputs_publish_no_partial_grid() {
         face_masks: &[],
         is_cancelled: None,
     });
-    assert_eq!(short_mask, SurfaceSamplingResult::default());
+    assert_eq!(
+        short_mask,
+        SurfaceSamplingResult::refused(SamplingRefusal::InvalidInput)
+    );
     let bad = SurfaceSamplingOptions {
         spacing: f64::NAN,
         ..options(SamplingDomain::TriangleLegacy)
     };
-    assert_eq!(sample(&meshes, bad, None), SurfaceSamplingResult::default());
+    assert_eq!(
+        sample(&meshes, bad, None),
+        SurfaceSamplingResult::refused(SamplingRefusal::InvalidInput)
+    );
 }
 
 #[test]
