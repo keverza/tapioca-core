@@ -3335,10 +3335,12 @@ def _one(command, params):
                         "tintFrames": 0, "tintElementsDrawn": 0,
                         "framesSkippedIncompleteBinding": 0,
                          "preparing": False, "pendingStudyId": "", "preparationError": "",
+                         "limitsReport": [],
                          "rejection": "no Diligent viewport is running - nothing "
                                      "can be displaying a study"})
         out = dict(_SUN_OVERLAY)
-        out.update(preparing=False, pendingStudyId="", preparationError="")
+        out.update(preparing=False, pendingStudyId="", preparationError="",
+                   limitsReport=[])
         return _v2(out)
 
     if command == "EvP.CancelSunStudy":

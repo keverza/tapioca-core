@@ -218,19 +218,13 @@ void Clock (uint16_t minutes, char* out, size_t size)
     std::snprintf (out, size, "%02u:%02u", unsigned (minutes / 60), unsigned (minutes % 60));
 }
 
-// Millions, for counts a person reads at a glance.
-double Mega (double value)
-{
-    return value / 1.0e6;
-}
-
 // ---- this machine's limits ----------------------------------------------------
 //
-// What the start command enforces (SunStudy/SunStudyLimits.hpp), shown before
-// anyone asks for a grid it will refuse: the ceiling, the resource that sets it,
-// the finest grid the shown model allows, and how much of the ceiling the
-// current study uses. Free memory is re-read once a second.
-void DrawMachineLimits (const SunStudyOverlayStatus& study)
+// What the start command enforces, as SunStudy/SunStudyLimits.hpp's readout
+// words it: the NEXT RUN from the form, the shown study apart (#117). Free
+// memory is re-read once a second. The lines are published for
+// SunStudyOverlayState, so the text is checked without a screenshot.
+void DrawMachineLimits (const HudState& state, const SunStudyOverlayStatus& study)
 {
     static double lastRead = -10.0;
     static uint64_t freeRam = 0;
@@ -239,38 +233,30 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
         lastRead = ImGui::GetTime ();
     }
     const evp::sunstudy::MachineResources machine = evp::sunstudy::CurrentMachineResources (freeRam);
-    // Without a study, a 15-minute day of ~49 daylight steps in the patch
-    // domain -- the common case -- so the readout is useful before the first run.
-    const size_t steps = study.stepCount > 0 ? study.stepCount : 49;
-    const bool patch = study.stepCount > 0 ? study.patchDomain : true;
-    const auto [limits, finest] = sun::kernels::ReportAnalysisLimits (
-        machine, steps, patch ? sun::kPatchAtlasOccupancy : sun::kTriangleAtlasOccupancy, study.analysedArea);
-
-    if (machine.gpuKnown)
-        ImGui::TextDisabled ("GPU %s, %.1f GB, textures up to %u", machine.adapter.c_str (),
-                             double (machine.gpuMemoryBytes) / 1.0e9, machine.maxTextureDimension);
-    else
-        ImGui::TextDisabled ("GPU not known yet");
-    ImGui::TextDisabled ("free memory %.1f GB", double (freeRam) / 1.0e9);
-    ImGui::Text ("max %.2f M samples, set by %s", Mega (double (limits.maxSamples)),
-                 evp::sunstudy::LimitBindingName (limits.binding));
-    // Indented, not led by spaces: a wrapped line keeps the indent.
-    ImGui::Indent ();
-    ImGui::TextDisabled ("sampler %.1f M | memory %.1f M | GPU %.1f M | texture %.1f M",
-                         Mega (double (limits.samplerCap)), Mega (double (limits.ramCap)),
-                         Mega (double (limits.gpuCap)), Mega (double (limits.textureCap)));
-    ImGui::Unindent ();
-    ImGui::Text ("max %.0f M rays per study (%u steps, %s domain)", Mega (double (limits.maxRays)), unsigned (steps),
-                 patch ? "patch" : "triangle");
-    if (study.analysedArea > 0.0) {
-        ImGui::Text ("finest grid on this model: %.2f m (%.0f m2 analysed)", finest, study.analysedArea);
+    sun::LimitReportInputs inputs;
+    FillSunStudyLimitInputs (state, study, inputs);
+    // The panel always runs the patch domain, whatever is on screen.
+    const auto [limits, finest] =
+        sun::kernels::ReportAnalysisLimits (machine, inputs.steps, sun::kPatchAtlasOccupancy, inputs.analysedArea);
+    inputs.finestGridSpacing = finest;
+    auto lines = sun::DescribeAnalysisLimits (limits, machine, inputs);
+    for (const sun::LimitReportLine& line : lines) {
+        switch (line.tone) {
+            case sun::LimitReportTone::Heading:
+                ImGui::SeparatorText (line.text.c_str ());
+                break;
+            case sun::LimitReportTone::Quiet:
+                ImGui::TextDisabled ("%s", line.text.c_str ());
+                break;
+            case sun::LimitReportTone::Warning:
+                ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "%s", line.text.c_str ());
+                break;
+            default:
+                ImGui::TextUnformatted (line.text.c_str ());
+                break;
+        }
     }
-    if (study.sampleCount > 0 && limits.maxSamples > 0) {
-        const double used = double (study.sampleCount) / double (limits.maxSamples);
-        const ImVec4 colour = used > 0.8 ? ImVec4 (1.0f, 0.55f, 0.35f, 1.0f) : ImVec4 (0.6f, 0.85f, 0.6f, 1.0f);
-        ImGui::TextColored (colour, "this study: %.2f M samples, %.0f%% of the limit",
-                            Mega (double (study.sampleCount)), used * 100.0);
-    }
+    sun::PublishLimitReport (std::move (lines));
 }
 
 // An inline colour swatch beside a toggle: a click opens the picker. 0xRRGGBBAA;
@@ -696,7 +682,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     // reading before the first study, so they alone stay reachable.
     if (!study.drawing) {
         if (ImGui::CollapsingHeader ("Machine limits"))
-            DrawMachineLimits (study);
+            DrawMachineLimits (state, study);
         return;
     }
     // Whether the shown study is the runner's finished period, by id.
@@ -965,7 +951,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     }
 
     if (ImGui::TreeNode ("machine limits")) {
-        DrawMachineLimits (study);
+        DrawMachineLimits (state, study);
         ImGui::TreePop ();
     }
 }

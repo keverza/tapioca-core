@@ -25,6 +25,7 @@
 #include "ArchViz/TapiocaUI/Foundation/AnalysisRunControl.hpp"
 #include "SunStudy/SunStudyBackend.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
+#include "SunStudy/SunStudyLimits.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
@@ -386,6 +387,32 @@ void SubmitRun (HudState& state, uint64_t* acceptedRun = nullptr)
 }
 
 } // namespace
+
+void FillSunStudyLimitInputs (const HudState& state, const SunStudyOverlayStatus& study,
+                              evp::sunstudy::LimitReportInputs& inputs)
+{
+    inputs.gpuSelected = state.sunRunBackend == 1;
+    // The form's slice at its step: an upper bound, night not yet dropped. The
+    // limits shrink with steps, so the bound errs toward a lower ceiling.
+    const int minutes = kTimesteps[std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1)];
+    inputs.steps =
+        evp::sunstudy::kernels::EnumerateTimesteps (minutes, state.sunRunHourFrom, state.sunRunHourTo).size ();
+    inputs.analysedArea = study.drawing ? study.analysedArea : 0.0;
+    if (!study.drawing)
+        return;
+    inputs.shownStudyId = study.studyId;
+    inputs.shownSamples = study.sampleCount;
+    inputs.shownSteps = study.stepCount;
+    inputs.shownPatchDomain = study.patchDomain;
+    inputs.shownPreview = study.preview;
+    // The runner's plain-value snapshot, never the store from this thread.
+    const sunstudyhud::Status run = sunstudyhud::Current ();
+    if (run.studyId == study.studyId) {
+        inputs.shownRequestedBackend = run.requestedBackend;
+        inputs.shownResolvedBackend = run.resolvedBackend;
+        inputs.shownFallbackReason = run.backendFallbackReason;
+    }
+}
 
 void RunSunStudyDay (HudState& state, int month, int day, uint64_t* acceptedRun)
 {

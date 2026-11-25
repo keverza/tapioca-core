@@ -17,6 +17,7 @@
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
+#include "SunStudy/SunStudyLimits.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudySampler.hpp"
@@ -271,6 +272,13 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
         os.Add ("preparing", preparation.preparing);
         os.Add ("pendingStudyId", Text (preparation.studyId));
         os.Add ("preparationError", Text (preparation.error));
+        // The machine-limits readout as the HUD last drew it (#117): its next
+        // run and shown study, checked here rather than from a screenshot.
+        // Empty until the panel's limits were open once.
+        GS::Array<GS::UniString> limitsReport;
+        for (const evp::sunstudy::LimitReportLine& line : evp::sunstudy::PublishedLimitReport ())
+            limitsReport.Push (Text (line.text));
+        os.Add ("limitsReport", limitsReport);
         const bool running = archviz::DiligentViewport::Get ().IsRunning ();
         os.Add ("viewerRunning", running);
         if (!running) {
@@ -662,7 +670,8 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "rejection":{"type":"string"},
                 "preparing":{"type":"boolean"},
                 "pendingStudyId":{"type":"string"},
-                "preparationError":{"type":"string"}
+                "preparationError":{"type":"string"},
+                "limitsReport":{"type":"array","items":{"type":"string"}}
             },
             "additionalProperties":false,
             "required":["viewerRunning","studyId","drawing","elementsNamed","elementsAttached"]

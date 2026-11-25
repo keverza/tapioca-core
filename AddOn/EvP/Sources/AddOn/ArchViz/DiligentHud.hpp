@@ -55,6 +55,10 @@ struct IRenderDevice;
 struct ISwapChain;
 } // namespace Diligent
 
+namespace evp::sunstudy {
+struct LimitReportInputs;
+}
+
 namespace geomsrv {
 namespace archviz {
 
@@ -1055,6 +1059,10 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
 // click that places its centre.
 void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& study);
 bool DrawSunStudyRunAction (HudState& state);
+// The machine-limits readout's inputs (#117): the NEXT RUN from this form, and
+// the shown `study` apart, with its backend only if this panel's runner ran it.
+void FillSunStudyLimitInputs (const HudState& state, const SunStudyOverlayStatus& study,
+                              evp::sunstudy::LimitReportInputs& inputs);
 // The finished period's view, in DiligentHudSunPeriod.cpp (#152): quantity
 // toggles with their own colours, the month timeline, the threshold, and the
 // hovered point's year. Draws nothing unless the shown study is a period.

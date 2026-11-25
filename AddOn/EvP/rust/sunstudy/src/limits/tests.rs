@@ -94,8 +94,9 @@ fn the_finest_grid_is_one_sample_per_spacing_squared() {
 fn binding_names_match_the_hud() {
     assert_eq!(LimitBinding::SamplerCap.name(), "the sampler's cap");
     assert_eq!(LimitBinding::SystemMemory.name(), "system memory");
-    assert_eq!(LimitBinding::GpuMemory.name(), "GPU memory");
-    assert_eq!(LimitBinding::TextureSize.name(), "GPU texture size");
+    // Display, not compute (#117): every backend uploads the same atlas.
+    assert_eq!(LimitBinding::GpuMemory.name(), "display atlas GPU memory");
+    assert_eq!(LimitBinding::TextureSize.name(), "display texture size");
 }
 
 #[test]

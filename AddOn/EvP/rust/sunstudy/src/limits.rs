@@ -56,8 +56,8 @@ impl LimitBinding {
     pub fn name(self) -> &'static str {
         match self {
             Self::SystemMemory => "system memory",
-            Self::GpuMemory => "GPU memory",
-            Self::TextureSize => "GPU texture size",
+            Self::GpuMemory => "display atlas GPU memory",
+            Self::TextureSize => "display texture size",
             Self::SamplerCap => "the sampler's cap",
         }
     }

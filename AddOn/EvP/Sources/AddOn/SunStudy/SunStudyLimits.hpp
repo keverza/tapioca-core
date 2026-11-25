@@ -11,8 +11,16 @@
 //   * SYSTEM MEMORY: every sample is held several times over -- the study's
 //     own positions and normals, its sampling grid, its per-step lit bits,
 //     and the display's copy of the atlas images;
-//   * GPU MEMORY: the hours atlas and the per-step bit slices, per texel;
-//   * the largest TEXTURE the GPU (and the atlas packer) will make.
+//   * DISPLAY ATLAS GPU MEMORY: the hours atlas and the per-step bit slices,
+//     per texel, that the viewer uploads to SHOW a result;
+//   * the largest DISPLAY TEXTURE the GPU (and the atlas packer) will make.
+//
+// ⚠️ THE TWO GPU CEILINGS ARE DISPLAY, NOT COMPUTE (#117). Every study, CPU or
+// GPU traced, is shown through the same atlas, so both backends meet them
+// alike. The display adapter is not claimed to be the compute adapter: GPU
+// traversal checks its own scene budget when the run starts, and nothing here
+// models it. With the GPU not yet known, neither display ceiling binds except
+// the packer's 8192 texture fallback.
 //
 // ⚠️ REFUSED, NEVER TRUNCATED, AND SAID IN ADVANCE. A study that would not fit
 // is refused at the start with the limit that bound it and the finest grid the
@@ -26,6 +34,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace evp::sunstudy {
 
@@ -39,6 +48,8 @@ struct MachineResources {
     uint64_t availableRamBytes = 0;   // free physical memory right now
 };
 
+// ⚠️ A C ABI with the Rust rule: `GpuMemory` and `TextureSize` keep their names
+// and values, but they are the DISPLAY atlas's memory and texture size.
 enum class LimitBinding : uint8_t {
     SamplerCap = 0,
     SystemMemory = 1,
@@ -51,7 +62,8 @@ struct AnalysisLimits {
     // The atlas packer's ceiling for this machine: min(device limit, 8192).
     uint32_t maxAtlasDimension = 0;
     LimitBinding binding = LimitBinding::SamplerCap;
-    // Rays one study casts at the ceiling: samples x steps.
+    // An ESTIMATE, enforced nowhere: the rays a study at the ceiling would
+    // cast, samples x steps. Shown as such, never as a limit (#117).
     uint64_t maxRays = 0;
     // The per-limit sample ceilings, for the HUD's breakdown. 0 = unknown.
     size_t samplerCap = 0;
@@ -91,6 +103,51 @@ std::string AtlasDisplayRefusal (uint32_t width, uint32_t height, uint32_t devic
 // Free physical memory right now, from the operating system; 0 when unknown
 // (and off Windows, where the offline tests build).
 uint64_t AvailableSystemMemory ();
+
+// ---- the limits readout (#117) -------------------------------------------------
+//
+// ⚠️ TWO STUDIES, NEVER ONE. The NEXT RUN is what the panel's form would start:
+// its backend, the patch domain the panel always asks for, and at most the
+// form's step count. The SHOWN STUDY is whatever is on screen, which may be a
+// triangle study a command started, on another backend. A readout that sized
+// the next run from the shown study passed off one as the other.
+struct LimitReportInputs {
+    // The next run.
+    bool gpuSelected = false;
+    size_t steps = 0; // an upper bound: the form's slice before night is dropped
+    double finestGridSpacing = 0.0;
+    double analysedArea = 0.0; // the shown study's, the only area measured
+    // The study on screen; an empty id means none.
+    std::string shownStudyId;
+    uint64_t shownSamples = 0;
+    size_t shownSteps = 0;
+    bool shownPatchDomain = false;
+    bool shownPreview = false;
+    // As the panel's runner recorded it, only when it ran THIS study; all
+    // empty when something else started it.
+    std::string shownRequestedBackend;
+    std::string shownResolvedBackend;
+    std::string shownFallbackReason;
+};
+
+enum class LimitReportTone : uint8_t { Heading, Plain, Quiet, Warning };
+
+struct LimitReportLine {
+    LimitReportTone tone = LimitReportTone::Plain;
+    std::string text;
+};
+
+// The readout, line by line: what binds the next run, the per-resource
+// ceilings with the GPU ones named as DISPLAY, what the selected backend does
+// and does not consume, and the shown study apart. `limits` is for the next
+// run, computed by the caller. Pure.
+std::vector<LimitReportLine> DescribeAnalysisLimits (const AnalysisLimits& limits, const MachineResources& machine,
+                                                     const LimitReportInputs& inputs);
+
+// The readout as the HUD last drew it, for SunStudyOverlayState: the HUD text
+// is checked by a diagnostic, not only by a screenshot. Thread-safe.
+void PublishLimitReport (std::vector<LimitReportLine> lines);
+std::vector<LimitReportLine> PublishedLimitReport ();
 
 } // namespace evp::sunstudy
 
