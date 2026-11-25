@@ -45,6 +45,17 @@ std::string SunStudyPresetAdvice (size_t, const std::string&, std::string*)
 {
     return {};
 }
+// The run form's step count for the limits readout (#117): the same slice
+// enumeration, without the kernel library the playground does not link.
+std::vector<evp::sunstudy::TimeOfDay> EnumerateTimesteps (int timestepMinutes, int hourFrom, int hourTo, std::string*)
+{
+    std::vector<evp::sunstudy::TimeOfDay> times;
+    if (timestepMinutes <= 0)
+        return times;
+    for (int minute = hourFrom * 60; minute < hourTo * 60; minute += timestepMinutes)
+        times.push_back ({ minute / 60, minute % 60 });
+    return times;
+}
 std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& minutes, double interval, std::string*)
 {
     std::vector<uint32_t> steps;
