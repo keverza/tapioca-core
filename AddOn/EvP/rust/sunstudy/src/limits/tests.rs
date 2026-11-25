@@ -107,3 +107,53 @@ fn byte_costs_follow_the_held_buffers() {
     let expected = 48.0 + 68.0 + 8.0 + 8.0 + (1.0 / 0.5) * 12.0;
     assert!((system_bytes_per_sample(49, 0.5) - expected).abs() < 1e-12);
 }
+
+// ---- extremes (#117): nothing wraps into a larger apparent budget ----
+
+#[test]
+fn rays_saturate_instead_of_wrapping() {
+    // 4 M x 2^62 wrapped to exactly 0 under wrapping_mul.
+    let limits =
+        compute_analysis_limits(&MachineResources::default(), 1 << 62, PATCH_ATLAS_OCCUPANCY);
+    assert_eq!(limits.max_samples, SAMPLER_MAX_SAMPLES);
+    assert_eq!(limits.max_rays, u64::MAX);
+}
+
+#[test]
+fn a_non_finite_occupancy_packs_at_the_floor() {
+    // f64::clamp passes NaN through, which made every ceiling NaN -> 0.
+    for occupancy in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let limits = compute_analysis_limits(&MachineResources::default(), 49, occupancy);
+        let floor = compute_analysis_limits(&MachineResources::default(), 49, 0.01);
+        assert_eq!(limits, floor, "{occupancy}");
+        assert_eq!(limits.binding, LimitBinding::TextureSize);
+        assert!(limits.max_samples > 0);
+    }
+    assert!((clamp_occupancy(7.0) - 1.0).abs() < f64::EPSILON);
+    assert!((clamp_occupancy(-1.0) - 0.01).abs() < f64::EPSILON);
+}
+
+#[test]
+fn the_largest_resources_never_lift_the_samplers_cap() {
+    let machine = MachineResources {
+        gpu_known: true,
+        gpu_memory_bytes: u64::MAX,
+        max_texture_dimension: u32::MAX,
+        available_ram_bytes: u64::MAX,
+    };
+    for steps in [0, 1, 49, usize::MAX] {
+        let limits = compute_analysis_limits(&machine, steps, 1.0);
+        assert!(limits.max_samples <= SAMPLER_MAX_SAMPLES, "steps {steps}");
+        assert_eq!(limits.max_atlas_dimension, ATLAS_PACKER_MAX_DIMENSION);
+    }
+}
+
+#[test]
+fn a_non_finite_area_has_no_finest_grid() {
+    for area in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0] {
+        assert!(
+            finest_grid_spacing(area, 1000).abs() < f64::EPSILON,
+            "{area}"
+        );
+    }
+}

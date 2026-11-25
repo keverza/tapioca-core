@@ -10,6 +10,9 @@
 #include "SunStudy/SunStudyKernels.hpp"
 #include "gtest/gtest.h"
 
+#include <cmath>
+#include <cstdint>
+
 using namespace evp::sunstudy;
 
 TEST (SunStudyLimits, WithNothingKnownTheSamplersCapBinds)
@@ -96,6 +99,36 @@ TEST (SunStudyLimits, DisplayRefusesAnAtlasLargerThanTheDevice)
     EXPECT_NE (why.find ("8192x4096"), std::string::npos) << why;
     EXPECT_NE (why.find ("4096x4096 texture limit"), std::string::npos) << why;
     EXPECT_FALSE (AtlasDisplayRefusal (16, 8193, 8192).empty ());
+}
+
+// The Rust rule's extremes, through the production FFI (mirrors limits/tests.rs):
+// nothing wraps into a larger apparent budget (#117).
+TEST (SunStudyLimits, ExtremeInputsNeverWrapIntoALargerBudget)
+{
+    const AnalysisLimits rays = kernels::ComputeAnalysisLimits (MachineResources (), size_t (1) << 62, 0.70);
+    EXPECT_EQ (rays.maxSamples, kSamplerMaxSamples);
+    EXPECT_EQ (rays.maxRays, UINT64_MAX) << "saturated, not wrapped to 0";
+
+    const AnalysisLimits floor = kernels::ComputeAnalysisLimits (MachineResources (), 49, 0.01);
+    for (const double occupancy : { std::nan (""), HUGE_VAL, -HUGE_VAL }) {
+        const AnalysisLimits limits = kernels::ComputeAnalysisLimits (MachineResources (), 49, occupancy);
+        EXPECT_EQ (limits.maxSamples, floor.maxSamples) << occupancy;
+        EXPECT_GT (limits.maxSamples, 0u) << occupancy;
+    }
+
+    MachineResources most;
+    most.gpuKnown = true;
+    most.gpuMemoryBytes = UINT64_MAX;
+    most.maxTextureDimension = UINT32_MAX;
+    most.availableRamBytes = UINT64_MAX;
+    for (const size_t steps : { size_t (0), size_t (49), SIZE_MAX }) {
+        const AnalysisLimits limits = kernels::ComputeAnalysisLimits (most, steps, 1.0);
+        EXPECT_LE (limits.maxSamples, kSamplerMaxSamples) << steps;
+        EXPECT_EQ (limits.maxAtlasDimension, kAtlasPackerMaxDimension) << steps;
+    }
+
+    for (const double area : { std::nan (""), HUGE_VAL, -1.0 })
+        EXPECT_EQ (kernels::ReportAnalysisLimits (MachineResources (), 49, 0.70, area).finestGridSpacing, 0.0) << area;
 }
 
 TEST (SunStudyLimits, TraversalThreadsAreBoundedAtTheEntry)

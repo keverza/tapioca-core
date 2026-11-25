@@ -75,7 +75,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_limits(
             };
             let result =
                 limits::compute_analysis_limits(&machine, request.steps, request.occupancy);
-            let occupancy = request.occupancy.clamp(0.01, 1.0);
+            let occupancy = limits::clamp_occupancy(request.occupancy);
             let out = LimitsOutput {
                 max_samples: result.max_samples,
                 caps: [

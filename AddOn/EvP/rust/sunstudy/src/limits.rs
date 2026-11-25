@@ -105,13 +105,28 @@ pub fn system_bytes_per_sample(steps: usize, occupancy: f64) -> f64 {
     48.0 + 68.0 + 8.0 + bits + texels * gpu_bytes_per_texel(steps)
 }
 
+/// A budget in samples. Rust's float-to-int cast is defined for every input:
+/// NaN and negatives give 0 (a ceiling that binds, so refuses), +inf and
+/// anything past `usize::MAX` saturate (a ceiling that never binds, the
+/// sampler's cap still does). Nothing wraps into a larger apparent budget.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "mirrors size_t(double): truncation toward zero of a non-negative budget"
+    reason = "saturating float-to-int: NaN -> 0, out of range -> the nearest bound"
 )]
 fn to_count(value: f64) -> usize {
     value as usize
+}
+
+/// `occupancy` within `0.01..=1`; a non-finite value (`f64::clamp` passes NaN
+/// through) takes the floor, the most conservative packing.
+#[must_use]
+pub fn clamp_occupancy(occupancy: f64) -> f64 {
+    if occupancy.is_finite() {
+        occupancy.clamp(0.01, 1.0)
+    } else {
+        0.01
+    }
 }
 
 #[expect(
@@ -130,7 +145,7 @@ pub fn compute_analysis_limits(
     steps: usize,
     occupancy: f64,
 ) -> AnalysisLimits {
-    let occ = occupancy.clamp(0.01, 1.0);
+    let occ = clamp_occupancy(occupancy);
     let mut out = AnalysisLimits {
         sampler_cap: SAMPLER_MAX_SAMPLES,
         max_atlas_dimension: ATLAS_PACKER_MAX_DIMENSION,
@@ -173,17 +188,18 @@ pub fn compute_analysis_limits(
             out.binding = why;
         }
     }
+    // An estimate, so saturating: wrapping turned 4 M x 2^62 steps into 0.
     out.max_rays = u64::try_from(out.max_samples)
         .unwrap_or(u64::MAX)
-        .wrapping_mul(u64::try_from(steps).unwrap_or(u64::MAX));
+        .saturating_mul(u64::try_from(steps).unwrap_or(u64::MAX));
     out
 }
 
 /// The finest grid spacing (metres) at which `analysed_area` (m2) stays within
-/// `max_samples`; 0 when either is non-positive.
+/// `max_samples`; 0 when either is non-positive or the area is not finite.
 #[must_use]
 pub fn finest_grid_spacing(analysed_area: f64, max_samples: usize) -> f64 {
-    if analysed_area.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) || max_samples == 0 {
+    if !analysed_area.is_finite() || analysed_area <= 0.0 || max_samples == 0 {
         return 0.0;
     }
     (analysed_area / count_to_f64(max_samples)).sqrt()
