@@ -172,3 +172,42 @@ fn the_analysis_cylinder_clips_cells_not_patches() {
     assert_eq!(unclipped.spans.len(), 2);
     assert!(unclipped.count() > 400);
 }
+
+/// #117: skipping cells the cylinder is certain to drop changes no kept cell,
+/// on a flat strip and on a tilted roof, for circles inside, across and away.
+#[test]
+fn skipping_far_cells_keeps_exactly_the_clipped_lattice() {
+    let (strip_v, strip_t) = strip();
+    let roof_v = vec![0.0, 0.0, 0.0, 6.0, 0.0, 0.0, 6.0, 3.0, 2.0, 0.0, 3.0, 2.0];
+    let roof_t = vec![0, 1, 2, 0, 2, 3];
+    let clips = [
+        [2.0, 1.0, 0.7],
+        [0.0, 0.0, 1.3],
+        [4.2, 2.2, 2.0],
+        [3.0, 1.5, 50.0],
+        [90.0, 90.0, 1.0],
+    ];
+    for (vertices, triangles) in [(&strip_v, &strip_t), (&roof_v, &roof_t)] {
+        let patches = build_surface_patches(
+            vertices,
+            triangles,
+            None,
+            &SurfacePatchOptions::default(),
+            None,
+        );
+        for patch in &patches {
+            for spacing in [0.13, 0.5, 1.1] {
+                for clip in clips {
+                    let mut whole =
+                        crate::surface_patch::build_patch_grid(patch, vertices, triangles, spacing);
+                    clip_cells(&mut whole, clip);
+                    let mut fast =
+                        build_patch_grid_within(patch, vertices, triangles, spacing, clip);
+                    clip_cells(&mut fast, clip);
+                    assert_eq!(fast.cells, whole.cells, "spacing {spacing} clip {clip:?}");
+                    assert_eq!((fast.columns, fast.rows), (whole.columns, whole.rows));
+                }
+            }
+        }
+    }
+}

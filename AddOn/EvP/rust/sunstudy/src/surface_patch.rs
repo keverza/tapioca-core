@@ -470,6 +470,28 @@ pub fn build_patch_grid(
     triangles: &[u32],
     spacing: f64,
 ) -> PatchGrid {
+    build_patch_grid_within(patch, vertices, triangles, spacing, [0.0; 3])
+}
+
+/// [`build_patch_grid`] without the work for cells the analysis cylinder
+/// `clip` (`[x, y, radius]`, radius 0 = none) is certain to drop (#117).
+///
+/// ⚠️ ONLY WORK IS SKIPPED, NEVER A KEPT CELL. A cell's measured point lies in
+/// the cell, within `spacing * sqrt(2) / 2` of its centre, so a cell centre
+/// farther than `radius` plus that from the axis has its point outside, and the
+/// caller's clip removes it anyway. Live, a slab larger than the cylinder was
+/// rasterised in full before the clip, for refusals and accepted runs alike.
+/// The cells kept, their order and the lattice size are unchanged; a patch
+/// whose only covered cells were skipped gets no centroid stand-in, as the
+/// clip would have left it empty.
+#[must_use]
+pub fn build_patch_grid_within(
+    patch: &SurfacePatch,
+    vertices: &[f64],
+    triangles: &[u32],
+    spacing: f64,
+    clip: [f64; 3],
+) -> PatchGrid {
     let mut grid = PatchGrid::default();
     if vertices.is_empty()
         || triangles.is_empty()
@@ -502,10 +524,21 @@ pub fn build_patch_grid(
     };
     let full = spacing * spacing;
     let columns = grid.columns;
+    let [cx, cy, radius] = clip;
+    let reach = radius + spacing * std::f64::consts::SQRT_2 * 0.5;
+    let mut skipped = false;
     let cells = (0..grid.rows).flat_map(|row| (0..columns).map(move |column| (row, column)));
     for (row, column) in cells {
         let min = [f64::from(column) * spacing, f64::from(row) * spacing];
         let max = [min[0] + spacing, min[1] + spacing];
+        if radius > 0.0 {
+            let centre = world(min[0] + 0.5 * spacing, min[1] + 0.5 * spacing);
+            // `>`, so a NaN centre is never skipped, as the clip keeps it.
+            if (centre[0] - cx).hypot(centre[1] - cy) > reach {
+                skipped = true;
+                continue;
+            }
+        }
         let (mut area, mut weighted_u, mut weighted_v) = (0.0, 0.0, 0.0);
         for t in &flat {
             let (piece, cx, cy) = clip_triangle_to_cell(t, min, max);
@@ -527,7 +560,7 @@ pub fn build_patch_grid(
             interior: area >= full * (1.0 - 1e-9),
         });
     }
-    if grid.cells.is_empty() {
+    if grid.cells.is_empty() && !skipped {
         let (mut cu, mut cv) = (0.0, 0.0);
         let mut count = 0_usize;
         for p in flat.iter().flatten() {

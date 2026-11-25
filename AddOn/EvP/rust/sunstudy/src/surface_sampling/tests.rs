@@ -350,6 +350,20 @@ fn a_grid_far_over_the_ceiling_is_refused_before_any_lattice() {
         build_surface_sampling(&near).refusal,
         SamplingRefusal::SampleLimit
     );
+    // Live: with the cylinder on, a slab crossing the circle counted nothing
+    // and the refusal took 31 s. A 4 m circle inside the square at 4 cm is
+    // ~31 k cells; the clipped floor (~30 k) refuses a 20 k ceiling at once.
+    let bounded = SurfaceSamplingRequest {
+        options: SurfaceSamplingOptions {
+            clip: [5.0, 5.0, 4.0],
+            max_samples: 20_000,
+            ..request.options
+        },
+        ..request
+    };
+    let floor = floor::patch_sample_floor(&bounded);
+    assert!(floor > 29_000.0 && floor < 31_500.0, "{floor}");
+    assert!(floor::clearly_over_ceiling(&bounded));
     // A context-only mesh measures nothing, so nothing is over the ceiling.
     let context = SurfaceSamplingRequest {
         sample_mask: &[0],

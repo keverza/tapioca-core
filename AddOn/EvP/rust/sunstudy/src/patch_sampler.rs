@@ -8,8 +8,8 @@
 
 use crate::raster::{Vec3, cpp_max, cpp_min};
 use crate::surface_patch::{
-    PatchGrid, SurfacePatch, SurfacePatchOptions, build_patch_grid, build_surface_patches, corners,
-    vertex_at,
+    PatchGrid, SurfacePatch, SurfacePatchOptions, build_patch_grid_within, build_surface_patches,
+    corners, vertex_at,
 };
 use std::collections::BTreeMap;
 
@@ -298,7 +298,8 @@ pub fn build_patch_sample_grid(
             lattices.push(None);
             continue;
         }
-        let mut lattice = build_patch_grid(patch, vertices, triangles, options.spacing);
+        let mut lattice =
+            build_patch_grid_within(patch, vertices, triangles, options.spacing, options.clip);
         clip_cells(&mut lattice, options.clip);
         projected += lattice.cells.len();
         lattices.push(Some(lattice));
