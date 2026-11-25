@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 
 namespace geomsrv::archviz::planting {
 
@@ -214,6 +215,44 @@ std::string HostLabel (size_t row, const std::string& guid)
     return label;
 }
 
+std::string LayerName (const PlantingHud& hud, float height)
+{
+    char text[64];
+    for (int slot = 0; slot < kHeightCount; ++slot)
+        if (std::fabs (hud.heights[slot] - height) < 0.005f) {
+            std::snprintf (text, sizeof (text), "%.2f m %s", height, HeightName (slot));
+            return text;
+        }
+    std::snprintf (text, sizeof (text), "%.2f m layer", height);
+    return text;
+}
+
+std::vector<size_t> PageLayers (const PlantingHud& hud, size_t limit)
+{
+    std::vector<size_t> chosen;
+    for (size_t i = 0; i < hud.layers.size () && chosen.size () < limit; ++i)
+        if (hud.layers[i].display != nullptr)
+            chosen.push_back (i); // layers are kept sorted by height
+    return chosen;
+}
+
+std::string ClassShares (const PlantingHud& hud, const std::vector<double>& classAreas)
+{
+    double total = 0.0;
+    for (double area : classAreas)
+        total += area;
+    if (total <= 0.0)
+        return {};
+    std::string text;
+    for (int cls = int (classAreas.size ()) - 1; cls >= 0; --cls) {
+        char part[48];
+        std::snprintf (part, sizeof (part), "%s%s %.0f%%", text.empty () ? "" : " | ", ClassName (hud, cls),
+                       classAreas[size_t (cls)] / total * 100.0);
+        text += part;
+    }
+    return text;
+}
+
 int LayerAt (const PlantingHud& hud, float height)
 {
     for (size_t i = 0; i < hud.layers.size (); ++i)
@@ -229,10 +268,11 @@ void KeepLayer (PlantingHud& hud, float height, const std::string& studyId, bool
         hud.layers[size_t (at)].studyId = studyId;
         hud.layers[size_t (at)].period = period;
         hud.layers[size_t (at)].label = label;
+        hud.layers[size_t (at)].display.reset (); // another study: its picture comes when it is shown
         hud.shownLayer = at;
         return;
     }
-    hud.layers.push_back ({ height, studyId, period, label });
+    hud.layers.push_back ({ height, studyId, period, label, nullptr });
     std::sort (hud.layers.begin (), hud.layers.end (),
                [] (const Layer& a, const Layer& b) { return a.height < b.height; });
     hud.shownLayer = LayerAt (hud, height);

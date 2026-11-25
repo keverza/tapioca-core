@@ -94,7 +94,7 @@ int ChosenMode (const HudState& state)
         (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
         return state.captureFrame.entryMode;
     if (state.captureFrame.builder && (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
-        return state.captureFrame.reportType == 2 ? 0 : state.captureFrame.reportType == 1 ? 6 : 5;
+        return state.captureFrame.reportType >= 2 ? 0 : state.captureFrame.reportType == 1 ? 6 : 5; // 3: planting
     if (((state.captureFrame.active && !state.captureFrame.builder) || state.sunShotBusy || state.sunShotRequested) &&
         state.captureFrame.studyDay)
         return state.captureFrame.shadowStyle == 0 ? 6 : 5;
@@ -436,7 +436,10 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     };
     centreRows (mode == 0 ? 3.f : 2.f);
     ImDrawList* draw = ImGui::GetWindowDrawList ();
-    if (mode == 0) {
+    // A planting map's colours are its classes, not the hours ramp (#278).
+    if (mode == 0 && state.analysisFocus.tab == analysistabs::kPlantingTab)
+        DrawPlantingCaptureColours (state);
+    else if (mode == 0) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
         // A period names its quantity, unit and frame (#156); a day is hours.
         const bool periodTitle = !layout && period.showsPeriod && !state.sunMapTitle.empty ();

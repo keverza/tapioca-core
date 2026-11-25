@@ -60,9 +60,19 @@ struct CaptureFrame {
     int reportType = 0, pageFormat = 0;
     int exportPage = -1, returnPage = 0, cameraPage = -1;
     size_t navigationTile = 0;
-    std::shared_ptr<Camera> pageCameras[3];
-    int formats[3] = {};
-    float aspects[3] = { 1.5f, 1.5f, 1.5f };
+    std::shared_ptr<Camera> pageCameras[kReportPages];
+    int formats[kReportPages] = {};
+    float aspects[kReportPages] = { 1.5f, 1.5f, 1.5f, 1.5f };
+    // The planting page (#278), set by the Planting tab when it opens the
+    // builder: the page's text, table and one panel per layer, and each layer's
+    // display, shown in turn for its tile. A builder opened from the Sun tab
+    // has none and cannot select the page; one opened from Planting shows only it.
+    LayoutReportPage plantingTemplate;
+    std::vector<std::shared_ptr<const SunStudyAtlasUpload>> plantingPayloads;
+    bool PlantingBuilder () const
+    {
+        return builder && !plantingPayloads.empty ();
+    }
     int ClockAtDivision (int i) const
     {
         return startMinute + 5 * ((2 * i * (endMinute - startMinute) + 5 * divisions) / (10 * divisions));
@@ -75,7 +85,7 @@ struct CaptureFrame {
     }
     bool AdvancePageExport ()
     {
-        if (++exportPage < 3) {
+        if (++exportPage < kSunReportPages) {
             SelectWorkflow (exportPage);
             return true;
         }
@@ -98,6 +108,9 @@ struct CaptureFrame {
         else
             clocks.push_back (720);
         panelSteps.assign (clocks.size (), -1);
+        // A planting page has a tile per layer, each its own study's map.
+        if (page == int (ReportTemplate::Planting))
+            panelSteps.assign (plantingPayloads.size (), 0);
         paperDirty = true;
         navigationTile = 0;
     }
@@ -142,8 +155,8 @@ StudyDayState PollStudyDay (const HudState& state, const SunStudyOverlayStatus& 
 bool BeginCaptureFrame (HudState& state, int kind);
 bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize view, float dpiScale,
                        const SunStudyOverlayStatus* shown = nullptr);
-// Screenshot and Layout Builder. `builder` false (the Planting tab, #278) draws
-// the Layout Builder disabled: its planting page is not built yet.
+// Screenshot and Layout Builder. `builder` false is the Planting tab's row
+// (#278): its Layout Builder opens on the planting page (OpenPlantingBuilder).
 void DrawCaptureRow (HudState& state, int kind, bool builder = true);
 
 } // namespace viewerhud

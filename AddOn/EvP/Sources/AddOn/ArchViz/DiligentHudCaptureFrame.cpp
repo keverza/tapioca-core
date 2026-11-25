@@ -437,15 +437,23 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             const char* templates[] = { ReportTitle (ReportTemplate::Analysis), ReportTitle (ReportTemplate::Patterns),
                                         ReportTitle (ReportTemplate::Access) };
             ImGui::SetNextItemWidth (190 * dpiScale);
-            if (ImGui::BeginCombo ("Workflow output", templates[std::clamp (frame.reportType, 0, 2)])) {
-                for (int workflow = 0; workflow < 3; ++workflow)
+            // ⚠️ TWO BUILDERS, ONE BAR (#278). Opened from Sun study: the three
+            // seasonal pages. Opened from Planting: its page alone -- it shows
+            // layers already traced, and a sun page from there would trace none.
+            const bool plantingBuilder = frame.PlantingBuilder ();
+            if (ImGui::BeginCombo ("Workflow output", ReportTitle (ReportTemplate (frame.reportType)))) {
+                ImGui::BeginDisabled (plantingBuilder);
+                for (int workflow = 0; workflow < kSunReportPages; ++workflow)
                     if (ImGui::Selectable (templates[workflow], workflow == frame.reportType) &&
                         workflow != frame.reportType)
                         frame.SelectWorkflow (workflow);
-                // #278: listed now, built with the planting report page.
-                ImGui::Selectable ("Planting Suitability", false, ImGuiSelectableFlags_Disabled);
-                hudshell::ItemTip ("Later: legend, a view per planting layer and the area table, from the Planting "
-                                   "tab.");
+                ImGui::EndDisabled ();
+                ImGui::BeginDisabled (!plantingBuilder);
+                ImGui::Selectable (ReportTitle (ReportTemplate::Planting), plantingBuilder);
+                ImGui::EndDisabled ();
+                hudshell::ItemTip (plantingBuilder ? "The Planting tab's layers: one view each, the area table and "
+                                                     "the class legend."
+                                                   : "Open Layout Builder from the Planting tab for this page.");
                 ImGui::EndCombo ();
             }
         }
@@ -470,7 +478,11 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                                 "Intensity follows evening shadow duration" } });
             ImGui::SetNextItemWidth (190 * dpiScale);
             frame.paperDirty |= ImGui::Combo ("Page format", &frame.pageFormat, papers, 4);
-            ImGui::TextDisabled ("Equinox  /  Summer solstice  /  Winter solstice");
+            if (frame.reportType == int (ReportTemplate::Planting))
+                ImGui::TextDisabled ("%zu layer view(s), shown in turn; nothing is traced",
+                                     frame.plantingPayloads.size ());
+            else
+                ImGui::TextDisabled ("Equinox  /  Summer solstice  /  Winter solstice");
             const auto previousClocks = frame.clocks;
             if (frame.reportType == 0)
                 ShadowClockRange (frame, dpiScale);
@@ -479,7 +491,9 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             frame.paperDirty |= frame.clocks != previousClocks;
             const auto previousSteps = frame.panelSteps;
             frame.panelSteps.assign (frame.clocks.size (), -1);
-            if (shown)
+            if (frame.reportType == int (ReportTemplate::Planting))
+                frame.panelSteps.assign (frame.plantingPayloads.size (), 0);
+            else if (shown)
                 for (size_t i = 0; i < frame.clocks.size (); ++i) {
                     auto it = std::find (shown->stepMinutes.begin (), shown->stepMinutes.end (), frame.clocks[i]);
                     if (it != shown->stepMinutes.end ())
@@ -488,7 +502,11 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             frame.paperDirty |=
                 !frame.measuredDraft && frame.panelSteps != previousSteps && !frame.clockImages.empty ();
             auto page = ReportPageFormat (frame.pageFormat);
-            ImGui::Text ("Page %d / 3   |   %u x %u px   |   150 dpi", frame.reportType + 1, page.width, page.height);
+            if (frame.reportType == int (ReportTemplate::Planting))
+                ImGui::Text ("%u x %u px   |   150 dpi", page.width, page.height);
+            else
+                ImGui::Text ("Page %d / 3   |   %u x %u px   |   150 dpi", frame.reportType + 1, page.width,
+                             page.height);
             ImGui::SliderFloat ("Tile W:H", &frame.tileAspect, .4f, 3.f, "%.2f");
             if (ImGui::Button (frame.editCamera ? "Finish camera edit" : "Edit shared camera")) {
                 frame.editCamera = !frame.editCamera;
@@ -506,7 +524,8 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                 state.sunShotPreset = frame.preset;
                 state.sunShotRequested = true;
             }
-            if (state.sunShotFailed || state.sunShotResult.starts_with ("Saved 3 layouts:"))
+            if (state.sunShotFailed || state.sunShotResult.starts_with ("Saved 3 layouts:") ||
+                (frame.PlantingBuilder () && !state.sunShotResult.empty ()))
                 ImGui::TextWrapped ("%s", state.sunShotResult.c_str ());
         }
         const float barWidth = ImGui::CalcTextSize ("Capture   Cancel   16:9   1.5x   12345 x 12345").x +
@@ -529,13 +548,16 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
         if (inlineControls && !frame.builder)
             ImGui::SameLine ();
         if (frame.builder)
-            ImGui::Text ("%u panels", unsigned (frame.panelSteps.size ()) * 3);
+            ImGui::Text ("%u panels", unsigned (frame.panelSteps.size ()) *
+                                          (frame.reportType == int (ReportTemplate::Planting) ? 1u : 3u));
         else
             ImGui::Text ("%u x %u", crop.Width (), crop.Height ());
         ImGui::SameLine ();
         ImGui::BeginDisabled (ShotPending (state) || !crop.Width () || !crop.Height ());
-        if (ImGui::Button (frame.builder ? "Capture all 3" : "Capture")) {
-            if (frame.builder)
+        // The planting page is one page: Capture saves it alone (#278).
+        const bool exportAll = frame.builder && frame.reportType != int (ReportTemplate::Planting);
+        if (ImGui::Button (exportAll ? "Capture all 3" : "Capture")) {
+            if (exportAll)
                 frame.BeginPageExport ();
             frame.previewOnly = false;
             state.captureRegions[frame.viewSlot] = frame.rect;
@@ -575,12 +597,18 @@ void DrawCaptureRow (HudState& state, int kind, bool builder)
         hudshell::ItemTip ("Frame the view, then save a PNG with the sun study legend to Tapioca\\Export.");
         ImGui::SameLine ();
     }
-    ImGui::BeginDisabled (!builder);
+    // The Planting tab's builder (#278) opens on its own page, from its layers.
+    const bool planting = !builder;
+    ImGui::BeginDisabled (planting && state.planting.layers.empty ());
     const bool openBuilder = kind == kShotSunStudy && ImGui::Button ("Layout Builder", { -1, 0 });
     ImGui::EndDisabled ();
-    if (kind == kShotSunStudy && !builder)
-        hudshell::ItemTip ("Later: a planting page -- legend, a view per layer and the area table.");
-    if (openBuilder && BeginCaptureFrame (state, kind)) {
+    if (kind == kShotSunStudy && planting)
+        hudshell::ItemTip ("A Planting Suitability page: a view per layer (up to %zu, lowest first), the area table "
+                           "and the class legend with the plan and north arrow.",
+                           kPlantingMaxTiles);
+    if (openBuilder && planting)
+        OpenPlantingBuilder (state);
+    else if (openBuilder && BeginCaptureFrame (state, kind)) {
         auto& f = state.captureFrame;
         f.builder = f.studyDay = f.seasonal = true;
         f.shadowStyle = 1;

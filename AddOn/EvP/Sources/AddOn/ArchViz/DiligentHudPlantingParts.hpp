@@ -28,6 +28,12 @@ bool LaterButton (const char* label, const char* tip, ImVec2 size = ImVec2 (0, 0
 // the chosen preset sampled at each band's centre.
 std::vector<uint32_t> ShownClassColours (const planting::PlantingHud& hud);
 
+// Packed ImGui colour of 0xRRGGBBAA; the unavailable hatch swatch, `size`
+// square, at the cursor; a class's hour range ("3 to 6 h").
+ImU32 AbgrOf (uint32_t rgba);
+void DrawHatchSwatch (float size);
+std::string ClassRangeOf (const planting::PlantingHud& hud, int cls);
+
 // Trace `heights` one after another, each its own planting study.
 void RunHeights (HudState& state, std::vector<float> heights);
 

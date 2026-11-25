@@ -74,6 +74,22 @@ inline void UpdateReportPaper (Diligent::IRenderDevice* device, CaptureFrame& f,
         f.paperCache = std::make_shared<ReportPaperPreview> ();
     auto& cache = *f.paperCache;
     auto& p = cache.page;
+    if (f.paperDirty && f.reportType == int (ReportTemplate::Planting)) {
+        // #278: the Planting tab's page, a live tile per layer from the start.
+        f.clockImages.assign (f.plantingPayloads.size (), 0);
+        cache.clockTextures.clear ();
+        cache.clockTextures.resize (f.clockImages.size ());
+        cache.tilesToRefresh = f.clockImages.size ();
+        f.liveColumn = 0;
+        p = f.plantingTemplate;
+        p.type = ReportTemplate::Planting;
+        p.format = f.pageFormat;
+        p.pending = true;
+        if (legend)
+            legend (p);
+        cache.composedAspect = -1;
+        f.paperDirty = false;
+    }
     if (f.paperDirty) {
         f.clockImages.assign (f.panelSteps.size () * (f.measuredDraft ? 3 : 1), 0);
         cache.clockTextures.clear ();

@@ -209,6 +209,15 @@ void DescribeSeason (ReportPanel& panel, const viewerhud::CaptureFrame::Season& 
     }
 }
 
+// A planting page's tile `index` on screen (#278): its layer's own display, put
+// back as the seasonal pages put back a retained day. False when it is gone.
+bool RestorePlantingTile (DiligentScene& scene, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                          const viewerhud::CaptureFrame& f, size_t index)
+{
+    return index < f.plantingPayloads.size () && f.plantingPayloads[index] != nullptr &&
+           scene.RestoreAnalysisPayload (device, context, *f.plantingPayloads[index]);
+}
+
 void StartSeason (HudState& state, size_t row, bool south)
 {
     auto& f = state.captureFrame;
@@ -254,7 +263,8 @@ void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scen
     if (frame.builder && (frame.active || state.sunShotRequested) && viewerhud::SwitchPageCamera (frame, camera)) {
         scene.ResetTemporalAntiAliasingHistory ();
     }
-    if ((frame.active || state.sunShotRequested) && frame.builder && frame.paperCache && frame.seasons[2].payload) {
+    if ((frame.active || state.sunShotRequested) && frame.builder && frame.paperCache &&
+        (frame.seasons[2].payload || frame.PlantingBuilder ())) {
         auto& cache = *frame.paperCache;
         std::array<float, 32> matrices {};
         camera.GetViewMatrix (matrices.data ());
@@ -319,14 +329,19 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     if (state.captureFrame.active && state.captureFrame.builder) {
         auto& f = state.captureFrame;
         const auto stats = scene.Stats ();
-        f.measuredDraft = f.seasons[0].payload && f.seasons[1].payload && f.seasons[2].payload &&
-                          f.seasonStamp == MeshStore::Get ().CaptureStamp ();
+        // A planting page's tiles are its layers' own displays (#278): ready
+        // from the start, no seasonal day to trace.
+        const bool planting = f.reportType == int (ReportTemplate::Planting) && f.PlantingBuilder ();
+        f.measuredDraft = planting || (f.seasons[0].payload && f.seasons[1].payload && f.seasons[2].payload &&
+                                       f.seasonStamp == MeshStore::Get ().CaptureStamp ());
         if (!f.measuredDraft && f.paperCache && f.paperCache->page.pending &&
             (f.paperCache->study != stats.sunStudy.studyId || f.paperCache->version != stats.sunStudy.version))
             f.paperDirty = true;
         viewerhud::UpdateReportPaper (device, f, stats.latitudeDegrees < 0, [&] (LayoutReportPage& page) {
-            const auto payload = f.measuredDraft ? f.seasons[0].payload : scene.ShownAnalysisPayload ();
-            if (f.measuredDraft && !f.clocks.empty ()) {
+            const auto payload = planting          ? f.plantingPayloads.front ()
+                                 : f.measuredDraft ? f.seasons[0].payload
+                                                   : scene.ShownAnalysisPayload ();
+            if (!planting && f.measuredDraft && !f.clocks.empty ()) {
                 double previous = -1;
                 for (size_t i = 0; i < page.panels.size (); ++i) {
                     const auto& day = f.seasons[i / f.clocks.size ()];
@@ -362,7 +377,8 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
                     --f.paperCache->tilesToRefresh;
                     f.liveColumn = (f.liveColumn + 1) % f.clockImages.size ();
                 }
-                const auto& p = *f.seasons[f.liveColumn / f.clocks.size ()].payload;
+                const auto& p = planting ? *f.plantingPayloads[f.liveColumn % f.plantingPayloads.size ()]
+                                         : *f.seasons[f.liveColumn / f.clocks.size ()].payload;
                 const bool switched = scene.ShownSunStudyId () != p.studyId;
                 f.liveStep = scene.RestoreAnalysisPayload (device, context, p)
                                  ? (f.reportType == 0 ? ClockStep (p, f.clocks[f.liveColumn % f.clocks.size ()]) : 0)
@@ -423,6 +439,15 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
         report_.type = ReportTemplate (frame.reportType);
         report_.clocks = frame.clocks;
         report_.tileAspect = frame.tileAspect;
+        if (report_.type == ReportTemplate::Planting) {
+            // #278: the template's text and table; its panels are captured.
+            report_ = frame.plantingTemplate;
+            report_.type = ReportTemplate::Planting;
+            report_.format = frame.pageFormat;
+            report_.tileAspect = frame.tileAspect;
+            report_.panels.clear ();
+            report_.pending = false;
+        }
         panelIndex_ = 0;
         state.captureFrame.shadowStep = (std::max) (0, frame.panelSteps.front ());
         state.captureFrame.captions.clear ();
@@ -446,6 +471,12 @@ DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& sur
     if (reporting_ && frame.seasonal) {
         waitingDay_ = true;
         StartSeason (state, 0, scene.Stats ().latitudeDegrees < 0);
+    }
+    else if (reporting_ && report_.type == ReportTemplate::Planting &&
+             !RestorePlantingTile (scene, device, context, frame, 0)) {
+        Destroy (context);
+        Fail (state, "a planting layer's display is no longer available; reopen Layout Builder from Planting");
+        return surface;
     }
     // The window's history is the wrong size and, at worst, the wrong pixels.
     scene.ResetTemporalAntiAliasingHistory ();
@@ -650,42 +681,66 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
         const size_t cols = frame.panelSteps.size (), total = cols * (frame.seasonal ? 3 : 1),
                      column = panelIndex_ % cols, rowIndex = panelIndex_ / cols;
         const int step = frame.panelSteps[column];
-        ReportPanel panel;
-        panel.season = rowIndex == 0 ? "Equinox" : rowIndex == 1 ? "Summer solstice" : "Winter solstice";
-        char date[48];
-        std::snprintf (date, sizeof (date), "%02d %s", frame.day,
-                       frame.month == 3   ? "March"
-                       : frame.month == 6 ? "June"
-                                          : "December");
-        panel.date = date;
-        double percent = -1;
-        if (frame.seasons[rowIndex].payload)
-            DescribeSeason (panel, frame.seasons[rowIndex], report_.type, step, percent);
-        else
-            panel.metric = "No data";
-        if (report_.type == ReportTemplate::Analysis) {
-            if (column && percent >= 0 && previousShaded_ >= 0) {
-                char delta[32];
-                std::snprintf (delta, sizeof (delta), " (%+.1f pp)", percent - previousShaded_);
-                panel.metric += delta;
-            }
-            previousShaded_ = percent;
-        }
-        panel.width = width;
-        panel.height = viewHeight;
-        if (report_.type != ReportTemplate::Analysis || step >= 0)
+        if (report_.type == ReportTemplate::Planting) {
+            // #278: the layer's tile, named and measured by the template.
+            ReportPanel panel = panelIndex_ < frame.plantingTemplate.panels.size ()
+                                    ? frame.plantingTemplate.panels[panelIndex_]
+                                    : ReportPanel {};
+            panel.rgba.clear ();
+            panel.width = width;
+            panel.height = viewHeight;
             StoreReportTile (panel, image);
-        report_.panels.push_back (std::move (panel));
-        if (ok && ++panelIndex_ < total) {
-            if (frame.seasonal && panelIndex_ % cols == 0) {
-                StartSeason (state, panelIndex_ / cols, scene.Stats ().latitudeDegrees < 0);
-                waitingDay_ = true;
+            report_.panels.push_back (std::move (panel));
+            if (++panelIndex_ < total) {
+                if (!RestorePlantingTile (scene, device_, context, frame, panelIndex_)) {
+                    Fail (state, "a planting layer's display is no longer available");
+                    Destroy (context);
+                    scene.ResetTemporalAntiAliasingHistory ();
+                    return true;
+                }
+                frames_ = 0;
+                scene.ResetTemporalAntiAliasingHistory ();
+                return true;
             }
+        }
+        else {
+            ReportPanel panel;
+            panel.season = rowIndex == 0 ? "Equinox" : rowIndex == 1 ? "Summer solstice" : "Winter solstice";
+            char date[48];
+            std::snprintf (date, sizeof (date), "%02d %s", frame.day,
+                           frame.month == 3   ? "March"
+                           : frame.month == 6 ? "June"
+                                              : "December");
+            panel.date = date;
+            double percent = -1;
+            if (frame.seasons[rowIndex].payload)
+                DescribeSeason (panel, frame.seasons[rowIndex], report_.type, step, percent);
             else
-                frame.shadowStep = (std::max) (0, frame.panelSteps[panelIndex_ % cols]);
-            frames_ = 0;
-            scene.ResetTemporalAntiAliasingHistory ();
-            return true;
+                panel.metric = "No data";
+            if (report_.type == ReportTemplate::Analysis) {
+                if (column && percent >= 0 && previousShaded_ >= 0) {
+                    char delta[32];
+                    std::snprintf (delta, sizeof (delta), " (%+.1f pp)", percent - previousShaded_);
+                    panel.metric += delta;
+                }
+                previousShaded_ = percent;
+            }
+            panel.width = width;
+            panel.height = viewHeight;
+            if (report_.type != ReportTemplate::Analysis || step >= 0)
+                StoreReportTile (panel, image);
+            report_.panels.push_back (std::move (panel));
+            if (ok && ++panelIndex_ < total) {
+                if (frame.seasonal && panelIndex_ % cols == 0) {
+                    StartSeason (state, panelIndex_ / cols, scene.Stats ().latitudeDegrees < 0);
+                    waitingDay_ = true;
+                }
+                else
+                    frame.shadowStep = (std::max) (0, frame.panelSteps[panelIndex_ % cols]);
+                frames_ = 0;
+                scene.ResetTemporalAntiAliasingHistory ();
+                return true;
+            }
         }
         const auto page = ReportPageFormat (report_.format);
         ok = RenderPaperLegend (device_, context, hud, scene.Stats (), state, report_, error);

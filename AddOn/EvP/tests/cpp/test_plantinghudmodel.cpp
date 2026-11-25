@@ -2,6 +2,7 @@
 // stepped tint's bands and stops.
 
 #include "ArchViz/PlantingHudModel.hpp"
+#include "ArchViz/SunStudyOverlay.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 
 #include <gtest/gtest.h>
@@ -122,4 +123,28 @@ TEST (PlantingHudModel, ALayerKeepsItsOwnPeriodLabel)
     KeepLayer (hud, 0.15f, "sun-3", false);
     EXPECT_TRUE (hud.layers[0].label.empty ()) << "a day layer has no period label";
     EXPECT_EQ (kLayersKept, 8u);
+}
+
+TEST (PlantingHudModel, PageLayersAreShownLayersLowestFirst)
+{
+    PlantingHud hud;
+    KeepLayer (hud, 3.0f, "sun-3", true);
+    KeepLayer (hud, 0.15f, "sun-1", true);
+    KeepLayer (hud, 1.5f, "sun-2", true);
+    EXPECT_TRUE (PageLayers (hud, 4).empty ()) << "no layer has been shown yet";
+    hud.layers[0].display = std::make_shared<const SunStudyAtlasUpload> ();
+    hud.layers[2].display = hud.layers[0].display;
+    EXPECT_EQ (PageLayers (hud, 4), (std::vector<size_t> { 0, 2 }));
+    EXPECT_EQ (PageLayers (hud, 1), (std::vector<size_t> { 0 }));
+    EXPECT_EQ (LayerName (hud, 0.15f), "0.15 m Ground cover");
+    EXPECT_EQ (LayerName (hud, 2.2f), "2.20 m layer");
+    KeepLayer (hud, 0.15f, "sun-4", true);
+    EXPECT_EQ (hud.layers[0].display, nullptr) << "another study: its picture comes when shown";
+}
+
+TEST (PlantingHudModel, ClassSharesAreHighestClassFirst)
+{
+    PlantingHud hud;
+    EXPECT_EQ (ClassShares (hud, { 25.0, 25.0, 50.0 }), "Full sun 50% | Partial shade 25% | Shade 25%");
+    EXPECT_EQ (ClassShares (hud, { 0.0, 0.0, 0.0 }), "");
 }

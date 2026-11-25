@@ -483,6 +483,66 @@ void plantinghud::RefreshAreas (HudState& state, const std::string& studyId, uin
     areas.error = error.empty () ? "The area table could not be read." : error;
 }
 
+void OpenPlantingBuilder (HudState& state)
+{
+    pl::PlantingHud& hud = state.planting;
+    const std::vector<size_t> chosen = pl::PageLayers (hud, kPlantingMaxTiles);
+    if (chosen.empty ()) {
+        hud.runError = "Show a layer once before opening Layout Builder.";
+        return;
+    }
+    LayoutReportPage page;
+    page.type = ReportTemplate::Planting;
+    const std::vector<float> edges = pl::ClassEdges (hud);
+    for (int cls = 0; cls < pl::ClassCount (hud); ++cls)
+        page.classNames.push_back (pl::ClassName (hud, cls));
+    std::vector<std::shared_ptr<const SunStudyAtlasUpload>> displays;
+    std::string period;
+    for (const size_t index : chosen) {
+        const pl::Layer& layer = hud.layers[index];
+        ReportPanel panel;
+        panel.date = pl::LayerName (hud, layer.height);
+        ReportAreaRow row;
+        row.name = panel.date;
+        sunstudyhud::PlantingAreas areas;
+        std::string error;
+        if (sunstudyhud::ReadPlantingAreas (layer.studyId, pl::AreaEdges (hud), areas, error)) {
+            row.classAreas = areas.table.total.classAreas;
+            row.unavailable = areas.table.total.UnavailableArea ();
+            row.measured = areas.table.total.evaluatedArea;
+            panel.metric = pl::ClassShares (hud, row.classAreas);
+        }
+        else
+            panel.metric = "Areas unavailable: " + error;
+        if (period.empty ())
+            period = layer.period ? layer.label + ", mean direct sun a day" : "one day's direct sun";
+        page.panels.push_back (std::move (panel));
+        page.areaRows.push_back (std::move (row));
+        displays.push_back (layer.display);
+    }
+    std::string classes = "classes at ";
+    for (size_t i = 0; i < edges.size (); ++i) {
+        char edge[16];
+        std::snprintf (edge, sizeof (edge), "%.4g", edges[i]);
+        classes += (i == 0 ? "" : i + 1 == edges.size () ? " and " : ", ") + std::string (edge);
+    }
+    classes += " h a day (Vilnius 2024)";
+    page.subtitle = "Light by layer height  |  " + period + "  |  " + classes;
+    page.notes = { "Classes from each sample's own hours, exact at an edge: a value at an edge belongs to the upper "
+                   "class. Plan areas in square metres.",
+                   "Unavailable (hatched, N/A): the host is too steep, or a ceiling is within 0.10 m above the layer. "
+                   "It is never counted as shade." };
+    if (!viewerhud::BeginCaptureFrame (state, kShotSunStudy))
+        return;
+    auto& f = state.captureFrame;
+    f.builder = true;
+    f.studyDay = f.seasonal = false;
+    f.plantingTemplate = std::move (page);
+    f.plantingPayloads = std::move (displays);
+    f.SelectWorkflow (int (ReportTemplate::Planting));
+    f.paperDirty = true;
+}
+
 void ReleasePlantingDisplay (HudState& state)
 {
     auto& hold = state.planting.sunHold;

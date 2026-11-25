@@ -15,8 +15,13 @@
 #include "SunStudy/SunStudyPlantingAreas.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
+
+namespace geomsrv::archviz {
+struct SunStudyAtlasUpload; // ArchViz/SunStudyOverlay.hpp
+}
 
 namespace geomsrv::archviz::planting {
 
@@ -83,6 +88,9 @@ struct Layer {
     std::string studyId;
     bool period = false;
     std::string label; // a period's "2026-04-28 to 2026-10-01", with " (estimate)"
+    // Its display as last shown, for the Layout Builder's planting page (#278):
+    // kept by the frame loop whenever this layer is the study on screen.
+    std::shared_ptr<const SunStudyAtlasUpload> display;
 };
 
 struct PlantingHud {
@@ -188,6 +196,16 @@ std::vector<double> AreaEdges (const PlantingHud& hud);
 bool AreasStale (const PlantingHud& hud, const std::string& studyId, uint64_t version);
 // A short host label: its 1-based row and the GUID's last four characters.
 std::string HostLabel (size_t row, const std::string& guid);
+
+// A layer's caption: its height and, when it is one of the form's heights, that
+// slot's name ("0.15 m Ground cover").
+std::string LayerName (const PlantingHud& hud, float height);
+// The layers for a planting page: those with a display, lowest first, at most
+// `limit`.
+std::vector<size_t> PageLayers (const PlantingHud& hud, size_t limit);
+// "Full sun 35% | Partial shade 41% | Shade 24%" from class areas, highest class
+// first; "" when nothing was measured.
+std::string ClassShares (const PlantingHud& hud, const std::vector<double>& classAreas);
 
 // The layer finished for `height`, or -1.
 int LayerAt (const PlantingHud& hud, float height);

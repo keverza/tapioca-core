@@ -1058,6 +1058,13 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
 void DrawPlantingHudSection (HudState& state, const DiligentSceneStats& scene);
 void ReleasePlantingDisplay (HudState& state);
 void ServicePlantingRuns (HudState& state);
+// Open Layout Builder on the Planting Suitability page (#278): up to
+// kPlantingMaxTiles kept layers, lowest first, each with its display, its class
+// shares and an area row. Does nothing while another capture is open.
+void OpenPlantingBuilder (HudState& state);
+// The capture legend's colour column for a planting map: class swatches with
+// their ranges and the unavailable hatch. Inside the legend strip's table.
+void DrawPlantingCaptureColours (const HudState& state);
 // The screenshot's legend strip, two halves (#156): on the left the location
 // (place and north) on one line and the analysis period (date or period,
 // traced hours, the shadows' day) on the next; on the right the colour legend

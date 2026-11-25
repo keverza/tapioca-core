@@ -64,6 +64,14 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
     // arrive so the claim that shows one selects that tab; the height queue
     // advances on any page.
     ServicePlantingRuns (state);
+    // Each planting layer keeps its display as last shown, for the Layout
+    // Builder's planting page, which puts the layers back one tile at a time.
+    for (auto& layer : state.planting.layers)
+        if (!shown.empty () && layer.studyId == shown) {
+            auto payload = scene.ShownAnalysisPayload ();
+            if (payload != nullptr && payload->studyId == shown && payload != layer.display)
+                layer.display = std::move (payload);
+        }
     analysistabs::FollowShownStudy (state.analysisFocus, shown, kind, queue.AnalysisDisplayGeneration (), origin);
     // ⚠️ EACH TINT TAB PUTS ITS OWN STUDY BACK. The three share one tint channel,
     // so the last run evicts the others; without this the sun tab said "a

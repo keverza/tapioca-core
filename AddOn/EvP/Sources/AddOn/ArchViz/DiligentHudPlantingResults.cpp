@@ -31,28 +31,30 @@ namespace {
 constexpr uint32_t kHatchLight = 0xBDBDBDFFu; // kArchVizSunTintPS's UnavailableHatchColor stripes
 constexpr uint32_t kHatchDark = 0x949494FFu;
 
-ImU32 Abgr (uint32_t rgba)
+} // namespace
+
+ImU32 AbgrOf (uint32_t rgba)
 {
     return IM_COL32 ((rgba >> 24) & 0xff, (rgba >> 16) & 0xff, (rgba >> 8) & 0xff, rgba & 0xff);
 }
 
 // The unavailable state's legend swatch: the map's own diagonal hatch.
-void HatchSwatch (float size)
+void DrawHatchSwatch (float size)
 {
     const ImVec2 min = ImGui::GetCursorScreenPos ();
     const ImVec2 max (min.x + size, min.y + size);
     ImDrawList* draw = ImGui::GetWindowDrawList ();
-    draw->AddRectFilled (min, max, Abgr (kHatchLight));
+    draw->AddRectFilled (min, max, AbgrOf (kHatchLight));
     draw->PushClipRect (min, max, true);
     const float stripe = size / 4.0f;
     for (float x = -size; x < size; x += 2.0f * stripe)
         draw->AddQuadFilled ({ min.x + x, max.y }, { min.x + x + stripe, max.y }, { min.x + x + stripe + size, min.y },
-                             { min.x + x + size, min.y }, Abgr (kHatchDark));
+                             { min.x + x + size, min.y }, AbgrOf (kHatchDark));
     draw->PopClipRect ();
     ImGui::Dummy (ImVec2 (size, size));
 }
 
-std::string ClassRange (const pl::PlantingHud& hud, int cls)
+std::string ClassRangeOf (const pl::PlantingHud& hud, int cls)
 {
     const std::vector<float> edges = pl::ClassEdges (hud);
     char text[48];
@@ -64,6 +66,8 @@ std::string ClassRange (const pl::PlantingHud& hud, int cls)
         std::snprintf (text, sizeof (text), "%.4g to %.4g h", edges[size_t (cls - 1)], edges[size_t (cls)]);
     return text;
 }
+
+namespace {
 
 void LayerRow (HudState& state, const SunStudyOverlayStatus& study)
 {
@@ -122,10 +126,10 @@ void LegendSection (HudState& state)
                 hudshell::ItemTip ("Pick this class's colour. Display only: no study reruns.");
             }
             else
-                ImGui::ColorButton ("##class", ImGui::ColorConvertU32ToFloat4 (Abgr (rgba)),
+                ImGui::ColorButton ("##class", ImGui::ColorConvertU32ToFloat4 (AbgrOf (rgba)),
                                     ImGuiColorEditFlags_NoTooltip, ImVec2 (swatch, swatch));
             ImGui::SameLine ();
-            ImGui::Text ("%s, %s", pl::ClassName (hud, cls), ClassRange (hud, cls).c_str ());
+            ImGui::Text ("%s, %s", pl::ClassName (hud, cls), ClassRangeOf (hud, cls).c_str ());
             ImGui::PopID ();
         }
         if (hud.classPreset.empty () && ImGui::SmallButton ("Reset colours##planting")) {
@@ -147,7 +151,7 @@ void LegendSection (HudState& state)
         ImGui::SameLine (width - ImGui::CalcTextSize ("9 h+").x);
         ImGui::TextDisabled ("9 h+");
     }
-    HatchSwatch (swatch);
+    DrawHatchSwatch (swatch);
     ImGui::SameLine ();
     ImGui::TextUnformatted ("Unavailable");
     hudshell::ItemTip ("Too steep to plant, or under a ceiling (a balcony) closer than 0.10 m above the layer. Not "
@@ -243,7 +247,7 @@ void InspectSection (HudState& state)
         const int cls = pl::ClassOf (hud, state.sunReadingHours);
         std::snprintf (first, sizeof (first), "%s%.2f h direct sun a day", state.sunReadingNearest ? "~ " : "",
                        state.sunReadingHours);
-        std::snprintf (second, sizeof (second), "%s (%s)", pl::ClassName (hud, cls), ClassRange (hud, cls).c_str ());
+        std::snprintf (second, sizeof (second), "%s (%s)", pl::ClassName (hud, cls), ClassRangeOf (hud, cls).c_str ());
     }
     else if (state.sunReadingState == 2)
         std::snprintf (first, sizeof (first), "not measured here");
@@ -360,3 +364,32 @@ void DrawCompareTab (HudState& state)
 }
 
 } // namespace geomsrv::archviz::plantinghud
+
+namespace geomsrv::archviz {
+
+// The capture legend's colour column for a planting map (#278): the classes as
+// flat swatches with their ranges, then the unavailable hatch. The strip's
+// left columns -- mini plan, north arrow, location and period -- stay the sun
+// study's own (DrawSunStudyCaptureLegend).
+void DrawPlantingCaptureColours (const HudState& state)
+{
+    const planting::PlantingHud& hud = state.planting;
+    ImGui::TextUnformatted ("Light class, direct sun a day");
+    const std::vector<uint32_t> colours = plantinghud::ShownClassColours (hud);
+    const float size = ImGui::GetTextLineHeight ();
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    for (int cls = int (colours.size ()) - 1; cls >= 0; --cls) {
+        if (cls != int (colours.size ()) - 1)
+            ImGui::SameLine (0.0f, size);
+        const ImVec2 at = ImGui::GetCursorScreenPos ();
+        draw->AddRectFilled (at, ImVec2 (at.x + size, at.y + size), plantinghud::AbgrOf (colours[size_t (cls)]));
+        ImGui::Dummy (ImVec2 (size, size));
+        ImGui::SameLine ();
+        ImGui::Text ("%s, %s", planting::ClassName (hud, cls), plantinghud::ClassRangeOf (hud, cls).c_str ());
+    }
+    plantinghud::DrawHatchSwatch (size);
+    ImGui::SameLine ();
+    ImGui::TextUnformatted ("Unavailable: too steep, or under a ceiling; never shade");
+}
+
+} // namespace geomsrv::archviz

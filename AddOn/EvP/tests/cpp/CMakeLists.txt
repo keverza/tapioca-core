@@ -592,6 +592,9 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunChartInfo.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudCaptureFrame.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlanting.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingResults.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/LayoutReportPage.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerScreenshotGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunPath.cpp"
@@ -1260,6 +1263,7 @@ set (EVP_TEST_SOURCES
     test_sunstudy_point_profile.cpp
     test_analysistabs.cpp
     test_plantinghudmodel.cpp
+    test_layoutreportplanting.cpp
     test_analysisliverun.cpp
     test_analysispath.cpp
     test_analysisprofile.cpp

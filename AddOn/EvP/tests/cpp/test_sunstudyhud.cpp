@@ -121,6 +121,19 @@ bool ClearPeriodCache (std::string&)
     s_period = {};
     return true;
 }
+// The Planting tab's runner calls (#278): nothing kept, no store to read.
+bool IsPlantingLayerKept (const std::string&)
+{
+    return false;
+}
+void ForgetPlantingLayers ()
+{
+}
+bool ReadPlantingAreas (const std::string&, const std::vector<double>&, PlantingAreas&, std::string& error)
+{
+    error = "no store in the offline HUD tests";
+    return false;
+}
 } // namespace geomsrv::sunstudyhud
 
 namespace tapioca::test {
