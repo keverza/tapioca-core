@@ -203,7 +203,7 @@ impl Default for PatchSamplerOptions<'_> {
         Self {
             spacing: 1.0,
             normal_offset: 0.01,
-            max_samples: 4_000_000,
+            max_samples: crate::limits::SAMPLER_MAX_SAMPLES,
             patch: SurfacePatchOptions::default(),
             sample_group: None,
             sample_face: None,

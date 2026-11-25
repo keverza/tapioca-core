@@ -75,7 +75,7 @@ impl Default for SurfaceSamplingOptions {
             spacing: 1.0,
             normal_offset: 0.01,
             jitter: 0.0,
-            max_samples: 4_000_000,
+            max_samples: crate::limits::SAMPLER_MAX_SAMPLES,
             clip: [0.0; 3],
         }
     }

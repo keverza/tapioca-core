@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "SunStudy/SunStudyLimits.hpp" // kSamplerMaxSamples
 #include "SunStudy/SunStudyRaster.hpp" // Vec3
 
 namespace evp::sunstudy {
@@ -201,7 +202,7 @@ struct PatchSamplerOptions {
     // How far each sample is lifted along its normal, so a ray does not start on
     // the face it belongs to.
     double normalOffset = 0.01;
-    size_t maxSamples = 4000000;
+    size_t maxSamples = kSamplerMaxSamples;
     SurfacePatchOptions patch;
     // Per group, whether it is an ANALYSIS element -- see
     // SamplerOptions::sampleGroup. A patch never crosses an element, so a

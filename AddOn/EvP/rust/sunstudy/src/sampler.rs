@@ -149,7 +149,7 @@ impl Default for SamplerOptions<'_> {
             normal_offset: 0.01,
             jitter: 0.0,
             jitter_face_offset: 0,
-            max_samples: 4_000_000,
+            max_samples: crate::limits::SAMPLER_MAX_SAMPLES,
             want_layouts: false,
             sample_group: None,
             sample_face: None,

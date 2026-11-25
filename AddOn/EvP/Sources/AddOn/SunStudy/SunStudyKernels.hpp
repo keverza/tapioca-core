@@ -133,7 +133,8 @@ SunStudyAtlas BuildStableTriangleAtlas (const SampleGrid& grid, const geomsrv::S
                                         const AtlasOptions& options = AtlasOptions (), std::string* error = nullptr);
 
 GroundGrid MakeGroundSampleGrid (const Vec3& aabbMin, const Vec3& aabbMax, double spacing, double pad = -1.0,
-                                 double zOffset = 0.10, size_t maxSamples = 4000000, std::string* error = nullptr);
+                                 double zOffset = 0.10, size_t maxSamples = kSamplerMaxSamples,
+                                 std::string* error = nullptr);
 
 SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
                             const uint32_t* groups, const SamplerOptions& options, std::string* error = nullptr);

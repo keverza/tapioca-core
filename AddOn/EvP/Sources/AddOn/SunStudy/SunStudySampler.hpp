@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "SunStudy/SunStudyLimits.hpp" // kSamplerMaxSamples
 #include "SunStudy/SunStudyRaster.hpp"
 
 namespace evp::sunstudy {
@@ -128,7 +129,7 @@ struct SamplerOptions {
     // Output face indices remain local and are rebased by the caller.
     uint32_t jitterFaceOffset = 0;
 
-    size_t maxSamples = 4000000;
+    size_t maxSamples = kSamplerMaxSamples;
 
     // Fill `layouts`, `cellColumns` and `cellRows`. Off by default: only a
     // consumer that draws the study needs them.

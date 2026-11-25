@@ -17,7 +17,7 @@ struct SurfaceSamplingOptions {
     double spacing = 1.0;
     double normalOffset = 0.01;
     double jitter = 0.0;
-    size_t maxSamples = 4000000;
+    size_t maxSamples = kSamplerMaxSamples;
     // The analysis cylinder (SunStudy/SunStudyBounds.hpp), in plan: cells whose
     // centre lies outside it are not sampled. Radius 0 is no clip. Patch domain
     // only -- a triangle tile cannot lose cells without losing its mapping.
