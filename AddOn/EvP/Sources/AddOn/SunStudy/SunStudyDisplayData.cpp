@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudyDisplayData.hpp"
+#include "SunStudy/SunStudyReceptor.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
 #if defined(TAPIOCA_GEOMETRY_RUST)
@@ -38,6 +39,9 @@ std::shared_ptr<const StudyDisplayData> PrepareRustDisplayData (const StudyRecor
     if (!core.StepMasks (steps, data->stepMinutes, data->noonStep, status, error) || cancelled () ||
         status != rust::StudyReadStatus::Ok || steps.width == 0)
         return nullptr;
+    // A planting layer's unavailable receptors: a drawn "no answer", not a gap.
+    if (!record.IsPatchDomain ())
+        StampUnavailableTexels (image, record.receptorUnavailableTexels);
     data->image = std::make_shared<const std::vector<float>> (std::move (image));
     data->stepWords = steps.words;
     data->stepCount = steps.steps;

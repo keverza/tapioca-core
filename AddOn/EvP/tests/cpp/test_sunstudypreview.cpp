@@ -149,6 +149,69 @@ RWStructuredBuffer<float4> result : register(u0);
     context->Unmap (staging.Get (), 0);
 }
 
+// #278: an unavailable planting receptor (kUnavailableTexel) is a neutral
+// world-space hatch -- grey, opaque, two alternating tones -- not a ramp colour.
+TEST (SunStudyPreview, RealShaderDrawsUnavailableReceptorsAsANeutralHatch)
+{
+    using Microsoft::WRL::ComPtr;
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    ASSERT_TRUE (SUCCEEDED (D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                               &device, nullptr, &context)));
+    const std::string source = std::string (kArchVizCBuffer) + kNoShadowMapEdge + kArchVizSunTintPS + R"hlsl(
+RWStructuredBuffer<float4> result : register(u0);
+[numthreads(1,1,1)] void HatchTest(uint3 id : SV_DispatchThreadID) {
+    result[0] = UnavailableHatchColor(float3(0.05, 0.0, 0.0), float3(0, 0, 1));
+    result[1] = UnavailableHatchColor(float3(0.20, 0.0, 0.0), float3(0, 0, 1));
+}
+)hlsl";
+    ComPtr<ID3DBlob> code, error;
+    ASSERT_TRUE (SUCCEEDED (D3DCompile (source.data (), source.size (), "sun-hatch", nullptr, nullptr, "HatchTest",
+                                        "cs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &code, &error)))
+        << (error ? static_cast<const char*> (error->GetBufferPointer ()) : "compile failed");
+    ComPtr<ID3D11ComputeShader> shader;
+    ASSERT_TRUE (
+        SUCCEEDED (device->CreateComputeShader (code->GetBufferPointer (), code->GetBufferSize (), nullptr, &shader)));
+    DiligentSceneConstants values;
+    D3D11_BUFFER_DESC constantsDesc = {};
+    constantsDesc.ByteWidth = sizeof (values);
+    constantsDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_SUBRESOURCE_DATA constantsData = { &values, 0, 0 };
+    ComPtr<ID3D11Buffer> constants;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&constantsDesc, &constantsData, &constants)));
+    D3D11_BUFFER_DESC outputDesc = {};
+    outputDesc.ByteWidth = 2 * 4 * sizeof (float);
+    outputDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    outputDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    outputDesc.StructureByteStride = 4 * sizeof (float);
+    ComPtr<ID3D11Buffer> output, staging;
+    ComPtr<ID3D11UnorderedAccessView> view;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &output)));
+    ASSERT_TRUE (SUCCEEDED (device->CreateUnorderedAccessView (output.Get (), nullptr, &view)));
+    outputDesc.BindFlags = outputDesc.MiscFlags = 0;
+    outputDesc.Usage = D3D11_USAGE_STAGING;
+    outputDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ASSERT_TRUE (SUCCEEDED (device->CreateBuffer (&outputDesc, nullptr, &staging)));
+    context->CSSetShader (shader.Get (), nullptr, 0);
+    context->CSSetConstantBuffers (0, 1, constants.GetAddressOf ());
+    context->CSSetUnorderedAccessViews (0, 1, view.GetAddressOf (), nullptr);
+    context->Dispatch (1, 1, 1);
+    context->CopyResource (staging.Get (), output.Get ());
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    ASSERT_TRUE (SUCCEEDED (context->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
+    const float* rgba = static_cast<const float*> (mapped.pData);
+    const auto linear = [] (float value) { return std::pow ((value + 0.055f) / 1.055f, 2.4f); };
+    for (int pixel = 0; pixel < 2; ++pixel) {
+        const float* c = rgba + pixel * 4;
+        EXPECT_FLOAT_EQ (c[0], c[1]) << "neutral";
+        EXPECT_FLOAT_EQ (c[1], c[2]) << "neutral";
+        EXPECT_FLOAT_EQ (c[3], 1.0f) << "opaque";
+    }
+    EXPECT_NEAR (rgba[0], linear (0.58f), 1e-5);
+    EXPECT_NEAR (rgba[4], linear (0.74f), 1e-5);
+    context->Unmap (staging.Get (), 0);
+}
+
 TEST (SunStudyColours, TheShadowViewsDefaultToTheirHistoricPalette)
 {
     // The constants a scene no HUD has set: the colours the shader always drew,

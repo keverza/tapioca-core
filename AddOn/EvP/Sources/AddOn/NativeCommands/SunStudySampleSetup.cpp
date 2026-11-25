@@ -27,7 +27,8 @@ namespace {
 // and records what was left out. The sampling layout's per-mesh spans no longer
 // partition the grid, so it is invalidated (the study is never a reuse source).
 NativeCommandResult ApplyReceptorLayer (const SunStudySampleRequest& request, double normalOffset,
-                                        evp::sunstudy::SampleGrid& samples, evp::sunstudy::StudyRecord& record)
+                                        evp::sunstudy::SampleGrid& samples, evp::sunstudy::StudyRecord& record,
+                                        std::vector<evp::sunstudy::ReceptorCell>& unavailableCells)
 {
     if (request.occluders == nullptr)
         return NativeCommandResult::Failure ("receptorHeight needs the study's occluders for the overhead test");
@@ -40,6 +41,7 @@ NativeCommandResult ApplyReceptorLayer (const SunStudySampleRequest& request, do
     if (!evp::sunstudy::BuildReceptorLayer (samples, normalOffset, request.receptor, &overhead, layer, error))
         return NativeCommandResult::Failure (GS::UniString ("the receptor layer was refused: ") +
                                              GS::UniString (error.c_str (), CC_UTF8));
+    std::vector<evp::sunstudy::ReceptorCell> cells = evp::sunstudy::UnavailableReceptorCells (samples, layer);
     if (!evp::sunstudy::KeepAvailableReceptors (samples, layer))
         return NativeCommandResult::Failure ("the receptor layer does not match the sampled grid");
     record.receptorHeight = request.receptor.height;
@@ -53,6 +55,7 @@ NativeCommandResult ApplyReceptorLayer (const SunStudySampleRequest& request, do
     record.receptorUnavailableArea = layer.unavailableArea;
     record.samplingLayout.valid = false;
     record.samplingLayout.meshes.clear ();
+    unavailableCells = std::move (cells);
     return GS::ObjectState ();
 }
 
@@ -277,8 +280,10 @@ NativeCommandResult PrepareSunStudySamples (const GS::ObjectState& params, const
             out.undersizedFaces = samples.undersizedFaces;
             out.degenerateFaces = samples.degenerateFaces;
             out.excludedSurfaces = samples.excludedFaces;
+            std::vector<evp::sunstudy::ReceptorCell> unavailableCells;
             if (request.receptorRequested) {
-                if (const NativeCommandResult lifted = ApplyReceptorLayer (request, zOffset, samples, record);
+                if (const NativeCommandResult lifted =
+                        ApplyReceptorLayer (request, zOffset, samples, record, unavailableCells);
                     !lifted.ok)
                     return lifted;
                 record.positions = samples.positions;
@@ -293,6 +298,9 @@ NativeCommandResult PrepareSunStudySamples (const GS::ObjectState& params, const
             if (!record.atlas.valid && samples.Count () != 0)
                 return NativeCommandResult::Failure (AtlasRefusal ("triangle", limits.maxAtlasDimension));
             trace.Mark ("atlas", record.atlas.width * static_cast<size_t> (record.atlas.height) * sizeof (float));
+            // Unavailable receptors keep their host face's tile; their texels
+            // are drawn as "no answer" (kUnavailableTexel), never as shade.
+            record.receptorUnavailableTexels = evp::sunstudy::ReceptorCellTexels (record.atlas, unavailableCells);
             out.atlasWidth = record.atlas.width;
             out.atlasHeight = record.atlas.height;
             out.atlasFaces = record.atlas.placedFaces;

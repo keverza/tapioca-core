@@ -1,6 +1,8 @@
 #include "SunStudy/SunStudyReceptor.hpp"
 #include "SunStudy/SunStudyRustDetail.hpp"
 
+#include <algorithm>
+
 namespace evp::sunstudy {
 
 using namespace rust::detail;
@@ -77,6 +79,46 @@ bool BuildReceptorLayer (const SampleGrid& grid, double normalOffset, const Rece
         return false;
     out = std::move (layer);
     return true;
+}
+
+std::vector<ReceptorCell> UnavailableReceptorCells (const SampleGrid& grid, const ReceptorLayer& layer)
+{
+    std::vector<ReceptorCell> cells;
+    const size_t count = grid.Count ();
+    if (layer.Count () != count || grid.cellColumns.size () != count || grid.cellRows.size () != count)
+        return cells;
+    for (size_t i = 0; i < count; ++i)
+        if (layer.status[i] != ReceptorStatus::Available)
+            cells.push_back ({ grid.faces[i], grid.cellColumns[i], grid.cellRows[i] });
+    return cells;
+}
+
+std::vector<uint32_t> ReceptorCellTexels (const SunStudyAtlas& atlas, const std::vector<ReceptorCell>& cells)
+{
+    std::vector<uint32_t> texels;
+    if (!atlas.valid || atlas.width == 0)
+        return texels;
+    texels.reserve (cells.size ());
+    for (const ReceptorCell& cell : cells) {
+        if (cell.face >= atlas.tiles.size () || !atlas.tiles[cell.face].Placed ())
+            continue;
+        const AtlasTile& tile = atlas.tiles[cell.face];
+        const uint32_t column = std::min (cell.column, tile.width - 1);
+        const uint32_t row = std::min (cell.row, tile.height - 1);
+        texels.push_back ((tile.y + row) * atlas.width + tile.x + column);
+    }
+    return texels;
+}
+
+size_t StampUnavailableTexels (std::vector<float>& image, const std::vector<uint32_t>& texels)
+{
+    size_t written = 0;
+    for (const uint32_t texel : texels)
+        if (texel < image.size () && image[texel] < 0.0f) {
+            image[texel] = kUnavailableTexel;
+            ++written;
+        }
+    return written;
 }
 
 bool KeepAvailableReceptors (SampleGrid& grid, const ReceptorLayer& layer)

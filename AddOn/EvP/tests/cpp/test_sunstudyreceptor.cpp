@@ -186,3 +186,48 @@ TEST (SunStudyReceptor, KeepAvailableReceptorsFiltersIdentityInStep)
     EXPECT_FALSE (KeepAvailableReceptors (untouched, foreign));
     EXPECT_EQ (untouched.Count (), before.Count ());
 }
+
+TEST (SunStudyReceptor, UnavailableTexelsAreTheirOwnStateAndNeverOverwriteAMeasurement)
+{
+    std::shared_ptr<geomsrv::Snapshot> snapshot;
+    StudyRecord record;
+    BalconyScene (snapshot, record);
+    const OverheadDistance overhead = [&record] (const double host[3]) {
+        return SunStudyOverheadDistance (*record.occluders, host);
+    };
+    SampleGrid grid = Bed ();
+    ReceptorOptions tree;
+    tree.height = 3.0;
+    ReceptorLayer layer;
+    std::string error;
+    ASSERT_TRUE (BuildReceptorLayer (grid, kOffset, tree, &overhead, layer, error)) << error;
+    const std::vector<ReceptorCell> cells = UnavailableReceptorCells (grid, layer);
+    ASSERT_EQ (cells.size (), layer.blocked);
+    ASSERT_TRUE (KeepAvailableReceptors (grid, layer));
+
+    // The atlas is built from the kept samples, exactly as StartSunStudy does.
+    const SunStudyAtlas atlas = kernels::BuildSunStudyAtlas (grid);
+    ASSERT_TRUE (atlas.valid);
+    const std::vector<uint32_t> texels = ReceptorCellTexels (atlas, cells);
+    ASSERT_EQ (texels.size (), cells.size ()) << "every host face keeps its tile";
+    std::vector<double> hours (grid.Count (), 5.0);
+    std::vector<float> image = kernels::ScatterToAtlas (atlas, hours, -1.0f);
+    ASSERT_FALSE (image.empty ());
+    for (const uint32_t texel : texels)
+        EXPECT_LT (image[texel], 0.0f) << "an unavailable cell holds no measurement";
+
+    EXPECT_EQ (StampUnavailableTexels (image, texels), texels.size ());
+    size_t unavailable = 0, measured = 0;
+    for (const float value : image) {
+        unavailable += value == kUnavailableTexel;
+        measured += value == 5.0f;
+    }
+    EXPECT_EQ (unavailable, texels.size ());
+    EXPECT_EQ (measured, grid.Count ()) << "no measured texel was stamped";
+
+    // A texel that holds a value is left alone, and out-of-range indices are ignored.
+    std::vector<float> small { 2.0f, -1.0f };
+    EXPECT_EQ (StampUnavailableTexels (small, { 0u, 1u, 7u }), 1u);
+    EXPECT_EQ (small[0], 2.0f);
+    EXPECT_EQ (small[1], kUnavailableTexel);
+}

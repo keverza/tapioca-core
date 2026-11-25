@@ -23,6 +23,7 @@
 // lowers itself under an overhang and says so; a layer that did the same would
 // mix heights inside one "3.00 m" map. A blocked receptor is marked Blocked.
 
+#include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 
 #include <cstddef>
@@ -84,6 +85,32 @@ bool BuildReceptorLayer (const SampleGrid& grid, double normalOffset, const Rece
 // an unavailable cell keeps no texel. False (grid unchanged) when the layer does
 // not belong to the grid.
 bool KeepAvailableReceptors (SampleGrid& grid, const ReceptorLayer& layer);
+
+// ⚠️ THE SECOND SENTINEL. An atlas texel below zero has no sample; one at
+// kUnavailableTexel is a receptor that exists but has no answer (steep host,
+// blocked overhead). The tint shader draws it as a neutral hatch rather than
+// discarding it, so "unavailable" is visible and never reads as shade or as
+// "not analysed". Mirrored in kArchVizSunTintPS (DiligentShaders.hpp).
+constexpr float kUnavailableTexel = -2.0f;
+
+// One unavailable receptor's cell, in its host face's lattice.
+struct ReceptorCell {
+    uint32_t face = 0;
+    uint32_t column = 0;
+    uint32_t row = 0;
+};
+
+// The cells of `layer`'s non-available receptors, read from the grid the layer
+// was built from (before KeepAvailableReceptors). Empty without cell coordinates.
+std::vector<ReceptorCell> UnavailableReceptorCells (const SampleGrid& grid, const ReceptorLayer& layer);
+
+// Atlas texel of each cell whose face has a placed tile (the same arithmetic
+// as the atlas's own sample texels); cells on unplaced faces are skipped.
+std::vector<uint32_t> ReceptorCellTexels (const SunStudyAtlas& atlas, const std::vector<ReceptorCell>& cells);
+
+// Writes kUnavailableTexel into `image` at `texels` that hold no sample (< 0).
+// A measured value is never overwritten. Returns the texels written.
+size_t StampUnavailableTexels (std::vector<float>& image, const std::vector<uint32_t>& texels);
 
 } // namespace evp::sunstudy
 

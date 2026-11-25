@@ -956,6 +956,15 @@ float4 HoursOverlayColor (float3 colour, float3 worldPos, float3 normal)
     return float4 (shaded, 1.0);
 }
 
+// A planting receptor with no answer (kUnavailableTexel): neutral grey in 0.125 m
+// diagonal stripes fixed to the world, so it neither shimmers with the camera
+// nor reads as a sun-hours colour, shade, or "not analysed" (which discards).
+float4 UnavailableHatchColor (float3 worldPos, float3 normal)
+{
+    float stripe = frac ((worldPos.x + worldPos.y) * 4.0) < 0.5 ? 0.58 : 0.74;
+    return HoursOverlayColor (SrgbToLinear (float3 (stripe, stripe, stripe)), worldPos, normal);
+}
+
 float3 AmPmDurationColor (float am, float pm)
 {
     float total = am + pm;
@@ -1085,6 +1094,14 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     // mip selection in non-uniform flow is undefined; the atlas has one level
     // anyway.
     float hours = g_sunAtlas.SampleLevel (g_sunAtlas_sampler, uv, 0);
+    if (hours < -1.5) {
+        // The second sentinel (kUnavailableTexel = -2, SunStudyReceptor.hpp): a
+        // planting receptor that exists but has no answer -- too steep a host,
+        // or blocked overhead. A neutral diagonal hatch in world space, so it
+        // reads as "unavailable", never as shade and never as "not analysed".
+        psOut.color = UnavailableHatchColor (psIn.worldPos, psIn.normal);
+        return;
+    }
     if (hours < 0.0)
         discard; // the sentinel: no sample here. NOT zero hours.
 

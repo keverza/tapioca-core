@@ -111,6 +111,9 @@ struct StudyRecord {
     size_t receptorCount = 0; // before removing unavailable receptors
     size_t receptorSteepHost = 0, receptorBlocked = 0, receptorInvalidHost = 0;
     double receptorUnavailableArea = 0.0;
+    // Atlas texels of the unavailable receptors, stamped kUnavailableTexel on
+    // every display image (SunStudyDisplayData) so they draw as "no answer".
+    std::vector<uint32_t> receptorUnavailableTexels;
     bool HasReceptor () const
     {
         return receptorHeight >= 0.0;
