@@ -20,6 +20,7 @@ pub mod raster;
 pub mod rays;
 pub mod reading;
 pub mod receivers;
+pub mod receptor;
 pub mod reuse;
 pub mod roles;
 pub mod sampler;

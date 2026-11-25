@@ -1579,6 +1579,15 @@ has no sun-study core".
   (`sunstudy_reference_kernels.hpp`). Retargeting found one drift: the
   analysis-cylinder cell clip had been added to the C++ sampler only, and was
   ported (sun-study ABI v4).
+- **Planting receptors (#278 Stage 1A):** `receptor` re-expresses a sampled
+  grid as one height layer: each sample lifted **vertically** from its host
+  point (normal offset removed, `MIN_LIFT` even at zero), `+Z` facing and
+  plan-area (`area * |n_z|`) weights on request, sample order and therefore
+  every face/cell/group address unchanged. Each receptor carries a status:
+  a host steeper than `min_host_up` (or facing down) is `SteepHost`, and
+  `mark_overhead` applies the single-point lift's overhead arithmetic to
+  host-measured ceiling distances and marks a receptor `Blocked` instead of
+  clamping it, so one layer never mixes heights. Unavailable is never dark.
 
 Parity was **bit-for-bit**, not within a tolerance: until P7b,
 `test_sunstudy_rust_parity.cpp` ran each kernel and its C++ original over
