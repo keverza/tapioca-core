@@ -572,3 +572,14 @@ def test_planting_receptor_survives_follower_reruns():
         assert f"config.{field}" in sampling_hash
     for key in ("receptorHeight", "receptorNormal", "receptorArea", "receptorMinHostUp"):
         assert f'params.Add ("{key}"' in start_params
+
+
+def test_hud_planting_run_sends_the_receptor_on_the_triangle_domain():
+    # #278 Stage 1C: the HUD runner's own StartParams carries the planting layer,
+    # and only on the triangle domain, which the receptor layer requires.
+    runner = (_ADDON / "NativeCommands" / "SunStudyHudRunner.cpp").read_text(encoding="utf-8")
+    start_params = runner.split("GS::ObjectState StartParams (", 1)[1].split("\n}\n", 1)[0]
+    assert 'planting ? "triangle" : "patch"' in start_params
+    for key in ("receptorHeight", "receptorNormal", "receptorArea", "receptorMinHostUp"):
+        assert f'params.Add ("{key}"' in start_params
+    assert 'AddGuids (params, "analysisElements", request.analysisElements)' in start_params

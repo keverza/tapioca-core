@@ -115,7 +115,17 @@ GS::ObjectState StartParams (const Request& request, int year, int month, int da
     params.Add ("hourTo", (GS::Int32) request.hourTo);
     params.Add ("grid", request.grid);
     params.Add ("samples", GS::UniString ("surfaces"));
-    params.Add ("domain", GS::UniString ("patch"));
+    // ⚠️ A PLANTING LAYER IS TRIANGLE-DOMAIN ONLY (ApplyReceptorLayer refuses
+    // patches), so a receptor request changes the domain with it.
+    const bool planting = request.receptorHeight >= 0.0;
+    params.Add ("domain", GS::UniString (planting ? "triangle" : "patch"));
+    if (planting) {
+        params.Add ("receptorHeight", request.receptorHeight);
+        params.Add ("receptorNormal", GS::UniString ("up"));
+        params.Add ("receptorArea", GS::UniString ("plan"));
+        params.Add ("receptorMinHostUp", request.receptorMinHostUp);
+        AddGuids (params, "analysisElements", request.analysisElements);
+    }
     params.Add ("backend", GS::UniString (request.backend.c_str (), CC_UTF8));
     params.Add ("preset", GS::UniString (request.preset.c_str (), CC_UTF8));
     params.Add ("glassThreshold", request.glassThreshold);
@@ -665,6 +675,7 @@ bool Submit (const Request& request, std::string& error, uint64_t* acceptedRun)
     if (acceptedRun)
         *acceptedRun = runs;
     gStatus.requestedBackend = request.backend;
+    gStatus.receptorHeight = request.receptorHeight;
     if (request.period == "day")
         gStatus.dayDate = DateText (request.year, request.month, request.day);
     char slice[24];

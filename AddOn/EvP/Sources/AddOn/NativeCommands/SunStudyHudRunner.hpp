@@ -79,6 +79,13 @@ struct Request {
     // "cpu" or "gpu", sent as asked and kept by the follower's replacements
     // (SunStudy/SunStudyBackend.hpp). CPU is the baseline.
     std::string backend = "cpu";
+    // A planting study (#278): the receptor layer's height above each host,
+    // metres; < 0 for an ordinary surface study. Set, the study runs on the
+    // triangle domain (the receptor layer refuses patches), each sample faces
+    // +Z and carries plan area, and only `analysisElements` are measured.
+    double receptorHeight = -1.0;
+    double receptorMinHostUp = 0.5;
+    std::vector<std::string> analysisElements;
 };
 
 struct Status {
@@ -101,6 +108,8 @@ struct Status {
     std::string requestedBackend;
     std::string resolvedBackend;
     std::string backendFallbackReason;
+    // The planting layer's height as asked (#278); < 0 for a surface study.
+    double receptorHeight = -1.0;
     // A period run (#152): the schedule and where it is, then its result.
     // `resolvedSteps/totalSteps` stay the current day's.
     // As asked, for the result's explanation: the single day's date (empty for
