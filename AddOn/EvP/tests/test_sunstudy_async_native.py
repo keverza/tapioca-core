@@ -359,11 +359,10 @@ def test_pause_retires_old_producer_but_does_not_clear_display_or_join():
 
 
 def test_surface_sampling_reuse_remains_owned_sdk_free_and_separate_from_result_reuse():
-    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
-    assert re.search(
-        r"BuildSurfaceSampling\s*\(\s*\*snapshot,\s*sampleMask,\s*options,\s*reuseSource\.get\s*\(\s*\)", commands
-    )
-    assert "record->samplingLayout = std::move (sampling.layout)" in commands
+    # StartSunStudy's sampling lives in SunStudySampleSetup.cpp since #278.
+    commands = (_ADDON / "NativeCommands" / "SunStudySampleSetup.cpp").read_text(encoding="utf-8")
+    assert re.search(r"BuildSurfaceSampling\s*\(\s*snapshot,\s*sampleMask,\s*options,\s*reuseSource\s*,", commands)
+    assert "record.samplingLayout = std::move (sampling.layout)" in commands
     sampling = (_ADDON / "SunStudy" / "SunStudySurfaceSampling.cpp").read_text(encoding="utf-8")
     assert "ACAPI_" not in sampling and "MainThreadGate" not in sampling
     assert "item.vertices == oldMesh.vertices && item.triangles == oldMesh.triangles" in sampling
@@ -449,8 +448,8 @@ def test_bounded_hud_rerun_uses_current_snapshot_and_guide_visibility_is_display
 
 
 def test_replacements_reuse_allocations_and_renderer_uploads_exact_base_regions_with_full_fallback():
-    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
-    assert "record->patchAtlas = reuseSource->patchAtlas" in commands
+    commands = (_ADDON / "NativeCommands" / "SunStudySampleSetup.cpp").read_text(encoding="utf-8")
+    assert "record.patchAtlas = reuseSource->patchAtlas" in commands
     assert "BuildStableTriangleAtlas" in commands
     render = (_ADDON / "ArchViz" / "DiligentSceneSunStudy.cpp").read_text(encoding="utf-8")
     assert "CanApplySunAtlasRegions (*impl_->sunStudyPayload, *study)" in render
