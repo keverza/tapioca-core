@@ -266,6 +266,98 @@ fn a_clip_that_excludes_every_surface_is_not_a_sample_limit() {
     );
 }
 
+/// The early refusal's bound never exceeds what the sampler produces (#117):
+/// it may only refuse a study that would be refused anyway.
+#[test]
+fn the_area_floor_never_exceeds_the_real_sample_count() {
+    let scene = Scene::new();
+    let meshes = scene.meshes();
+    let masks = [vec![], vec![1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0], vec![]];
+    for spacing in [0.05, 0.3, 0.75, 1.7, 5.0] {
+        for clip in [
+            [0.0; 3],
+            [2.0, 2.0, 6.0],
+            [71.0, 1.0, 2.5],
+            [500.0, 500.0, 1.0],
+        ] {
+            for face_masks in [&[][..], &masks[..]] {
+                let request = SurfaceSamplingRequest {
+                    meshes: &meshes,
+                    sample_mask: &[1, 1, 1],
+                    options: SurfaceSamplingOptions {
+                        spacing,
+                        clip,
+                        max_samples: usize::MAX,
+                        ..options(SamplingDomain::SurfacePatch)
+                    },
+                    previous: None,
+                    face_masks,
+                    is_cancelled: None,
+                };
+                let floor = floor::patch_sample_floor(&request);
+                let real = build_surface_sampling(&request).patches.count();
+                assert!(
+                    floor <= crate::series::count_to_f64(real),
+                    "spacing {spacing} clip {clip:?}: floor {floor} > {real}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_grid_far_over_the_ceiling_is_refused_before_any_lattice() {
+    // The live case scaled down 100x: a 10 m square at 4 cm is 62,500 cells,
+    // past a 40,000 ceiling by the area alone, so no lattice is built (old
+    // code built every cell first, ~4 M cells' work at full scale).
+    let vertices = vec![
+        0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0, 0.0, 10.0, 0.0,
+    ];
+    let triangles = vec![0, 1, 2, 0, 2, 3];
+    let meshes = [SamplingMesh {
+        guid: "slab",
+        vertices: &vertices,
+        triangles: &triangles,
+    }];
+    let request = SurfaceSamplingRequest {
+        meshes: &meshes,
+        sample_mask: &[1],
+        options: SurfaceSamplingOptions {
+            spacing: 0.04,
+            max_samples: 40_000,
+            ..options(SamplingDomain::SurfacePatch)
+        },
+        previous: None,
+        face_masks: &[],
+        is_cancelled: None,
+    };
+    assert!(floor::clearly_over_ceiling(&request));
+    assert_eq!(
+        build_surface_sampling(&request),
+        SurfaceSamplingResult::refused(SamplingRefusal::SampleLimit)
+    );
+    // Within the margin the exact count still decides: 44,521 cells at 4.76 cm
+    // is not refused early, but is refused, by the sampler.
+    let near = SurfaceSamplingRequest {
+        options: SurfaceSamplingOptions {
+            spacing: 0.0476,
+            ..request.options
+        },
+        ..request
+    };
+    assert!(!floor::clearly_over_ceiling(&near));
+    assert_eq!(
+        build_surface_sampling(&near).refusal,
+        SamplingRefusal::SampleLimit
+    );
+    // A context-only mesh measures nothing, so nothing is over the ceiling.
+    let context = SurfaceSamplingRequest {
+        sample_mask: &[0],
+        ..request
+    };
+    assert!(!floor::clearly_over_ceiling(&context));
+}
+
 #[test]
 fn ambiguous_guids_fall_back_to_the_whole_scene() {
     let mut scene = Scene::new();

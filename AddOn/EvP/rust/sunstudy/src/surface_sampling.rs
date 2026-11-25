@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 
 mod copy;
 use copy::{append_patches, append_triangles, can_copy, compatible, face_count};
+mod floor;
 
 /// Why a sampling was refused, so the host can say so instead of blaming the
 /// sample ceiling for every failure (#117). Discriminants are the C ABI values.
@@ -517,6 +518,10 @@ pub fn build_surface_sampling(request: &SurfaceSamplingRequest<'_>) -> SurfaceSa
         } else {
             InvalidInput
         });
+    }
+    // Before any lattice: a grid far over the ceiling is said at once (#117).
+    if floor::clearly_over_ceiling(request) {
+        return refused(SampleLimit);
     }
     if index_meshes(request.meshes).is_none() {
         let result = fresh_scene(request);
