@@ -352,6 +352,20 @@ class SunStudyStore final {
     // area the finest-grid figure is computed for.
     bool Footprint (const std::string& id, size_t& samples, double& analysedArea, std::string& error) const;
 
+    // Per-sample weights and cell identity, parallel to the hours (#278): what
+    // area-weighted statistics and a join between two layers by cell need.
+    // Triangle domain: source face, group (snapshot mesh) and the cell in the
+    // face's lattice. Patch domain: the patch span and its cell. False, with
+    // `error`, for a ground or explicit study, which has no cells.
+    struct SampleCells {
+        bool patchDomain = false;
+        std::vector<double> areas;    // m2 (plan for a planting receptor layer)
+        std::vector<uint32_t> owners; // source face (triangle) or patch span (patch)
+        std::vector<uint32_t> groups; // triangle domain only
+        std::vector<uint32_t> cellColumns, cellRows;
+    };
+    bool Cells (const std::string& id, SampleCells& cells, std::string& error) const;
+
     // The study's value at `point` on source face `face` of snapshot mesh
     // `meshIndex` -- the hover inspector's question. `role` is the element's
     // resolved ElementRole, or 0xff when the study recorded none.

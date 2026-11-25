@@ -647,6 +647,40 @@ TEST (SunStudyRustStudyParity, ConcurrentAdvancesOnOneCoreNeverDoubleClaimAStep)
     ExpectSameReads (study, "concurrent");
 }
 
+// Per-sample cells (#278): parallel to the hours, areas summing to the
+// footprint, and refused -- not invented -- for a ground study.
+TEST (SunStudyRustStudyParity, CellsAreParallelToTheSamplesAndSumToTheFootprint)
+{
+    StoreCleanup cleanup;
+    Lcg lcg (0x278ull);
+    for (const Domain domain : { Domain::Ground, Domain::Triangle, Domain::Patch }) {
+        const Study study = Start (Scene (lcg, -1, nullptr), domain, 3, nullptr);
+        ASSERT_NE (study.core, nullptr);
+        auto& store = SunStudyStore::Get ();
+        SunStudyStore::SampleCells cells;
+        std::string error;
+        if (domain == Domain::Ground) {
+            EXPECT_FALSE (store.Cells (study.id, cells, error));
+            EXPECT_TRUE (cells.areas.empty ());
+            continue;
+        }
+        ASSERT_TRUE (store.Cells (study.id, cells, error)) << Name (domain) << ": " << error;
+        size_t samples = 0;
+        double area = 0.0;
+        ASSERT_TRUE (store.Footprint (study.id, samples, area, error)) << error;
+        EXPECT_EQ (cells.patchDomain, domain == Domain::Patch);
+        EXPECT_EQ (cells.areas.size (), samples);
+        EXPECT_EQ (cells.owners.size (), samples);
+        EXPECT_EQ (cells.cellColumns.size (), samples);
+        EXPECT_EQ (cells.cellRows.size (), samples);
+        EXPECT_EQ (cells.groups.size (), domain == Domain::Triangle ? samples : 0u);
+        double sum = 0.0;
+        for (const double a : cells.areas)
+            sum += a;
+        EXPECT_NEAR (sum, area, 1.0e-9 * (1.0 + area)) << Name (domain);
+    }
+}
+
 // The linked archive speaks this header's sun-study ABI (moved from the deleted
 // C++/Rust parity file, P7b).
 TEST (SunStudyRustAbi, TheArchiveSpeaksThisHeadersVersion)

@@ -794,6 +794,43 @@ bool SunStudyStore::Footprint (const std::string& id, size_t& samples, double& a
     return true;
 }
 
+bool SunStudyStore::Cells (const std::string& id, SampleCells& cells, std::string& error) const
+{
+    cells = SampleCells ();
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    const StudyRecord& record = *found->second;
+    const size_t samples = record.positions.size () / 3;
+    cells.patchDomain = record.IsPatchDomain ();
+    if (cells.patchDomain) {
+        const PatchSampleGrid& grid = record.patchGrid;
+        cells.areas = grid.areas;
+        cells.owners = grid.spanOf;
+        cells.cellColumns = grid.cellColumns;
+        cells.cellRows = grid.cellRows;
+    }
+    else {
+        const SampleGrid& grid = record.sampleGrid;
+        cells.areas = grid.areas;
+        cells.owners = grid.faces;
+        cells.groups = grid.groups;
+        cells.cellColumns = grid.cellColumns;
+        cells.cellRows = grid.cellRows;
+    }
+    // ⚠️ REFUSED, NOT GUESSED: a ground or explicit study has no cells, and a
+    // grid that disagrees with the samples cannot be joined to the hours.
+    if (samples == 0 || cells.areas.size () != samples || cells.cellColumns.size () != samples) {
+        cells = SampleCells ();
+        error = "this study has no sample cells (ground or explicit samples carry no areas or lattice)";
+        return false;
+    }
+    return true;
+}
+
 bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const
 {
     std::lock_guard<std::mutex> lock (mutex_);
@@ -837,6 +874,7 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     copyOfMetadata.receptorUp = source.receptorUp;
     copyOfMetadata.receptorPlan = source.receptorPlan;
     copyOfMetadata.receptorMinHostUp = source.receptorMinHostUp;
+    copyOfMetadata.receptorUnavailableArea = source.receptorUnavailableArea;
     copyOfMetadata.elementRoles = source.elementRoles;
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;

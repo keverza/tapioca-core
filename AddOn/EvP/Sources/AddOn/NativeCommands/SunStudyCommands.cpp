@@ -16,6 +16,7 @@
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyKernels.hpp"
+#include "SunStudy/SunStudyLightClass.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
@@ -530,6 +531,12 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
         params.Get ("summaryOnly", summaryOnly);
         if (summaryOnly && (wantPositions || wantAtlas || wantSteps))
             return NativeCommandResult::Failure ("summaryOnly cannot request positions, atlas or step arrays");
+        bool wantCells = false;
+        params.Get ("includeCells", wantCells);
+        GS::Array<double> edgeArray;
+        const bool wantClasses = params.Get ("classEdges", edgeArray);
+        if (summaryOnly && (wantCells || wantClasses))
+            return NativeCommandResult::Failure ("summaryOnly cannot request cells or class areas");
 
         std::vector<double> hours;
         std::vector<double> positions;
@@ -567,6 +574,57 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
             os.Add ("fullyLit", (GS::Int32) summary.fullyLit);
             os.Add ("fullyShaded", (GS::Int32) summary.fullyShaded);
             return os;
+        }
+
+        // Planting statistics (#278): per-sample weights and cell identity, and
+        // area-weighted classes from the RAW hours with an exact comparator (an
+        // edge value belongs to the upper class), never from the display band.
+        if (wantCells || wantClasses) {
+            SunStudyStore::SampleCells cells;
+            if (!SunStudyStore::Get ().Cells (id, cells, error))
+                return NativeCommandResult::Failure (Text (error));
+            if (cells.areas.size () != hours.size ())
+                return NativeCommandResult::Failure ("the study's cells do not match its hours");
+            if (wantClasses) {
+                std::vector<double> edges;
+                for (USize i = 0; i < edgeArray.GetSize (); ++i)
+                    edges.push_back (edgeArray[i]);
+                evp::sunstudy::LightClassAreas classes;
+                if (!evp::sunstudy::ClassifyLightAreas (hours, cells.areas, edges, classes, error))
+                    return NativeCommandResult::Failure (Text ("classEdges were refused: " + error));
+                GS::Array<double> classAreas;
+                GS::Array<GS::Int32> classCounts;
+                for (size_t i = 0; i < classes.areas.size (); ++i) {
+                    classAreas.Push (classes.areas[i]);
+                    classCounts.Push ((GS::Int32) classes.counts[i]);
+                }
+                os.Add ("classAreas", classAreas);
+                os.Add ("classCounts", classCounts);
+                os.Add ("evaluatedArea", classes.evaluatedArea);
+                os.Add ("unclassifiedSamples", (GS::Int32) classes.unclassified);
+            }
+            if (wantCells) {
+                const auto indices = [] (const std::vector<uint32_t>& values) {
+                    GS::Array<GS::Int32> out;
+                    for (const uint32_t value : values)
+                        out.Push ((GS::Int32) value);
+                    return out;
+                };
+                GS::Array<double> areaArray;
+                for (const double value : cells.areas)
+                    areaArray.Push (value);
+                os.Add ("cellDomain", Text (std::string (cells.patchDomain ? "patch" : "triangle")));
+                os.Add ("areas", areaArray);
+                os.Add ("cellOwners", indices (cells.owners));
+                if (!cells.patchDomain)
+                    os.Add ("cellGroups", indices (cells.groups));
+                os.Add ("cellColumns", indices (cells.cellColumns));
+                os.Add ("cellRows", indices (cells.cellRows));
+            }
+        }
+        if (StudyRecord metadata; SunStudyStore::Get ().Describe (id, metadata, error) && metadata.HasReceptor ()) {
+            os.Add ("receptorHeight", metadata.receptorHeight);
+            os.Add ("receptorUnavailableArea", metadata.receptorUnavailableArea);
         }
 
         // Positions/normals are immutable and opt-in; do not even copy them for
@@ -808,7 +866,9 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "includeSteps":{"type":"boolean"},
                 "includeAtlas":{"type":"boolean"},
                 "summaryOnly":{"type":"boolean"},
-                "packed":{"type":"boolean"}
+                "packed":{"type":"boolean"},
+                "includeCells":{"type":"boolean"},
+                "classEdges":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"number"}}
             },
             "additionalProperties":false
         })json",
@@ -833,6 +893,18 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "atlasPacked":{"type":"string"},
                 "atlasDomain":{"type":"string"},
                 "atlasReason":{"type":"string"},
+                "cellDomain":{"type":"string"},
+                "areas":{"type":"array","items":{"type":"number"}},
+                "cellOwners":{"type":"array","items":{"type":"integer"}},
+                "cellGroups":{"type":"array","items":{"type":"integer"}},
+                "cellColumns":{"type":"array","items":{"type":"integer"}},
+                "cellRows":{"type":"array","items":{"type":"integer"}},
+                "classAreas":{"type":"array","items":{"type":"number"}},
+                "classCounts":{"type":"array","items":{"type":"integer"}},
+                "evaluatedArea":{"type":"number"},
+                "unclassifiedSamples":{"type":"integer"},
+                "receptorHeight":{"type":"number"},
+                "receptorUnavailableArea":{"type":"number"},
                 "positionsPacked":{"type":"string"},
                 "normalsPacked":{"type":"string"},
                 "stepStride":{"type":"integer"},
