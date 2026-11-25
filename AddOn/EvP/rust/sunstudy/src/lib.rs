@@ -12,6 +12,7 @@
 pub mod annual;
 pub mod atlas;
 pub mod follower;
+pub mod light_class;
 pub mod limits;
 pub mod occlusion;
 pub mod patch_atlas;

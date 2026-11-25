@@ -354,6 +354,31 @@ typedef struct {
 TapiocaStatus tapioca_sunstudy_sample_grid (const TapiocaSampleGridRequest* request,
                                             const TapiocaSampleGridOutput* output, char* error, size_t errorCapacity);
 
+/* Area-weighted sunlight classes (#278): class = number of edges reached
+ * (H >= e), so an exact edge belongs to the upper class. Edges strictly
+ * ascending, 1..16. capacity >= edges.count + 1. */
+typedef struct {
+    TapiocaDoubleView hours;
+    TapiocaDoubleView areas;
+    TapiocaDoubleView edges;
+} TapiocaClassAreasRequest;
+
+typedef struct {
+    size_t classes;
+    double evaluatedArea;
+    size_t unclassified; /* non-finite hours or weight, or negative weight */
+} TapiocaClassAreasSummary;
+
+typedef struct {
+    double* areas;
+    size_t* counts;
+    size_t capacity;
+    TapiocaClassAreasSummary* summary;
+} TapiocaClassAreasOutput;
+
+TapiocaStatus tapioca_sunstudy_class_areas (const TapiocaClassAreasRequest* request,
+                                            const TapiocaClassAreasOutput* output, char* error, size_t errorCapacity);
+
 /* Planting receptor layer (#278): a sampled grid lifted vertically above its
  * host. Empty ceilings means no overhead test. status bytes: 0 available,
  * 1 steep host, 2 blocked overhead, 3 invalid host. */

@@ -15,6 +15,7 @@ mod camera;
 mod follower;
 mod ground;
 mod host;
+mod light_class;
 mod limits;
 mod occlusion;
 mod patch_atlas;
@@ -62,6 +63,9 @@ pub use ground::{
 pub use host::{
     ScatterRequest, tapioca_sunstudy_enumerate_timesteps, tapioca_sunstudy_fan_steps,
     tapioca_sunstudy_scatter_to_atlas,
+};
+pub use light_class::{
+    ClassAreasOutput, ClassAreasRequest, ClassAreasSummary, tapioca_sunstudy_class_areas,
 };
 pub use limits::{LimitsOutput, LimitsRequest, tapioca_sunstudy_limits};
 pub use occlusion::{
@@ -185,6 +189,9 @@ const _: () = {
     assert!(size_of::<BoundListView>() == 40);
     assert!(size_of::<BindingRequest>() == 136);
     assert!(size_of::<BindingOutput>() == 4);
+    assert!(size_of::<ClassAreasRequest>() == 48);
+    assert!(size_of::<ClassAreasSummary>() == 24);
+    assert!(size_of::<ClassAreasOutput>() == 32);
     assert!(size_of::<ReceptorLayerRequest>() == 96);
     assert!(size_of::<ReceptorLayerSummary>() == 56);
     assert!(size_of::<ReceptorLayerOutput>() == 56);

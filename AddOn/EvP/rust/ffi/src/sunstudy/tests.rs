@@ -598,3 +598,52 @@ fn receptor_layer_refuses_bad_options_and_short_ceilings() {
     }
     assert_eq!(summary, ReceptorLayerSummary::default(), "nothing written");
 }
+
+#[test]
+fn class_areas_publish_exact_boundaries_by_weight() {
+    let hours = [2.999, 3.0, 6.0, 1.0];
+    let weights = [1.0, 2.0, 4.0, 8.0];
+    let edges = [3.0, 6.0];
+    let request = ClassAreasRequest {
+        hours: view(&hours),
+        areas: view(&weights),
+        edges: view(&edges),
+    };
+    let mut areas = [0.0; 3];
+    let mut counts = [0_usize; 3];
+    let mut summary = ClassAreasSummary::default();
+    let output = ClassAreasOutput {
+        areas: areas.as_mut_ptr(),
+        counts: counts.as_mut_ptr(),
+        capacity: 3,
+        summary: &raw mut summary,
+    };
+    // SAFETY: distinct live locals of the declared sizes.
+    let code = unsafe {
+        tapioca_sunstudy_class_areas(
+            &raw const request,
+            &raw const output,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(code, OK);
+    assert_eq!(areas, [9.0, 2.0, 4.0]);
+    assert_eq!(counts, [2, 1, 1]);
+    assert_eq!((summary.classes, summary.unclassified), (3, 0));
+    assert!((summary.evaluated_area - 15.0).abs() < 1e-12);
+    let short = ClassAreasOutput {
+        capacity: 2,
+        ..output
+    };
+    // SAFETY: as above; the shorter capacity is refused before any write.
+    let code = unsafe {
+        tapioca_sunstudy_class_areas(
+            &raw const request,
+            &raw const short,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(code, ERR_ARG);
+}

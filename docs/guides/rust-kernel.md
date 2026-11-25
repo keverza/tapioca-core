@@ -1592,6 +1592,13 @@ has no sun-study core".
   `BuildReceptorLayer` (`SunStudyReceptor.hpp`) queries
   `SunStudyOverheadDistance` -- the placed point's own overhead ray -- once
   per otherwise-available receptor.
+- **Sunlight classes (#278 Stage 1B):** `light_class` classifies raw hours by
+  strictly ascending edges with an exact comparator -- a sample's class is the
+  number of edges it reaches (`H >= e`), so an edge value belongs to the upper
+  class -- and totals area weights per class (never sample counts). It is not
+  the tint shader's display band, which carries a small slack. Export
+  `tapioca_sunstudy_class_areas`; C++ `ClassifyLightAreas`
+  (`SunStudyLightClass.hpp`).
 
 Parity was **bit-for-bit**, not within a tolerance: until P7b,
 `test_sunstudy_rust_parity.cpp` ran each kernel and its C++ original over
