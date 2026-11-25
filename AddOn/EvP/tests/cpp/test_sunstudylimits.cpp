@@ -131,6 +131,23 @@ TEST (SunStudyLimits, ExtremeInputsNeverWrapIntoALargerBudget)
         EXPECT_EQ (kernels::ReportAnalysisLimits (MachineResources (), 49, 0.70, area).finestGridSpacing, 0.0) << area;
 }
 
+TEST (SunStudyLimits, TheRefusalNamesAGridThatFits)
+{
+    // The live model: ~555k m2 analysed; 0.25 m was refused at 4 M. The hint
+    // must be one that fits: count = 555k/s^2 + 29.5k/s measured.
+    const double hint = SuggestedGridSpacing (555000.0, kSamplerMaxSamples, 0.25);
+    EXPECT_NEAR (hint, 0.40, 0.011) << hint;
+    EXPECT_LT (555000.0 / (hint * hint) + 29500.0 / hint, double (kSamplerMaxSamples));
+    EXPECT_DOUBLE_EQ (hint * 100.0, std::round (hint * 100.0)) << "whole centimetres";
+    // Always coarser than what was refused, even if the area alone fits it.
+    EXPECT_GT (SuggestedGridSpacing (1.0, kSamplerMaxSamples, 0.25), 0.25);
+    // Nothing to say without an area, a ceiling, or a valid request.
+    EXPECT_EQ (SuggestedGridSpacing (0.0, kSamplerMaxSamples, 0.25), 0.0);
+    EXPECT_EQ (SuggestedGridSpacing (std::nan (""), kSamplerMaxSamples, 0.25), 0.0);
+    EXPECT_EQ (SuggestedGridSpacing (555000.0, 0, 0.25), 0.0);
+    EXPECT_EQ (SuggestedGridSpacing (555000.0, kSamplerMaxSamples, -1.0), 0.0);
+}
+
 TEST (SunStudyLimits, TraversalThreadsAreBoundedAtTheEntry)
 {
     // #117: maxParallel reached the tracer verbatim; 0 decides, 1 is inline.

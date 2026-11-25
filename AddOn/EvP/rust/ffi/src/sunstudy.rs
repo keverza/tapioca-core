@@ -244,7 +244,7 @@ const _: () = {
     assert!(size_of::<PatchGridView>() == 160);
     assert!(size_of::<PreviousView>() == 424);
     assert!(size_of::<SurfaceBuildRequest>() == 560);
-    assert!(size_of::<SurfaceResultSummary>() == 248);
+    assert!(size_of::<SurfaceResultSummary>() == 256);
     assert!(size_of::<SurfaceReadOutput>() == 160);
     assert!(size_of::<StudyCreateRequest>() == 440);
     assert!(size_of::<StudyMeshesView>() == 16);

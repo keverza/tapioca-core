@@ -996,6 +996,7 @@ typedef struct {
     size_t triangleCounters[3];
     size_t patchCounters[3];
     TapiocaSurfaceOptions options; /* the layout's */
+    double areaFloor;              /* patch domain refused at the sample limit: least covered area, m2; else 0 */
     uint8_t flags[6];              /* result, triangle grid, patch grid, layout valid; sample limit; SamplingRefusal */
 } TapiocaSurfaceResultSummary;
 

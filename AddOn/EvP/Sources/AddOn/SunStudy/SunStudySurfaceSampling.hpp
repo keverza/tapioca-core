@@ -68,6 +68,9 @@ struct SurfaceSamplingResult {
     size_t generatedSamples = 0;
     bool valid = false;
     SamplingRefusal refusal = SamplingRefusal::None;
+    // Patch domain refused at the sample limit: the least area (m2) the study
+    // covers, so the refusal can name the finest grid that fits (#117).
+    double areaFloor = 0.0;
 };
 
 } // namespace evp::sunstudy

@@ -16,7 +16,7 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchSpanEntry) == 208);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridView) == 160);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaPreviousSampling) == 424);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceBuildRequest) == 560);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceResultSummary) == 248);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceResultSummary) == 256);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSurfaceReadOutput) == 160);
 
 namespace {
@@ -249,6 +249,7 @@ bool Read (const TapiocaSurfaceResult* handle, SurfaceSamplingResult& out, std::
         return false;
     }
     result.refusal = static_cast<SamplingRefusal> (summary.flags[5]);
+    result.areaFloor = summary.areaFloor;
     out = std::move (result);
     return true;
 }

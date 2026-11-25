@@ -332,9 +332,15 @@ fn a_grid_far_over_the_ceiling_is_refused_before_any_lattice() {
         is_cancelled: None,
     };
     assert!(floor::clearly_over_ceiling(&request));
-    assert_eq!(
-        build_surface_sampling(&request),
-        SurfaceSamplingResult::refused(SamplingRefusal::SampleLimit)
+    let refused = build_surface_sampling(&request);
+    assert_eq!(refused.refusal, SamplingRefusal::SampleLimit);
+    assert!(!refused.valid && refused.patches.count() == 0);
+    // The area the host turns into "the finest grid that fits": 100 m2 less
+    // the 1-degree projection allowance.
+    assert!(
+        (refused.area_floor - 100.0).abs() < 0.02,
+        "{}",
+        refused.area_floor
     );
     // Within the margin the exact count still decides: 44,521 cells at 4.76 cm
     // is not refused early, but is refused, by the sampler.

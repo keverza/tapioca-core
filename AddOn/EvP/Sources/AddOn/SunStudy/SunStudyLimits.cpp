@@ -151,6 +151,18 @@ std::string AtlasDisplayRefusal (uint32_t width, uint32_t height, uint32_t devic
            " texture limit - run the study again so it is packed for this GPU, or ask for a coarser grid";
 }
 
+double SuggestedGridSpacing (double areaFloor, size_t maxSamples, double requested)
+{
+    if (!std::isfinite (areaFloor) || areaFloor <= 0.0 || maxSamples == 0 || !std::isfinite (requested) ||
+        requested <= 0.0)
+        return 0.0;
+    const double fits = std::sqrt (areaFloor / (kSuggestedGridFill * double (maxSamples)));
+    // Coarser than what was refused, even when the floor alone would allow it:
+    // the exact count is what refused it.
+    const double coarser = (std::max) (fits, requested * 1.05);
+    return std::ceil (coarser * 100.0 - 1e-9) / 100.0;
+}
+
 uint64_t AvailableSystemMemory ()
 {
 #ifdef _WIN32

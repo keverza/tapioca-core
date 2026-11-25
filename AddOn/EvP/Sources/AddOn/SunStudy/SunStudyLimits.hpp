@@ -112,6 +112,14 @@ MachineResources CurrentMachineResources (uint64_t availableRamBytes);
 // before the allocation fails with no reason given (#117).
 std::string AtlasDisplayRefusal (uint32_t width, uint32_t height, uint32_t deviceMaxDimension);
 
+// The grid a refused study can ask for instead (#117): the spacing at which
+// `areaFloor` m2 fills `kSuggestedGridFill` of `maxSamples`, rounded UP to the
+// centimetre and coarser than `requested`; 0 when there is nothing to say.
+// Measured live: count = 555k/s^2 + 29.5k/s, so the area term is ~95 % of the
+// count at the ceiling, and the 10 % slack covers the boundary cells.
+constexpr double kSuggestedGridFill = 0.90;
+double SuggestedGridSpacing (double areaFloor, size_t maxSamples, double requested);
+
 // Free physical memory right now, from the operating system; 0 when unknown
 // (and off Windows, where the offline tests build).
 uint64_t AvailableSystemMemory ();

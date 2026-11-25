@@ -144,6 +144,9 @@ pub struct SurfaceSamplingResult {
     pub valid: bool,
     /// Why, when refused.
     pub refusal: SamplingRefusal,
+    /// Patch domain, refused at the sample limit: the least area (m2) the
+    /// study covers, so the host can name the finest grid that fits. 0 else.
+    pub area_floor: f64,
 }
 
 impl SurfaceSamplingResult {
@@ -507,6 +510,16 @@ impl Builder<'_, '_> {
 /// no partial grid, only its [`SamplingRefusal`].
 #[must_use]
 pub fn build_surface_sampling(request: &SurfaceSamplingRequest<'_>) -> SurfaceSamplingResult {
+    let mut result = sample_meshes(request);
+    if result.refusal == SamplingRefusal::SampleLimit
+        && request.options.domain == SamplingDomain::SurfacePatch
+    {
+        result.area_floor = floor::analysed_area_floor(request);
+    }
+    result
+}
+
+fn sample_meshes(request: &SurfaceSamplingRequest<'_>) -> SurfaceSamplingResult {
     use SamplingRefusal::{Cancelled, InvalidInput, NoSurfaces, SampleLimit};
     let refused = SurfaceSamplingResult::refused;
     if !inputs_valid(request) {

@@ -331,7 +331,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             if (IsCancelled ())
                 return NativeCommandResult::Failure ("sun study preparation cancelled");
             if (!sampling.valid)
-                return NativeCommandResult::Failure (SurfaceSamplingRefusal (sampling.refusal, limits, spacing));
+                return NativeCommandResult::Failure (SurfaceSamplingRefusal (sampling, limits, spacing));
             record->samplingLayout = std::move (sampling.layout);
             closedGroups = sampling.winding.closed;
             flippedGroups = sampling.winding.flipped;

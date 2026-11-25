@@ -114,7 +114,7 @@ evp::sunstudy::AnalysisLimits MachineAnalysisLimits (size_t steps, bool patchDom
         patchDomain ? evp::sunstudy::kPatchAtlasOccupancy : evp::sunstudy::kTriangleAtlasOccupancy);
 }
 
-GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing)
+GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing, double suggested)
 {
     char text[320];
     if (limits.maxSamples == 0) {
@@ -126,10 +126,16 @@ GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double 
                        evp::sunstudy::LimitBindingName (limits.binding));
         return GS::UniString (text, CC_UTF8);
     }
-    std::snprintf (text, sizeof (text),
-                   "the study would exceed this machine's limit of %zu samples (set by %s) at a %.2f m grid - ask "
-                   "for a coarser grid; the viewer's sun study panel shows the finest grid this model allows",
-                   limits.maxSamples, evp::sunstudy::LimitBindingName (limits.binding), spacing);
+    if (suggested > 0.0)
+        std::snprintf (text, sizeof (text),
+                       "the study would exceed this machine's limit of %zu samples (set by %s) at a %.2f m grid - "
+                       "the finest grid that fits here is about %.2f m; ask for that or coarser",
+                       limits.maxSamples, evp::sunstudy::LimitBindingName (limits.binding), spacing, suggested);
+    else
+        std::snprintf (text, sizeof (text),
+                       "the study would exceed this machine's limit of %zu samples (set by %s) at a %.2f m grid - "
+                       "ask for a coarser grid; the viewer's sun study panel shows the finest grid this model allows",
+                       limits.maxSamples, evp::sunstudy::LimitBindingName (limits.binding), spacing);
     return GS::UniString (text, CC_UTF8);
 }
 
@@ -144,12 +150,13 @@ GS::UniString AtlasRefusal (const char* domain, uint32_t maxDimension)
     return GS::UniString (text, CC_UTF8);
 }
 
-GS::UniString SurfaceSamplingRefusal (evp::sunstudy::SamplingRefusal refusal,
+GS::UniString SurfaceSamplingRefusal (const evp::sunstudy::SurfaceSamplingResult& sampling,
                                       const evp::sunstudy::AnalysisLimits& limits, double spacing)
 {
-    switch (refusal) {
+    switch (sampling.refusal) {
         case evp::sunstudy::SamplingRefusal::SampleLimit:
-            return LimitRefusal (limits, spacing);
+            return LimitRefusal (limits, spacing,
+                                 evp::sunstudy::SuggestedGridSpacing (sampling.areaFloor, limits.maxSamples, spacing));
         case evp::sunstudy::SamplingRefusal::NoSurfaces:
             return "no analysed surface produced a sample - check the analysis surfaces and the analysis cylinder "
                    "(clipX/clipY/clipRadius), which may exclude every surface";

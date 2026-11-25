@@ -59,8 +59,9 @@ void AddBackendReport (GS::ObjectState& os, const std::string& studyId);
 // See SunStudy/SunStudyLimits.hpp.
 evp::sunstudy::AnalysisLimits MachineAnalysisLimits (size_t steps, bool patchDomain);
 // The refusal a study over that ceiling gets: the ceiling, what bound it, and
-// the grid it was asked at -- so the next attempt is a number, not a guess.
-GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing);
+// the grid it was asked at -- so the next attempt is a number, not a guess. With a
+// `suggested` spacing (SuggestedGridSpacing), it names the finest that fits.
+GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing, double suggested = 0.0);
 // Why a ground grid over the box `aabbMin`..`aabbMax` was refused: a spacing
 // that is not a positive number, a model box with no finite extent, or else
 // the sample ceiling -- the only cause left once those two are ruled out (#117).
@@ -69,8 +70,9 @@ GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double 
 // as a study with nothing to display (#117).
 GS::UniString AtlasRefusal (const char* domain, uint32_t maxDimension);
 // Why surface sampling was refused, from the sampler's own reason: only
-// `SampleLimit` is reported as this machine's ceiling (#117).
-GS::UniString SurfaceSamplingRefusal (evp::sunstudy::SamplingRefusal refusal,
+// `SampleLimit` is reported as this machine's ceiling, with the finest grid
+// that fits when the sampler measured the area (#117).
+GS::UniString SurfaceSamplingRefusal (const evp::sunstudy::SurfaceSamplingResult& sampling,
                                       const evp::sunstudy::AnalysisLimits& limits, double spacing);
 GS::UniString GroundGridRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing, const double aabbMin[3],
                                  const double aabbMax[3]);

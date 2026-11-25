@@ -319,7 +319,15 @@ TEST_P (SurfaceSampling, SettingsChangesRebuildAndGlobalCapRefusesRatherThanTrun
                 EXPECT_EQ (result.triangles.Count (), 0u);
                 EXPECT_EQ (result.patches.Count (), 0u);
                 EXPECT_FALSE (result.layout.valid);
+                // #117: a patch refusal carries the area the finest-grid hint
+                // needs, across the FFI; the triangle domain carries none.
+                if (GetParam () == SamplingDomain::SurfacePatch)
+                    EXPECT_GT (result.areaFloor, 0.0);
+                else
+                    EXPECT_EQ (result.areaFloor, 0.0);
             }
+            if (cap >= count)
+                EXPECT_EQ (result.areaFloor, 0.0);
         }
     }
 }

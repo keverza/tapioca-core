@@ -554,6 +554,9 @@ pub struct SurfaceResultSummary {
     pub patch_counters: [usize; 3],
     /// The layout's settings.
     pub options: SurfaceOptionsRecord,
+    /// Patch domain refused at the sample limit: the least area (m2) the
+    /// study covers, for the finest-grid hint; else 0.
+    pub area_floor: f64,
     /// Result, triangle grid, patch grid, layout validity; patch limit flag;
     /// the result's `SamplingRefusal` discriminant.
     pub flags: [u8; 6],
@@ -622,6 +625,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_surface_summary(
                     max_samples: opt.max_samples,
                     domain: opt.domain as u8,
                 },
+                area_floor: res.area_floor,
                 flags: [
                     u8::from(res.valid),
                     u8::from(tri.valid),
