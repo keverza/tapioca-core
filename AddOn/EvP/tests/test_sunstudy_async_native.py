@@ -329,7 +329,8 @@ def test_bound_role_sets_are_captured_on_main_and_followed_before_completion_can
     assert tick.index("RefreshRoleSelections ()") < tick.index("AdvanceOneSlice (now)")
     assert "binding.generation == store.Generation () && binding.revision == store.Revision ()" in source
     assert "binding.Refresh (" in source
-    start_params = source.split("GS::ObjectState StartParams (", 1)[1].split("void HideOverlay ()", 1)[0]
+    signature = (_ADDON / "NativeCommands" / "SunStudyFollowerSignature.cpp").read_text(encoding="utf-8")
+    start_params = signature.split("GS::ObjectState StartParams (", 1)[1].split("} // namespace sunfollow", 1)[0]
     for role in ("context", "ignored"):
         assert f'params.Add ("{role}SelectionSet"' in start_params
         assert f'params.Add ("{role}Elements"' in start_params

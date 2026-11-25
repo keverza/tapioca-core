@@ -196,5 +196,57 @@ SunStudyDependencySignature BuildCurrentSignature (const ActiveSunStudyConfig& c
     return signature;
 }
 
+GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
+{
+    GS::ObjectState params;
+    params.Add ("year", (GS::Int32) config.year);
+    params.Add ("month", (GS::Int32) config.month);
+    params.Add ("day", (GS::Int32) config.day);
+    params.Add ("timestep", (GS::Int32) config.timestep);
+    params.Add ("hourFrom", (GS::Int32) config.hourFrom);
+    params.Add ("hourTo", (GS::Int32) config.hourTo);
+    params.Add ("minAltitudeDeg", config.minAltitudeDeg);
+    params.Add ("grid", config.grid);
+    params.Add ("backend", GS::UniString (config.backend.c_str (), CC_UTF8));
+    // Only surface sampling builds the atlas the display requires.
+    params.Add ("samples", GS::UniString ("surfaces"));
+    // Preserve measurement domain rather than inheriting the command default.
+    params.Add ("domain", GS::UniString (config.patchDomain ? "patch" : "triangle"));
+    // Dropping the bound would rerun a bounded study on the whole model.
+    if (config.clipRadius > 0.0) {
+        params.Add ("clipX", config.clipX);
+        params.Add ("clipY", config.clipY);
+        params.Add ("clipRadius", config.clipRadius);
+    }
+    if (!config.preset.empty ()) {
+        params.Add ("preset", GS::UniString (config.preset.c_str (), CC_UTF8));
+        params.Add ("glassThreshold", config.glassThreshold);
+    }
+    // ⚠️ THE ROLES, SENT ON EVERY RERUN. StartSunStudy with no lists analyses
+    // every element, so dropping them would turn the context into analysis.
+    GS::Array<GS::UniString> analysis;
+    for (const std::string& guid : config.analysisElements)
+        analysis.Push (GS::UniString (guid.c_str (), CC_UTF8));
+    GS::Array<GS::UniString> context;
+    for (const std::string& guid : config.contextElements)
+        context.Push (GS::UniString (guid.c_str (), CC_UTF8));
+    if (!config.selectionBinding.analysisSet.empty ())
+        params.Add ("analysisSelectionSet", GS::UniString (config.selectionBinding.analysisSet.c_str (), CC_UTF8));
+    else if (!analysis.IsEmpty () || config.analysisRestricted)
+        params.Add ("analysisElements", analysis);
+    if (!config.selectionBinding.contextSet.empty ())
+        params.Add ("contextSelectionSet", GS::UniString (config.selectionBinding.contextSet.c_str (), CC_UTF8));
+    else if (!context.IsEmpty ())
+        params.Add ("contextElements", context);
+    GS::Array<GS::UniString> ignored;
+    for (const std::string& guid : config.ignoredElements)
+        ignored.Push (GS::UniString (guid.c_str (), CC_UTF8));
+    if (!config.selectionBinding.ignoredSet.empty ())
+        params.Add ("ignoredSelectionSet", GS::UniString (config.selectionBinding.ignoredSet.c_str (), CC_UTF8));
+    else if (!ignored.IsEmpty ())
+        params.Add ("ignoredElements", ignored);
+    return params;
+}
+
 } // namespace sunfollow
 } // namespace geomsrv
