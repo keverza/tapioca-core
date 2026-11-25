@@ -164,7 +164,7 @@ void SunStudyPreparationTrace::Mark (const char* stage, size_t payloadBytes)
 
 bool StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
                         const evp::sunstudy::StudyRecord* reuseSource, const evp::sunstudy::StudyInputs& inputs,
-                        std::string& error)
+                        uint32_t maxAtlasDimension, std::string& error)
 {
     // Timed, with the sync below and the reuse in FinishSunStudyPreparation: the
     // sun-reuse-seed stage is all three, and on a 1.6M-sample refresh it is a
@@ -174,9 +174,9 @@ bool StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snap
         return std::to_string (
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - since).count ());
     };
-    const auto limits = sunstudysupport::MachineAnalysisLimits (record.series.StepCount (), record.IsPatchDomain ());
-    const bool attached = evp::sunstudy::AttachRustStudyCore (
-        record, snapshot, reuseSource, record.IsPatchDomain () ? limits.maxAtlasDimension : 8192u, error);
+    // The start command's admission decision, not a second reading of the
+    // machine: free memory and the published GPU can change between the two.
+    const bool attached = evp::sunstudy::AttachRustStudyCore (record, snapshot, reuseSource, maxAtlasDimension, error);
     archviz::ArchVizLog ("pipeline: stage=sun-core snapshot=" + std::to_string (snapshot.id) +
                          " core=" + (attached ? "rust" : "none") + " attachMs=" + msSince (started) +
                          (attached ? "" : " reason=" + error));

@@ -43,6 +43,15 @@ void PublishGpuResources (const std::string& adapter, uint64_t gpuMemoryBytes, u
     gGpu.maxTextureDimension = maxTextureDimension;
 }
 
+std::string AtlasDisplayRefusal (uint32_t width, uint32_t height, uint32_t deviceMaxDimension)
+{
+    if (deviceMaxDimension == 0 || (width <= deviceMaxDimension && height <= deviceMaxDimension))
+        return std::string ();
+    return "the " + std::to_string (width) + "x" + std::to_string (height) + " atlas exceeds this GPU's " +
+           std::to_string (deviceMaxDimension) + "x" + std::to_string (deviceMaxDimension) +
+           " texture limit - run the study again so it is packed for this GPU, or ask for a coarser grid";
+}
+
 uint64_t AvailableSystemMemory ()
 {
 #ifdef _WIN32

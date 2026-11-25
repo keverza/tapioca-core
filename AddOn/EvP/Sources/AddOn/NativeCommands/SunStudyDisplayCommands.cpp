@@ -390,8 +390,12 @@ class SunStudyPatchPreviewCommand : public MainThreadCommand {
             vertices.data (), vertices.size () / 3, triangles.data (), triangles.size () / 3, groups.data (), elementOf,
             patchOptions);
 
+        // Packed against this machine's display limit, as StartSunStudy packs
+        // them; the atlas dimension does not depend on the step count (#117).
+        const uint32_t maxDimension = sunstudysupport::MachineAnalysisLimits (1, true).maxAtlasDimension;
         evp::sunstudy::SunStudyPatchAtlas patchAtlas;
-        const evp::sunstudy::PatchAtlasUpdate fitted = evp::sunstudy::kernels::FitPatchAtlas (patchAtlas, patchGrid);
+        const evp::sunstudy::PatchAtlasUpdate fitted =
+            evp::sunstudy::kernels::FitPatchAtlas (patchAtlas, patchGrid, 1, maxDimension);
 
         // ---- the triangle domain, as the oracle ------------------------------
         evp::sunstudy::SamplerOptions legacy;
@@ -399,7 +403,8 @@ class SunStudyPatchPreviewCommand : public MainThreadCommand {
         legacy.wantLayouts = true;
         const evp::sunstudy::SampleGrid triangleGrid = evp::sunstudy::kernels::BuildSampleGrid (
             vertices.data (), vertices.size () / 3, triangles.data (), triangles.size () / 3, groups.data (), legacy);
-        const evp::sunstudy::SunStudyAtlas triangleAtlas = evp::sunstudy::kernels::BuildSunStudyAtlas (triangleGrid);
+        const evp::sunstudy::SunStudyAtlas triangleAtlas =
+            evp::sunstudy::kernels::BuildSunStudyAtlas (triangleGrid, { 1, maxDimension });
 
         double triangleArea = 0.0;
         for (const double area : triangleGrid.areas)

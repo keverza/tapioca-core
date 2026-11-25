@@ -64,6 +64,10 @@ GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double 
 // Why a ground grid over the box `aabbMin`..`aabbMax` was refused: a spacing
 // that is not a positive number, a model box with no finite extent, or else
 // the sample ceiling -- the only cause left once those two are ruled out (#117).
+// The refusal for a `domain` ("patch"/"triangle") atlas that cannot be packed
+// within this machine's `maxDimension`: said before tracing, never discovered
+// as a study with nothing to display (#117).
+GS::UniString AtlasRefusal (const char* domain, uint32_t maxDimension);
 // Why surface sampling was refused, from the sampler's own reason: only
 // `SampleLimit` is reported as this machine's ceiling (#117).
 GS::UniString SurfaceSamplingRefusal (evp::sunstudy::SamplingRefusal refusal,

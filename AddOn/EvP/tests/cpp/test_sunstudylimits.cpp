@@ -85,3 +85,15 @@ TEST (SunStudyLimits, TheGroundGridHonoursTheMachineCeiling)
     EXPECT_FALSE (kernels::MakeGroundSampleGrid (lo, hi, 1.0, 2.0, 0.1, needed - 1).valid);
     EXPECT_FALSE (kernels::MakeGroundSampleGrid (lo, hi, 1.0, 2.0, 0.1, 0).valid);
 }
+
+TEST (SunStudyLimits, DisplayRefusesAnAtlasLargerThanTheDevice)
+{
+    // #117: a study packed before the GPU was known (8192 fallback) shown on a
+    // 4096 device is refused with the reason, not a nameless allocation failure.
+    EXPECT_TRUE (AtlasDisplayRefusal (4096, 4096, 4096).empty ());
+    EXPECT_TRUE (AtlasDisplayRefusal (8192, 8192, 0).empty ()); // unknown device: no claim
+    const std::string why = AtlasDisplayRefusal (8192, 4096, 4096);
+    EXPECT_NE (why.find ("8192x4096"), std::string::npos) << why;
+    EXPECT_NE (why.find ("4096x4096 texture limit"), std::string::npos) << why;
+    EXPECT_FALSE (AtlasDisplayRefusal (16, 8193, 8192).empty ());
+}

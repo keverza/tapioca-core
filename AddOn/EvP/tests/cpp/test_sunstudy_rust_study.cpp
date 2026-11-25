@@ -571,6 +571,39 @@ TEST (SunStudyRustStudyParity, RefusalsMatchTheStore)
     EXPECT_NE (error.find ("patch atlas"), std::string::npos) << error;
 }
 
+TEST (SunStudyRustStudyParity, TheTriangleAtlasAndCoreShareTheMachinesDimension)
+{
+    // #117: StartSunStudy packed the triangle record atlas at a fixed 8192 and
+    // the Rust triangle core at its default, whatever the device allowed. Both
+    // now take the start command's maxAtlasDimension; attach compares them.
+    Lcg lcg (0x5e7d5ull);
+    const std::shared_ptr<const geomsrv::Snapshot> scene = Scene (lcg, -1, nullptr);
+    SurfaceSamplingOptions options;
+    options.spacing = 0.5;
+    const auto roles = kernels::ResolveElementRoles (*scene, {}, {}, {});
+    const auto sampling = kernels::BuildSurfaceSampling (*scene, roles.SampleMask (), options);
+    ASSERT_TRUE (sampling.valid);
+    SunStudyPatchAtlas unused;
+    const uint32_t natural =
+        kernels::BuildStableTriangleAtlas (sampling.triangles, *scene, unused, nullptr, { 1, kMaxDimension }).width;
+    ASSERT_GT (natural, 64u);
+
+    for (const uint32_t dimension : { natural, natural / 2 }) {
+        StudyRecord record;
+        record.snapshot = scene;
+        record.series = Day (3);
+        record.gridSpacing = options.spacing;
+        record.positions = sampling.triangles.positions;
+        record.normals = sampling.triangles.normals;
+        record.sampleGrid = sampling.triangles;
+        record.atlas = kernels::BuildStableTriangleAtlas (record.sampleGrid, *scene, record.triangleAllocations,
+                                                          nullptr, { 1, dimension });
+        EXPECT_EQ (record.atlas.valid, dimension == natural) << dimension;
+        std::string error;
+        EXPECT_TRUE (AttachRustStudyCore (record, *scene, nullptr, dimension, error)) << dimension << ": " << error;
+    }
+}
+
 TEST (SunStudyRustStudyParity, ConcurrentAdvancesOnOneCoreNeverDoubleClaimAStep)
 {
     // Once shared, a core may be advanced and read from several threads: an

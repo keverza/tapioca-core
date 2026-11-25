@@ -66,6 +66,7 @@ bool AttachRustStudyCore (StudyRecord& record, const geomsrv::Snapshot& snapshot
         rust::RustStudyCore::TriangleInputs inputs;
         inputs.grid = &record.sampleGrid;
         inputs.snapshot = &snapshot;
+        inputs.options.maxDimension = maxAtlasDimension; // the record atlas's limit
         core = rust::RustStudyCore::Triangle (record.series, record.gridSpacing, inputs, earlier, error);
         width = record.atlas.width;
         height = record.atlas.height;

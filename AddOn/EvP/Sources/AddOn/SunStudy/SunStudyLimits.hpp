@@ -81,6 +81,13 @@ void PublishGpuResources (const std::string& adapter, uint64_t gpuMemoryBytes, u
 // who knows how to ask the operating system.
 MachineResources CurrentMachineResources (uint64_t availableRamBytes);
 
+// Why a `width` x `height` study atlas cannot be displayed on a device whose
+// 2D texture limit is `deviceMaxDimension` (0 = unknown, never refuses); empty
+// when it fits. The start command packs within the GPU published at the time;
+// this catches a study packed before the device was known, or for another one,
+// before the allocation fails with no reason given (#117).
+std::string AtlasDisplayRefusal (uint32_t width, uint32_t height, uint32_t deviceMaxDimension);
+
 // Free physical memory right now, from the operating system; 0 when unknown
 // (and off Windows, where the offline tests build).
 uint64_t AvailableSystemMemory ();

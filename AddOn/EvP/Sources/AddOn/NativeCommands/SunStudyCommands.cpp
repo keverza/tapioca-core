@@ -44,6 +44,7 @@ using evp::sunstudy::SunStudyStore;
 // Shared parameter/packing helpers keep the calculation and display wire formats
 // identical; each command translation unit still exports one domain provider.
 using sunstudysupport::AddBackendReport;
+using sunstudysupport::AtlasRefusal;
 using sunstudysupport::GroundGridRefusal;
 using sunstudysupport::MachineAnalysisLimits;
 using sunstudysupport::PackBits;
@@ -355,11 +356,8 @@ class StartSunStudyCommand : public MainThreadCommand {
                     record->patchAtlas = reuseSource->patchAtlas;
                 evp::sunstudy::kernels::FitPatchAtlas (record->patchAtlas, patches, 1, limits.maxAtlasDimension);
                 trace.Mark ("atlas", record->patchAtlas.TexelCount () * sizeof (float));
-                if (record->patchAtlas.Width () == 0) {
-                    return NativeCommandResult::Failure (
-                        "the patch atlas could not be packed within the maximum texture dimension - ask for a "
-                        "coarser grid");
-                }
+                if (record->patchAtlas.Width () == 0)
+                    return NativeCommandResult::Failure (AtlasRefusal ("patch", limits.maxAtlasDimension));
                 atlasWidth = record->patchAtlas.Width ();
                 atlasHeight = record->patchAtlas.Height ();
                 atlasFaces = record->patchAtlas.AllocationCount ();
@@ -371,19 +369,20 @@ class StartSunStudyCommand : public MainThreadCommand {
                 record->patchGrid = std::move (patches);
             }
             else {
-
                 auto samples = std::move (sampling.triangles);
                 record->positions = samples.positions;
                 record->normals = samples.normals;
                 undersizedFaces = samples.undersizedFaces;
                 degenerateFaces = samples.degenerateFaces;
                 excludedSurfaces = samples.excludedFaces;
-
                 record->atlas = evp::sunstudy::kernels::BuildStableTriangleAtlas (
                     samples, *snapshot, record->triangleAllocations,
                     reuseSource != nullptr && !reuseSource->IsPatchDomain () && reuseSource->gridSpacing == spacing
                         ? &reuseSource->triangleAllocations
-                        : nullptr);
+                        : nullptr,
+                    { 1, limits.maxAtlasDimension });
+                if (!record->atlas.valid && samples.Count () != 0)
+                    return NativeCommandResult::Failure (AtlasRefusal ("triangle", limits.maxAtlasDimension));
                 trace.Mark ("atlas", record->atlas.width * static_cast<size_t> (record->atlas.height) * sizeof (float));
                 atlasWidth = record->atlas.width;
                 atlasHeight = record->atlas.height;
@@ -436,7 +435,8 @@ class StartSunStudyCommand : public MainThreadCommand {
         inputs.geometryVersion = snapshot->id;
         inputs.sunVersion = record->series.Version ();
         inputs.gridVersion = gridVersion;
-        if (std::string why; !StartSunStudyCore (*record, *snapshot, reuseSource.get (), inputs, why))
+        if (std::string why;
+            !StartSunStudyCore (*record, *snapshot, reuseSource.get (), inputs, limits.maxAtlasDimension, why))
             return NativeCommandResult::Failure (Text ("the sun study cannot run: " + why));
         FinishSunStudyPreparation (*record, snapshot, reuseSource.get (), cancelled_, occluders);
         trace.Mark ("reuse-seed", record->positions.size () / 3 * ((record->series.StepCount () + 63) / 64) * 8);

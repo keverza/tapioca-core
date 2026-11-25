@@ -17,9 +17,11 @@ PrepareSunStudyOccluders (std::shared_ptr<const Snapshot> snapshot, const evp::s
 // Attach the study core and sync it. False, with `error`, when no core can run
 // the study (none in this build, or the core refused the record): the caller
 // refuses the study rather than storing one that cannot advance.
+// `maxAtlasDimension` is the start command's limit, the one the record's atlas
+// was packed with, for either domain (#117).
 bool StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
                         const evp::sunstudy::StudyRecord* reuseSource, const evp::sunstudy::StudyInputs& inputs,
-                        std::string& error);
+                        uint32_t maxAtlasDimension, std::string& error);
 void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_ptr<const Snapshot> snapshot,
                                 const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled,
                                 std::shared_ptr<const QueryEngine> occluders);

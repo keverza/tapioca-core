@@ -21,6 +21,7 @@
 #include <chrono>
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
+#include "SunStudy/SunStudyLimits.hpp"
 
 #include <Sampler.h>
 #include "Utilities/interface/DiligentFXShaderSourceStreamFactory.hpp"
@@ -297,6 +298,16 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, Diligent::ID
     if (study->texels->size () != static_cast<size_t> (study->width) * study->height) {
         impl_->sunRejection = "the atlas image is " + std::to_string (study->texels->size ()) + " texels for a " +
                               std::to_string (study->width) + "x" + std::to_string (study->height) + " atlas";
+        ArchVizLog ("Diligent scene: sun study '" + study->studyId + "' refused -- " + impl_->sunRejection);
+        return;
+    }
+
+    // Before allocating: a study packed for another (or a not-yet-known) device
+    // says why it cannot show, instead of "could not be created" (#117).
+    if (std::string tooLarge = evp::sunstudy::AtlasDisplayRefusal (
+            study->width, study->height, device->GetAdapterInfo ().Texture.MaxTexture2DDimension);
+        !tooLarge.empty ()) {
+        impl_->sunRejection = std::move (tooLarge);
         ArchVizLog ("Diligent scene: sun study '" + study->studyId + "' refused -- " + impl_->sunRejection);
         return;
     }

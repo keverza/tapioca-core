@@ -133,6 +133,17 @@ GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double 
     return GS::UniString (text, CC_UTF8);
 }
 
+GS::UniString AtlasRefusal (const char* domain, uint32_t maxDimension)
+{
+    char text[320];
+    std::snprintf (text, sizeof (text),
+                   "the %s atlas could not be packed within this machine's %u x %u display texture limit - ask for a "
+                   "coarser grid%s",
+                   domain, maxDimension, maxDimension,
+                   std::strcmp (domain, "triangle") == 0 ? ", or domain='patch', which packs far more tightly" : "");
+    return GS::UniString (text, CC_UTF8);
+}
+
 GS::UniString SurfaceSamplingRefusal (evp::sunstudy::SamplingRefusal refusal,
                                       const evp::sunstudy::AnalysisLimits& limits, double spacing)
 {
