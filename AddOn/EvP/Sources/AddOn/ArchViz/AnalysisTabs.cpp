@@ -1,5 +1,7 @@
 #include "ArchViz/AnalysisTabs.hpp"
 
+#include <algorithm>
+
 namespace geomsrv::archviz::analysistabs {
 
 int TabOf (uint32_t analysisKind, int visibilityOrigin)
@@ -7,6 +9,27 @@ int TabOf (uint32_t analysisKind, int visibilityOrigin)
     if (analysisKind != 1)
         return kSunTab;
     return visibilityOrigin == 1 ? kPointVisibilityTab : kSurfaceVisibilityTab;
+}
+
+void MarkPlanting (Focus& focus, const std::string& studyId)
+{
+    if (studyId.empty ())
+        return;
+    auto& ids = focus.plantingStudies;
+    if (std::find (ids.begin (), ids.end (), studyId) != ids.end ())
+        return;
+    ids.push_back (studyId);
+    if (ids.size () > kPlantingKept)
+        ids.erase (ids.begin ());
+}
+
+int TabOfStudy (const Focus& focus, const std::string& studyId, uint32_t analysisKind)
+{
+    if (analysisKind != 1 && !studyId.empty () &&
+        std::find (focus.plantingStudies.begin (), focus.plantingStudies.end (), studyId) !=
+            focus.plantingStudies.end ())
+        return kPlantingTab;
+    return TabOf (analysisKind, focus.shownOrigin);
 }
 
 void FollowShownStudy (Focus& focus, const std::string& shownStudy, uint32_t analysisKind, uint64_t claim,
@@ -24,7 +47,7 @@ void FollowShownStudy (Focus& focus, const std::string& shownStudy, uint32_t ana
     if (claim == focus.seenClaim)
         return;
     focus.seenClaim = claim;
-    Select (focus, TabOf (analysisKind, focus.shownOrigin));
+    Select (focus, TabOfStudy (focus, shownStudy, analysisKind));
 }
 
 void Opened (Focus& focus, int tab)
@@ -43,7 +66,7 @@ void Select (Focus& focus, int tab)
 
 int KeepShownStudy (Focus& focus, const std::string& shownStudy, uint32_t analysisKind)
 {
-    const int shownTab = shownStudy.empty () ? -1 : TabOf (analysisKind, focus.shownOrigin);
+    const int shownTab = shownStudy.empty () ? -1 : TabOfStudy (focus, shownStudy, analysisKind);
     if (shownTab >= 0)
         focus.keptStudy[shownTab] = shownStudy;
     else if (focus.lastShownTab >= 0 && focus.lastShownTab == focus.tab)
@@ -52,8 +75,7 @@ int KeepShownStudy (Focus& focus, const std::string& shownStudy, uint32_t analys
     if (focus.restoreTried != focus.tab)
         focus.restoreTried = -1;
     const int tab = focus.tab;
-    if (tab < kSunTab || tab > kPointVisibilityTab || focus.keptStudy[tab].empty () || shownTab == tab ||
-        focus.restoreTried == tab)
+    if (!IsTintTab (tab) || focus.keptStudy[tab].empty () || shownTab == tab || focus.restoreTried == tab)
         return -1;
     focus.restoreTried = tab;
     return tab;
@@ -61,7 +83,7 @@ int KeepShownStudy (Focus& focus, const std::string& shownStudy, uint32_t analys
 
 bool ShowsTint (const Focus& focus, const std::string& shownStudy, uint32_t analysisKind)
 {
-    return shownStudy.empty () || TabOf (analysisKind, focus.shownOrigin) == focus.tab;
+    return shownStudy.empty () || TabOfStudy (focus, shownStudy, analysisKind) == focus.tab;
 }
 
 } // namespace geomsrv::archviz::analysistabs

@@ -219,7 +219,7 @@ bool RestoreWorkflowState (MockServices& m, const Value& state)
     if (!valid || m.hud.sunRunMonth < 1 || m.hud.sunRunMonth > 12 || m.hud.sunRunDay < 1 || m.hud.sunRunDay > 31 ||
         m.hud.sunRunYear < 1900 || m.hud.sunRunYear > 2200 || int (m.editor.tool) < 0 || int (m.editor.tool) > 7 ||
         m.hud.visibilityView < 0 || m.hud.visibilityView > 1 || int (m.viewpoint.options.mode) < 0 ||
-        int (m.viewpoint.options.mode) > 2 || m.hud.analysisFocus.tab < 0 || m.hud.analysisFocus.tab > 3 ||
+        int (m.viewpoint.options.mode) > 2 || m.hud.analysisFocus.tab < 0 || m.hud.analysisFocus.tab > 4 ||
         m.hud.sunRunTimestep < 0 || m.hud.sunRunTimestep > 4 || m.hud.sunRunPreset < 0 || m.hud.sunRunPreset > 2 ||
         m.hud.sunRunBackend < 0 || m.hud.sunRunBackend > 1 || m.hud.sunFanInterval < 0 || m.hud.sunFanInterval > 5)
         return false;

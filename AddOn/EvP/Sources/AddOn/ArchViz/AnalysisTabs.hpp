@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace geomsrv::archviz::analysistabs {
 
@@ -19,7 +20,22 @@ enum Tab : int {
     kSurfaceVisibilityTab = 1,
     kPointVisibilityTab = 2,
     kViewpointTab = 3,
+    // Planting suitability (#278): a sun study with a receptor layer. It shares
+    // the sun tint channel, and is its tab's only when its id was marked.
+    kPlantingTab = 4,
 };
+constexpr int kTabCount = 5;
+
+// The tabs that show a study on the shared tint channel.
+inline bool IsTintTab (int tab)
+{
+    return tab == kSunTab || tab == kSurfaceVisibilityTab || tab == kPointVisibilityTab || tab == kPlantingTab;
+}
+// The tabs whose study is a sun study (hours, the inspector's reading).
+inline bool IsSunTab (int tab)
+{
+    return tab == kSunTab || tab == kPlantingTab;
+}
 
 // The tab whose result a resident study is: kind 0 the sun study, kind 1 a
 // visibility study from surfaces (origin 0) or from a placed point (origin 1).
@@ -33,10 +49,21 @@ struct Focus {
     int shownOrigin = 0; // the visibility origin of the resident kind-1 study
     // Per tint tab (sun, surface, point): the last study it showed, which it puts
     // back when it takes the focus again. Empty once cleared on its own tab.
-    std::string keptStudy[3];
+    std::string keptStudy[kTabCount];
     int restoreTried = -1; // the tab a put-back was asked for since it took the focus
     int lastShownTab = -1; // the tab whose study was shown last frame, or -1
+    // Sun studies run as planting layers, newest last, at most kPlantingKept:
+    // those belong to the Planting tab, every other sun study to the Sun tab.
+    std::vector<std::string> plantingStudies;
 };
+constexpr size_t kPlantingKept = 16;
+
+// Record a sun study as a planting layer (idempotent; the oldest is forgotten).
+void MarkPlanting (Focus& focus, const std::string& studyId);
+
+// The tab a resident study belongs to: TabOf, with a marked planting study the
+// Planting tab's.
+int TabOfStudy (const Focus& focus, const std::string& studyId, uint32_t analysisKind);
 
 // Once a frame, with the resident study (empty for none), its kind, the analysis
 // display's claim generation and -- for kind 1 -- the origin it was run with.

@@ -60,12 +60,16 @@ void ApplyAnalysisView (DiligentScene& scene, HudState& state)
     }
     viewerhud::FollowAnalysisPath (state);
     auto& queue = SceneCmdQueue::Get ();
+    // A planting run's studies are the Planting tab's (#278), marked before they
+    // arrive so the claim that shows one selects that tab; the height queue
+    // advances on any page.
+    ServicePlantingRuns (state);
     analysistabs::FollowShownStudy (state.analysisFocus, shown, kind, queue.AnalysisDisplayGeneration (), origin);
     // ⚠️ EACH TINT TAB PUTS ITS OWN STUDY BACK. The three share one tint channel,
     // so the last run evicts the others; without this the sun tab said "a
     // visibility study is on screen" and could not show its own again.
     auto& focus = state.analysisFocus;
-    for (int tab = 0; tab < 3; ++tab)
+    for (int tab = 0; tab < analysistabs::kTabCount; ++tab)
         if (focus.keptStudy[tab].empty ())
             state.analysisKept[tab].reset ();
     const int restore = analysistabs::KeepShownStudy (focus, shown, kind);

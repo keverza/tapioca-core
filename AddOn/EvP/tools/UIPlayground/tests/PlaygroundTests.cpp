@@ -361,7 +361,7 @@ int main (int argc, char** argv)
                 document = pg::json::Parse (state).value;
             }
             pg::Put (document, "nativeRequest", pg::Value::String ("@analysis"));
-            for (int tab = 0; tab < 4; ++tab) {
+            for (int tab = 0; tab < 5; ++tab) {
                 auto native = pg::Member (document, "native");
                 auto values = pg::Member (native, "values");
                 pg::Put (values, "analysisTab", pg::Value::Integer (tab));
@@ -374,7 +374,8 @@ int main (int argc, char** argv)
                 std::string rendered;
                 state = Frame (module, state, 1, &rendered);
                 // Visibility draws its run button through AnalysisRunControl, whose label the text log cannot see.
-                const char* expected[] = { "Run sun study", "square cells", "Point XYZ (m)", "Show viewpoint" };
+                const char* expected[] = { "Run sun study", "square cells", "Point XYZ (m)", "Show viewpoint",
+                                           "Planting areas" };
                 if (rendered.find (expected[tab]) == std::string::npos)
                     throw std::runtime_error ("Analysis tab " + std::to_string (tab) + " body was not rendered: no \"" +
                                               expected[tab] + "\" in:\n" + rendered);
@@ -428,7 +429,7 @@ int main (int argc, char** argv)
             std::cout << editors << " editor fixtures load; " << fixtures.size () << " fixtures roundtrip; "
                       << (fixtures.size () + 1) * 8
                       << " panel/theme/density cases; real Programme input/save; 10 "
-                         "consecutive reloads; native workflows, four Analysis bodies, DPI width and edited controls; "
+                         "consecutive reloads; native workflows, five Analysis bodies, DPI width and edited controls; "
                          "candidate "
                          "rollback passed.\n";
         }

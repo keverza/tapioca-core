@@ -645,11 +645,14 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
         // The hours view keeps its exact-hour hover (#102).
         // A period says what the number is: a mean a day, a share.
         char first[96] = {}, second[96] = {};
-        if (state.sunShowsPeriod && ReadingLines (state, first, second, sizeof (first)))
-            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, first);
-        else
-            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
-                             SunStudyClock (state.sunReadingHours, true));
+        std::string tip = state.sunShowsPeriod && ReadingLines (state, first, second, sizeof (first))
+                              ? std::string (first)
+                              : SunStudyClock (state.sunReadingHours, true);
+        // The Planting tab names the exact class too (#278), never the tint's band.
+        if (state.analysisFocus.tab == analysistabs::kPlantingTab)
+            tip += std::string ("\n") +
+                   planting::ClassName (state.planting, planting::ClassOf (state.planting, state.sunReadingHours));
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, tip);
         return;
     }
     // The shadow views say WHEN, never the hours of sun (#116).

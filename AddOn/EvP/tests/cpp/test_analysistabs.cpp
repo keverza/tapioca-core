@@ -110,3 +110,51 @@ TEST (AnalysisTabs, AStudyClearedOnItsOwnTabIsNotPutBack)
     Opened (focus, kSurfaceVisibilityTab);
     EXPECT_EQ (KeepShownStudy (focus, "", 0), -1);
 }
+
+TEST (AnalysisTabs, AMarkedPlantingStudyBelongsToThePlantingTab)
+{
+    // #278: a planting layer is a sun study on the same channel; marked before
+    // it arrives, its claim selects the Planting tab, and only there does it tint.
+    Focus focus;
+    Opened (focus, kPlantingTab);
+    MarkPlanting (focus, "sun-planting-1");
+    FollowShownStudy (focus, "sun-planting-1", 0, 1, 0);
+    EXPECT_EQ (focus.tab, kPlantingTab);
+    EXPECT_EQ (focus.selectTab, kPlantingTab);
+    Opened (focus, kPlantingTab);
+    EXPECT_TRUE (ShowsTint (focus, "sun-planting-1", 0));
+    Opened (focus, kSunTab);
+    EXPECT_FALSE (ShowsTint (focus, "sun-planting-1", 0)) << "a planting layer is not the sun tab's";
+    // An unmarked sun study is still the Sun tab's.
+    EXPECT_EQ (TabOfStudy (focus, "sun-7", 0), kSunTab);
+    EXPECT_TRUE (IsSunTab (kPlantingTab));
+    EXPECT_TRUE (IsTintTab (kPlantingTab));
+    EXPECT_FALSE (IsTintTab (kViewpointTab));
+}
+
+TEST (AnalysisTabs, ThePlantingTabPutsItsLayerBackAfterASunRun)
+{
+    Focus focus;
+    MarkPlanting (focus, "sun-planting-1");
+    FollowShownStudy (focus, "sun-planting-1", 0, 1, 0);
+    Opened (focus, kPlantingTab);
+    EXPECT_EQ (KeepShownStudy (focus, "sun-planting-1", 0), -1);
+    FollowShownStudy (focus, "sun-2", 0, 2, 0);
+    Opened (focus, kSunTab);
+    EXPECT_EQ (KeepShownStudy (focus, "sun-2", 0), -1);
+    Opened (focus, kPlantingTab);
+    EXPECT_EQ (KeepShownStudy (focus, "sun-2", 0), kPlantingTab);
+}
+
+TEST (AnalysisTabs, MarkingIsIdempotentAndBounded)
+{
+    Focus focus;
+    MarkPlanting (focus, "a");
+    MarkPlanting (focus, "a");
+    MarkPlanting (focus, "");
+    EXPECT_EQ (focus.plantingStudies.size (), 1u);
+    for (size_t i = 0; i < kPlantingKept + 3; ++i)
+        MarkPlanting (focus, "id-" + std::to_string (i));
+    EXPECT_EQ (focus.plantingStudies.size (), kPlantingKept);
+    EXPECT_EQ (TabOfStudy (focus, "a", 0), kSunTab) << "the oldest is forgotten";
+}

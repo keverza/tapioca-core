@@ -1,0 +1,296 @@
+// The Planting tab's results (#278 Stage 1C): layer switch, metric, legend and
+// colours, the area table, the point inspector and the report row; and the
+// Plants and Compare sub-tabs, laid out ahead of their stages.
+//
+// ⚠️ LATER STAGES ARE DRAWN DISABLED, never hidden (DiligentHudPlanting.cpp):
+// the area figures, the planting report page, exports, the catalogue and the
+// comparison say what they will be, and change nothing.
+//
+// RENDER THREAD. Reads HudState and the scene's overlay status only.
+
+#include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/DiligentHudPlantingParts.hpp"
+#include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/GradientPresetChoice.hpp"
+#include "ArchViz/HudShell.hpp"
+#include "ArchViz/SunStudyPreview.hpp"
+
+#include <imgui.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <string>
+#include <vector>
+
+namespace geomsrv::archviz::plantinghud {
+
+namespace pl = planting;
+
+namespace {
+
+constexpr uint32_t kHatchLight = 0xBDBDBDFFu; // kArchVizSunTintPS's UnavailableHatchColor stripes
+constexpr uint32_t kHatchDark = 0x949494FFu;
+
+ImU32 Abgr (uint32_t rgba)
+{
+    return IM_COL32 ((rgba >> 24) & 0xff, (rgba >> 16) & 0xff, (rgba >> 8) & 0xff, rgba & 0xff);
+}
+
+// The unavailable state's legend swatch: the map's own diagonal hatch.
+void HatchSwatch (float size)
+{
+    const ImVec2 min = ImGui::GetCursorScreenPos ();
+    const ImVec2 max (min.x + size, min.y + size);
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    draw->AddRectFilled (min, max, Abgr (kHatchLight));
+    draw->PushClipRect (min, max, true);
+    const float stripe = size / 4.0f;
+    for (float x = -size; x < size; x += 2.0f * stripe)
+        draw->AddQuadFilled ({ min.x + x, max.y }, { min.x + x + stripe, max.y }, { min.x + x + stripe + size, min.y },
+                             { min.x + x + size, min.y }, Abgr (kHatchDark));
+    draw->PopClipRect ();
+    ImGui::Dummy (ImVec2 (size, size));
+}
+
+std::string ClassRange (const pl::PlantingHud& hud, int cls)
+{
+    const std::vector<float> edges = pl::ClassEdges (hud);
+    char text[48];
+    if (cls == 0)
+        std::snprintf (text, sizeof (text), "under %.4g h", edges.front ());
+    else if (cls == int (edges.size ()))
+        std::snprintf (text, sizeof (text), "%.4g h or more", edges.back ());
+    else
+        std::snprintf (text, sizeof (text), "%.4g to %.4g h", edges[size_t (cls - 1)], edges[size_t (cls)]);
+    return text;
+}
+
+void LayerRow (HudState& state, const SunStudyOverlayStatus& study)
+{
+    pl::PlantingHud& hud = state.planting;
+    ImGui::TextUnformatted ("Layer");
+    for (size_t i = 0; i < hud.layers.size (); ++i) {
+        const pl::Layer& layer = hud.layers[i];
+        const bool shown = study.drawing && study.studyId == layer.studyId;
+        if (shown)
+            hud.shownLayer = int (i);
+        ImGui::SameLine ();
+        ImGui::PushID (int (i));
+        ImGui::PushStyleColor (ImGuiCol_Button,
+                               ImGui::GetStyleColorVec4 (shown ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
+        char label[24];
+        std::snprintf (label, sizeof (label), "%.2f m", layer.height);
+        ImGui::BeginDisabled (hud.runningRun != 0);
+        if (ImGui::SmallButton (label) && !shown)
+            RunHeights (state, { layer.height });
+        ImGui::EndDisabled ();
+        ImGui::PopStyleColor ();
+        hudshell::ItemTip (shown ? "On screen." : "Not on screen: tracing it again shows it (the period keeps one).");
+        ImGui::PopID ();
+    }
+}
+
+void LegendSection (HudState& state)
+{
+    pl::PlantingHud& hud = state.planting;
+    const float swatch = ImGui::GetFrameHeight () * 0.75f;
+    if (hud.metric == pl::kSunClass) {
+        gradientchoice::GradientPresetChoice ("Colours##plantingclass", hud.classPreset, hud.classCustom,
+                                              hud.classFlipped, ImGui::GetContentRegionAvail ().x * 0.6f,
+                                              overlaylayers::GradientCategory::Sun, "Class swatches");
+        hudshell::ItemTip ("Class swatches: one colour per class, below. Or any gradient, sampled at each class.");
+        const std::vector<uint32_t> colours = ShownClassColours (hud);
+        const int first = hud.deepShade ? 0 : 1;
+        for (int cls = 0; cls < int (colours.size ()); ++cls) {
+            ImGui::PushID (cls);
+            uint32_t rgba = colours[size_t (cls)];
+            if (hud.classPreset.empty ()) {
+                if (gradientchoice::ColourChoice ("##class", rgba, false))
+                    hud.classRgba[std::clamp (cls + first, 0, pl::kMaxClasses - 1)] = rgba;
+                hudshell::ItemTip ("Pick this class's colour. Display only: no study reruns.");
+            }
+            else
+                ImGui::ColorButton ("##class", ImGui::ColorConvertU32ToFloat4 (Abgr (rgba)),
+                                    ImGuiColorEditFlags_NoTooltip, ImVec2 (swatch, swatch));
+            ImGui::SameLine ();
+            ImGui::Text ("%s, %s", pl::ClassName (hud, cls), ClassRange (hud, cls).c_str ());
+            ImGui::PopID ();
+        }
+        if (hud.classPreset.empty () && ImGui::SmallButton ("Reset colours##planting")) {
+            const pl::PlantingHud defaults;
+            std::copy (std::begin (defaults.classRgba), std::end (defaults.classRgba), hud.classRgba);
+        }
+    }
+    else {
+        gradientchoice::GradientPresetChoice ("Colours##plantinghours", hud.hoursPreset, hud.hoursCustom,
+                                              hud.hoursFlipped, ImGui::GetContentRegionAvail ().x * 0.6f,
+                                              overlaylayers::GradientCategory::Sun);
+        const ImVec2 min = ImGui::GetCursorScreenPos ();
+        const float width = ImGui::GetContentRegionAvail ().x;
+        const ImVec2 max (min.x + width, min.y + swatch);
+        gradientchoice::DrawSwatch (ImGui::GetWindowDrawList (), min, max,
+                                    SunStudyRampStops (hud.hoursPreset, hud.hoursCustom, hud.hoursFlipped));
+        ImGui::Dummy (ImVec2 (width, swatch));
+        ImGui::TextDisabled ("0 h");
+        ImGui::SameLine (width - ImGui::CalcTextSize ("9 h+").x);
+        ImGui::TextDisabled ("9 h+");
+    }
+    HatchSwatch (swatch);
+    ImGui::SameLine ();
+    ImGui::TextUnformatted ("Unavailable");
+    hudshell::ItemTip ("Too steep to plant, or under a ceiling (a balcony) closer than 0.10 m above the layer. Not "
+                       "shade: it is left out of the class areas.");
+}
+
+void AreaTable (const pl::PlantingHud& hud)
+{
+    if (!ImGui::CollapsingHeader ("Areas (plan m2)", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
+    const int classes = pl::ClassCount (hud);
+    const ImGuiTableFlags flags =
+        ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable ("##planting-areas", classes + 2, flags)) {
+        ImGui::TableSetupColumn ("Host", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+        for (int cls = 0; cls < classes; ++cls)
+            ImGui::TableSetupColumn (pl::ClassName (hud, cls));
+        ImGui::TableSetupColumn ("N/A");
+        ImGui::TableHeadersRow ();
+        const auto row = [classes] (const char* name) {
+            ImGui::TableNextRow ();
+            ImGui::TableNextColumn ();
+            ImGui::TextUnformatted (name);
+            for (int c = 0; c <= classes; ++c) {
+                ImGui::TableNextColumn ();
+                ImGui::TextDisabled ("-");
+            }
+        };
+        row ("Per host");
+        row ("All hosts");
+        ImGui::EndTable ();
+    }
+    ImGui::TextDisabled ("Areas per host and zone: next slice.");
+    hudshell::ItemTip ("Plan area per class from the stored samples, exact at each edge (a value at 3.00 h is "
+                       "partial shade), with unavailable area split into steep host and blocked overhead.");
+}
+
+void InspectSection (HudState& state)
+{
+    const pl::PlantingHud& hud = state.planting;
+    char first[96] = {}, second[96] = {};
+    if (state.sunReadingState == 1) {
+        const int cls = pl::ClassOf (hud, state.sunReadingHours);
+        std::snprintf (first, sizeof (first), "%s%.2f h direct sun a day", state.sunReadingNearest ? "~ " : "",
+                       state.sunReadingHours);
+        std::snprintf (second, sizeof (second), "%s (%s)", pl::ClassName (hud, cls), ClassRange (hud, cls).c_str ());
+    }
+    else if (state.sunReadingState == 2)
+        std::snprintf (first, sizeof (first), "not measured here");
+    DrawSunStudyInspectControl (state.sunInspect, first, second);
+    LaterButton ("Monthly profile", "Later: this point's hours month by month, at every layer.");
+    ImGui::SameLine ();
+    LaterButton ("Find plants here", "Later: catalogue plants whose light needs this point meets.");
+}
+
+void ReportRow (HudState& state, const DiligentSceneStats& scene)
+{
+    if (!ImGui::CollapsingHeader ("Report", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
+    viewerhud::DrawCaptureRow (state, kShotSunStudy, false);
+    if (state.captureFrame.active && !state.captureFrame.builder) {
+        auto& f = state.captureFrame;
+        f.entryMode = 0; // the hours map, in this tab's classes or ramp
+        f.entryStep = 0;
+        f.pinnedStudy = scene.sunStudy.studyId;
+        f.pinnedVersion = scene.sunStudy.version;
+    }
+    LaterButton ("Export CSV", "Later: the area table and per-sample hours as CSV.");
+    ImGui::SameLine ();
+    LaterButton ("Bake zones", "Later: approved class zones as fills on a dedicated layer. Never automatic.");
+}
+
+} // namespace
+
+void DrawResults (HudState& state, const DiligentSceneStats& scene)
+{
+    pl::PlantingHud& hud = state.planting;
+    SunStudyOverlayStatus study = scene.sunStudy;
+    study.drawing = study.drawing && study.analysisKind == 0;
+    if (!ImGui::CollapsingHeader ("Results", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
+    if (hud.layers.empty ())
+        ImGui::TextDisabled ("Run a layer to see its light classes.");
+    else
+        LayerRow (state, study);
+    state.sunShowsPeriod = study.drawing && !state.sunPeriodStudyId.empty () && state.sunPeriodStudyId == study.studyId;
+    if (state.sunShowsPeriod)
+        ImGui::TextDisabled ("%s%s: mean a day", state.sunPeriodLabel.c_str (),
+                             state.sunPeriodEstimate ? " (estimate)" : "");
+    ImGui::RadioButton ("Sun class##plantingmetric", &hud.metric, pl::kSunClass);
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Hours a day##plantingmetric", &hud.metric, pl::kHoursADay);
+    ImGui::SameLine ();
+    ImGui::BeginDisabled ();
+    int later = hud.metric;
+    ImGui::RadioButton ("Days in sun##plantingmetric", &later, pl::kDaysAtSun);
+    ImGui::EndDisabled ();
+    hudshell::ItemTip ("Later: the share of the period's days at or above the full-sun edge (consistency).");
+    LegendSection (state);
+    AreaTable (hud);
+    InspectSection (state);
+    ReportRow (state, scene);
+}
+
+void DrawPlantsTab (HudState& state)
+{
+    pl::PlantingHud& hud = state.planting;
+    ImGui::TextDisabled ("Plant catalogue: Stage 3.");
+    LaterButton ("Pick plant catalogue...",
+                 "Later: a local plant list (JSON) with each species' light class, mature height and spread.");
+    ImGui::SameLine ();
+    ImGui::TextDisabled ("%s", hud.catalogPath.empty () ? "no catalogue" : hud.catalogPath.c_str ());
+    ImGui::BeginDisabled ();
+    int size = 0;
+    ImGui::SetNextItemWidth (-ImGui::GetFontSize () * 6.0f);
+    ImGui::Combo ("plant size##planting", &size, "All\0Ground cover\0Low\0Shrub\0Tree\0");
+    int fit = 0;
+    ImGui::RadioButton ("Light only##plantingfit", &fit, 0);
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Space##plantingfit", &fit, 1);
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Combined##plantingfit", &fit, 2);
+    ImGui::EndDisabled ();
+    hudshell::ItemTip ("Later: where each plant size fits by light, by space for its mature crown, or both.");
+    if (ImGui::BeginTable ("##planting-plants", 4, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn ("Plant");
+        ImGui::TableSetupColumn ("Light");
+        ImGui::TableSetupColumn ("Size");
+        ImGui::TableSetupColumn ("Fits");
+        ImGui::TableHeadersRow ();
+        ImGui::TableNextRow ();
+        ImGui::TableNextColumn ();
+        ImGui::TextDisabled ("no catalogue loaded");
+        ImGui::EndTable ();
+    }
+    LaterButton ("Show mature envelope", "Later: the selected plant's mature height and spread at the point.");
+}
+
+void DrawCompareTab (HudState& state)
+{
+    (void) state;
+    ImGui::TextDisabled ("Scenario comparison: Stage 4.");
+    ImGui::BeginDisabled ();
+    int a = 0, b = 1;
+    ImGui::SetNextItemWidth (-ImGui::GetFontSize () * 6.0f);
+    ImGui::Combo ("before##planting", &a, "Existing\0Proposed\0");
+    ImGui::SetNextItemWidth (-ImGui::GetFontSize () * 6.0f);
+    ImGui::Combo ("after##planting", &b, "Existing\0Proposed\0");
+    int view = 0;
+    ImGui::RadioButton ("Class change##plantingcompare", &view, 0);
+    ImGui::SameLine ();
+    ImGui::RadioButton ("Hours lost##plantingcompare", &view, 1);
+    ImGui::EndDisabled ();
+    hudshell::ItemTip ("Later: two layers or two massing options side by side, and where a class was lost.");
+    LaterButton ("Compare", "Later: needs two finished studies of the same hosts and layer.");
+}
+
+} // namespace geomsrv::archviz::plantinghud

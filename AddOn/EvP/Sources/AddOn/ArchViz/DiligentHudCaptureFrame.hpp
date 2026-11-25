@@ -142,7 +142,9 @@ StudyDayState PollStudyDay (const HudState& state, const SunStudyOverlayStatus& 
 bool BeginCaptureFrame (HudState& state, int kind);
 bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize view, float dpiScale,
                        const SunStudyOverlayStatus* shown = nullptr);
-void DrawCaptureRow (HudState& state, int kind);
+// Screenshot and Layout Builder. `builder` false (the Planting tab, #278) draws
+// the Layout Builder disabled: its planting page is not built yet.
+void DrawCaptureRow (HudState& state, int kind, bool builder = true);
 
 } // namespace viewerhud
 } // namespace geomsrv::archviz

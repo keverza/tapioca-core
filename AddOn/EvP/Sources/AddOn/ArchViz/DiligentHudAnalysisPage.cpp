@@ -17,10 +17,20 @@ void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
         return;
     if (ImGui::BeginTabItem ("Sun study", nullptr, flags (analysistabs::kSunTab))) {
         analysistabs::Opened (focus, analysistabs::kSunTab);
+        ReleasePlantingDisplay (state); // the Sun tab's own colours and bands
         state.viewpointPlacing = false;
         state.viewpointPlacingTarget = false;
         state.viewpointPickingContext = false;
         DrawSunStudyHudSection (state, scene);
+        ImGui::EndTabItem ();
+    }
+    // #278 Stage 1C: planting suitability, a sun study per layer height.
+    if (ImGui::BeginTabItem ("Planting", nullptr, flags (analysistabs::kPlantingTab))) {
+        analysistabs::Opened (focus, analysistabs::kPlantingTab);
+        state.viewpointPlacing = false;
+        state.viewpointPlacingTarget = false;
+        state.viewpointPickingContext = false;
+        DrawPlantingHudSection (state, scene);
         ImGui::EndTabItem ();
     }
     if (ImGui::BeginTabItem ("Surface visibility", nullptr, flags (analysistabs::kSurfaceVisibilityTab))) {

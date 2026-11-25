@@ -437,9 +437,17 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             const char* templates[] = { ReportTitle (ReportTemplate::Analysis), ReportTitle (ReportTemplate::Patterns),
                                         ReportTitle (ReportTemplate::Access) };
             ImGui::SetNextItemWidth (190 * dpiScale);
-            int workflow = frame.reportType;
-            if (ImGui::Combo ("Workflow output", &workflow, templates, 3))
-                frame.SelectWorkflow (workflow);
+            if (ImGui::BeginCombo ("Workflow output", templates[std::clamp (frame.reportType, 0, 2)])) {
+                for (int workflow = 0; workflow < 3; ++workflow)
+                    if (ImGui::Selectable (templates[workflow], workflow == frame.reportType) &&
+                        workflow != frame.reportType)
+                        frame.SelectWorkflow (workflow);
+                // #278: listed now, built with the planting report page.
+                ImGui::Selectable ("Planting Suitability", false, ImGuiSelectableFlags_Disabled);
+                hudshell::ItemTip ("Later: legend, a view per planting layer and the area table, from the Planting "
+                                   "tab.");
+                ImGui::EndCombo ();
+            }
         }
         if (frame.kind == kShotSunStudy &&
             (frame.builder ? frame.reportType == int (ReportTemplate::Access) : frame.entryMode == 0)) {
@@ -558,7 +566,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
     return ownsMouse || (frame.builder && (!cameraTile || frame.resizingTile));
 }
 
-void DrawCaptureRow (HudState& state, int kind)
+void DrawCaptureRow (HudState& state, int kind, bool builder)
 {
     float w =
         kind == kShotSunStudy ? (ImGui::GetContentRegionAvail ().x - ImGui::GetStyle ().ItemSpacing.x) * .5f : -1.f;
@@ -567,7 +575,12 @@ void DrawCaptureRow (HudState& state, int kind)
         hudshell::ItemTip ("Frame the view, then save a PNG with the sun study legend to Tapioca\\Export.");
         ImGui::SameLine ();
     }
-    if (kind == kShotSunStudy && ImGui::Button ("Layout Builder", { -1, 0 }) && BeginCaptureFrame (state, kind)) {
+    ImGui::BeginDisabled (!builder);
+    const bool openBuilder = kind == kShotSunStudy && ImGui::Button ("Layout Builder", { -1, 0 });
+    ImGui::EndDisabled ();
+    if (kind == kShotSunStudy && !builder)
+        hudshell::ItemTip ("Later: a planting page -- legend, a view per layer and the area table.");
+    if (openBuilder && BeginCaptureFrame (state, kind)) {
         auto& f = state.captureFrame;
         f.builder = f.studyDay = f.seasonal = true;
         f.shadowStyle = 1;

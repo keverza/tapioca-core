@@ -17,6 +17,7 @@ foreach (source
     ArchViz/DiligentHudCaptureFrame.cpp ArchViz/ViewerScreenshotGeometry.cpp
     ArchViz/DiligentHudSunControls.cpp ArchViz/DiligentHudVisibility.cpp ArchViz/DiligentHudViewpoint.cpp
     ArchViz/GradientPresetChoice.cpp
+    ArchViz/DiligentHudPlanting.cpp ArchViz/DiligentHudPlantingResults.cpp ArchViz/PlantingHudModel.cpp
     ArchViz/DiligentHudControls.cpp ArchViz/AnalysisTabs.cpp
     ArchViz/AnalysisPath.cpp ArchViz/AnalysisProfile.cpp ArchViz/EditLayers.cpp
     ArchViz/EditLayersPlacement.cpp ArchViz/EditLandscapeLayers.cpp ArchViz/RoofSlopeCanvas.cpp
@@ -34,7 +35,7 @@ foreach (source IN LISTS workflowSources)
     endif ()
     file (RELATIVE_PATH relative "${EVP_ROOT}" "${source}")
     string (FIND "${offline}" "/${relative}\"" covered)
-    if (covered EQUAL -1 AND NOT relative MATCHES "Sources/AddOn/ArchViz/DiligentHud(AnalysisPage|SunStudy|SunRun|Visibility)\\.cpp$")
+    if (covered EQUAL -1 AND NOT relative MATCHES "Sources/AddOn/ArchViz/DiligentHud(AnalysisPage|SunStudy|SunRun|Visibility|Planting|PlantingResults)\\.cpp$")
         message (FATAL_ERROR "Workflow source has neither offline nor explicit playground smoke coverage: ${relative}")
     endif ()
 endforeach ()

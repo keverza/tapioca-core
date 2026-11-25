@@ -210,6 +210,7 @@ set (EVP_SUNSTUDY_SOURCES
     # The viewpoint's Bake button makes an Archicad Fill; stubbed as "nothing baked".
     "${CMAKE_CURRENT_SOURCE_DIR}/ViewpointBakeStub.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisTabs.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingHudModel.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisLiveRerun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointOverlayGeometry.cpp"
@@ -1258,6 +1259,7 @@ set (EVP_TEST_SOURCES
     test_cputraversal.cpp
     test_sunstudy_point_profile.cpp
     test_analysistabs.cpp
+    test_plantinghudmodel.cpp
     test_analysisliverun.cpp
     test_analysispath.cpp
     test_analysisprofile.cpp

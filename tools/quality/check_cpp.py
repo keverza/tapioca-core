@@ -572,6 +572,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # the size cap: it asks the same runner, by plain value, to present another
     # quantity/month or trace the hovered point, and draws what comes back.
     ("ArchViz/DiligentHudSunPeriod.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # The Planting tab (#278) is the run panel's sibling for planting layers: it
+    # hands the same runner a plain-value request per height (receptor fields
+    # included) and reads its plain-value status to advance its queue.
+    ("ArchViz/DiligentHudPlanting.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
     # Seasonal small multiples are the same panel's read-only plain-value adapter.
     ("ArchViz/DiligentHudSunSeasons.cpp", "NativeCommands/SunStudySeasonal.hpp"),
     # The sun path preview (#152) asks the same runner, by plain value, for

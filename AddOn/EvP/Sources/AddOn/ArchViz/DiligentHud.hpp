@@ -35,6 +35,7 @@
 #include "ArchViz/DiligentScene.hpp"          // ElementInfo, for the hover callout
 #include "ArchViz/DiligentViewportTarget.hpp" // SurfaceMode, for UpdateAndDrawModelOverlays
 #include "ArchViz/GradientLibrary.hpp"
+#include "ArchViz/PlantingHudModel.hpp"
 #include "ArchViz/SunPathMoment.hpp"
 #include "ArchViz/SunPathBand.hpp"
 #include "ArchViz/StartupAntiAliasing.hpp"
@@ -503,9 +504,11 @@ struct HudState {
     uint32_t viewpointBlockedRgba = 0xEC6240F0u; // where Context stopped it
     // Which Analysis tab has the focus; only its result is shown (AnalysisTabs.hpp).
     analysistabs::Focus analysisFocus;
+    // The Planting tab (#278 Stage 1C): its form, run queue and colours.
+    planting::PlantingHud planting;
     // What each tint tab (sun, surface, point) last showed, matching
     // analysisFocus.keptStudy, to put back when the tab is opened again.
-    std::shared_ptr<const SunStudyAtlasUpload> analysisKept[3];
+    std::shared_ptr<const SunStudyAtlasUpload> analysisKept[analysistabs::kTabCount];
     bool viewpointPlacing = false; // the next model click places the shared point
     bool viewpointPlacementMiss = false;
     double viewpointRadiusRange = 0.0; // the radius slider's top; 0 until first drawn
@@ -1047,6 +1050,14 @@ class DiligentHud final {
 // the hours range, its legend, and the role legend. Draws nothing unless a
 // study is on screen.
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
+// The Analysis page's Planting tab, in DiligentHudPlanting.cpp (#278 Stage 1C):
+// the run form, layers, classes, areas, inspector and report row. While it is
+// open it drives the shared sun tint; ReleasePlantingDisplay hands the tint back
+// to the Sun tab's own settings. ServicePlantingRuns advances its height queue
+// and is safe to call more than once a frame.
+void DrawPlantingHudSection (HudState& state, const DiligentSceneStats& scene);
+void ReleasePlantingDisplay (HudState& state);
+void ServicePlantingRuns (HudState& state);
 // The screenshot's legend strip, two halves (#156): on the left the location
 // (place and north) on one line and the analysis period (date or period,
 // traced hours, the shadows' day) on the next; on the right the colour legend
