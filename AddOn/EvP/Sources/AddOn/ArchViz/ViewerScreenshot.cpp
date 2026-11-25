@@ -239,14 +239,40 @@ void ViewerScreenshot::ServiceFramingCamera (Camera& camera, DiligentScene& scen
     framingCamera_.reset ();
 }
 
+static bool RenderPaperLegend (Diligent::IRenderDevice*, Diligent::IDeviceContext*, DiligentHud&,
+                               const DiligentSceneStats&, const HudState&, LayoutReportPage&, std::string&);
+
 DiligentViewportTarget& ViewerScreenshot::TargetFor (DiligentViewportTarget& surface, Diligent::IRenderDevice* device,
                                                      Diligent::IDeviceContext* context, DiligentScene& scene,
                                                      HudState& state)
 {
     if (target_ != nullptr)
         return *target_;
-    if (state.captureFrame.active && state.captureFrame.builder)
-        viewerhud::UpdateReportPaper (device, state.captureFrame, scene.Stats ().latitudeDegrees < 0);
+    if (state.captureFrame.active && state.captureFrame.builder) {
+        auto& f = state.captureFrame;
+        const auto stats = scene.Stats ();
+        if (f.paperCache && f.paperCache->page.pending &&
+            (f.paperCache->study != stats.sunStudy.studyId || f.paperCache->version != stats.sunStudy.version))
+            f.paperDirty = true;
+        viewerhud::UpdateReportPaper (device, f, stats.latitudeDegrees < 0, [&] (LayoutReportPage& page) {
+            const auto payload = scene.ShownAnalysisPayload ();
+            state.captureFrame.legendPlan = payload ? payload->capturePlan : nullptr;
+            std::string error;
+            // An export frame submitted to the interactive ImGui context would cancel active drags/popups.
+            if (!paperLegendHud_)
+                paperLegendHud_ = std::make_unique<DiligentHud> ();
+            if ((!paperLegendHud_->IsReady () &&
+                 !paperLegendHud_->Init (device, surface.ColorFormat (), surface.DepthFormat (), error)) ||
+                !RenderPaperLegend (device, context, *paperLegendHud_, stats, state, page, error))
+                ArchVizLog ("paper preview legend: " + error);
+        });
+        f.paperCache->study = stats.sunStudy.studyId;
+        f.paperCache->version = stats.sunStudy.version;
+        if (f.paperCache->page.pending && f.reportType == int (ReportTemplate::Analysis) && !f.panelSteps.empty ()) {
+            f.liveColumn = (f.liveColumn + 1) % f.panelSteps.size ();
+            f.shadowStep = (std::max) (0, f.panelSteps[f.liveColumn]);
+        }
+    }
     if (!state.sunShotRequested)
         return surface;
     state.sunShotRequested = false;
@@ -374,6 +400,21 @@ static bool RenderStrip (Diligent::IRenderDevice* device, Diligent::IDeviceConte
         error = "the legend strip returned no render target";
     strip.Destroy (context);
     return ok;
+}
+
+static bool RenderPaperLegend (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, DiligentHud& hud,
+                               const DiligentSceneStats& stats, const HudState& state, LayoutReportPage& report,
+                               std::string& error)
+{
+    const auto page = ReportPageFormat (report.format);
+    const float scale = page.width / 1500.f;
+    const auto height = hud.CaptureLegendHeight (scale);
+    if (!RenderStrip (
+            device, context, page.width, height,
+            [&] { hud.DrawCaptureLegend (context, page.width, height, scale, stats, state); }, report.legend, error))
+        return false;
+    report.legendHeight = height;
+    return true;
 }
 
 bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene& scene, DiligentHud& hud,
@@ -557,15 +598,10 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
             return true;
         }
         const auto page = ReportPageFormat (report_.format);
-        const float legendScale = page.width / 1500.f;
-        report_.legendHeight = hud.CaptureLegendHeight (legendScale);
-        ok = RenderStrip (
-            device_, context, page.width, report_.legendHeight,
-            [&] {
-                hud.DrawCaptureLegend (context, page.width, report_.legendHeight, legendScale, scene.Stats (), state);
-            },
-            report_.legend, error);
+        ok = RenderPaperLegend (device_, context, hud, scene.Stats (), state, report_, error);
         if (ok && frame.previewOnly) {
+            frame.clockImages.clear ();
+            frame.liveImage = 0;
             frame.paperCache = std::make_shared<viewerhud::ReportPaperPreview> ();
             frame.paperCache->page = std::move (report_);
             frame.paperDirty = false;
@@ -646,6 +682,7 @@ bool ViewerScreenshot::Finish (Diligent::IDeviceContext* context, DiligentScene&
 
 void ViewerScreenshot::Destroy (Diligent::IDeviceContext* context)
 {
+    paperLegendHud_.reset ();
     waitingDay_ = false;
     publishingSince_ = {};
     progressSurface_ = nullptr;

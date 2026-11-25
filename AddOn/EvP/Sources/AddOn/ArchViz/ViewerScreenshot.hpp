@@ -78,6 +78,7 @@ class ViewerScreenshot final {
 
   private:
     std::unique_ptr<DiligentViewportTarget> target_;
+    std::unique_ptr<DiligentHud> paperLegendHud_;
     std::unique_ptr<Camera> framingCamera_;
     std::unique_ptr<Camera> comparisonCamera_;
     bool framingUserNavigated_ = false;

@@ -237,14 +237,20 @@ class CaptureGui : public testing::Test {
         ImGui::SetCurrentContext (previous_);
     }
 
-    void Frame (ImVec2 point = { -1, -1 }, bool down = false)
+    void Frame (ImVec2 point = { -1, -1 }, bool down = false, std::string* labels = nullptr)
     {
         ImGuiIO& io = ImGui::GetIO ();
         io.AddMousePosEvent (point.x, point.y);
         io.AddMouseButtonEvent (0, down);
         ImGui::NewFrame ();
         if (state_.captureFrame.active) {
+            if (labels)
+                ImGui::LogToBuffer ();
             ownsMouse_ = DrawCaptureFrame (state_, kDock, kView, 1.0f, &shown_);
+            if (labels) {
+                *labels = ImGui::GetCurrentContext ()->LogBuffer.c_str ();
+                ImGui::LogFinish ();
+            }
             if (const ImGuiWindow* bar = ImGui::FindWindowByName ("##capture-bar")) {
                 const auto& style = ImGui::GetStyle ();
                 const float cancelWidth = ImGui::CalcTextSize ("Cancel").x + 2.0f * style.FramePadding.x;
@@ -405,19 +411,38 @@ TEST_F (CaptureGui, BuilderChangesQuantityButKeepsAnalysisColoursAndBands)
     const auto original = SunStudyViewOf (state_);
     ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
     state_.captureFrame.builder = state_.captureFrame.studyDay = true;
-    EXPECT_EQ (SunStudyViewOf (state_).viewOverride, original.viewOverride);
-    state_.captureFrame.active = false;
-    state_.sunShotBusy = true;
     for (int i = 0; i < 3; ++i) {
         state_.captureFrame.reportType = i;
         const auto view = SunStudyViewOf (state_);
         EXPECT_EQ (view.viewOverride, i == 0 ? 5 : i == 1 ? 9 : 0);
+        state_.captureFrame.active = false;
+        state_.sunShotBusy = true;
+        EXPECT_EQ (SunStudyViewOf (state_).viewOverride, view.viewOverride);
+        state_.captureFrame.active = true;
+        state_.sunShotBusy = false;
         EXPECT_EQ (view.singleShadowedRgba, original.singleShadowedRgba);
         EXPECT_EQ (view.amPmEveningRgba, original.amPmEveningRgba);
         EXPECT_EQ (view.bandCount, original.bandCount);
         ASSERT_EQ (view.rampCount, original.rampCount);
         for (int j = 0; j < view.rampCount; ++j)
             EXPECT_EQ (view.ramp[j].rgba, original.ramp[j].rgba);
+    }
+}
+
+TEST_F (CaptureGui, PaperShowsOnlyTheControlsForItsQuantity)
+{
+    ASSERT_TRUE (BeginCaptureFrame (state_, kShotSunStudy));
+    auto& f = state_.captureFrame;
+    f.builder = f.studyDay = f.seasonal = true;
+    for (int workflow = 0; workflow < 3; ++workflow) {
+        f.reportType = workflow;
+        Frame ();
+        std::string labels;
+        Frame ({ -1, -1 }, false, &labels);
+        const auto has = [&] (const char* s) { return labels.find (s) != std::string::npos; };
+        EXPECT_EQ (has ("Stepped gradient"), workflow == 2) << labels;
+        EXPECT_EQ (has ("PM only"), workflow == 1) << labels;
+        EXPECT_EQ (has ("Shaded"), workflow == 0) << labels;
     }
 }
 

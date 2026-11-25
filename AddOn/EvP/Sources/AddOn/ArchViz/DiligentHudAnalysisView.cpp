@@ -200,7 +200,9 @@ void UpdateAndDrawObstructionOverlay (DiligentScene& scene, Diligent::IDeviceCon
     const std::string shown = scene.ShownSunStudyId ();
     SunObstructionRequest request;
     const bool sunTab = state.analysisFocus.tab == analysistabs::kSunTab && scene.ShownAnalysisKind () == 0;
-    if (!state.readOnly && sunTab && state.sunView == kSunObstructionView && !state.sunShowsPeriod &&
+    const bool paper =
+        state.captureFrame.builder && (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy);
+    if (!paper && !state.readOnly && sunTab && state.sunView == kSunObstructionView && !state.sunShowsPeriod &&
         state.sunPointPlaced && state.sunObstructionMode != 0 && !shown.empty () &&
         RefreshSunStudyPointSamples (state, shown)) {
         request.studyId = shown;

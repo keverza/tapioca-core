@@ -22,16 +22,17 @@ struct ShadowRole {
 // leaves the whole label in the ID, so a bare "##sunlit" here and one anywhere
 // else in the window would collide -- as the view selector's "Roles" button
 // and the run form's "Roles" node did.
-inline void DrawShadowPalette (const char* view, std::initializer_list<ShadowRole> roles)
+inline bool DrawShadowPalette (const char* view, std::initializer_list<ShadowRole> roles)
 {
     ImGui::PushID (view);
     bool edited = false;
+    bool changed = false;
     int i = 0;
     for (const ShadowRole& role : roles) {
         if (i++ > 0)
             ImGui::SameLine ();
         ImGui::PushID (role.label);
-        gradientchoice::ColourChoice ("##colour", *role.rgba, false);
+        changed |= gradientchoice::ColourChoice ("##colour", *role.rgba, false);
         hudshell::ItemTip ("%s", role.tip);
         ImGui::PopID ();
         ImGui::SameLine ();
@@ -40,31 +41,22 @@ inline void DrawShadowPalette (const char* view, std::initializer_list<ShadowRol
     }
     if (edited) {
         ImGui::SameLine ();
-        if (ImGui::SmallButton ("reset"))
+        if (ImGui::SmallButton ("reset")) {
+            changed = true;
             for (const ShadowRole& role : roles)
                 *role.rgba = role.fallback;
+        }
         geomsrv::archviz::hudshell::ItemTip ("Puts this view's default colours back.");
     }
     ImGui::PopID ();
+    return changed;
 }
 
-inline bool DrawAnalysisColourChoice (HudState& state, int mode, float width, bool inlineStyle)
+inline bool DrawHoursColourChoice (HudState& state, float width, bool inlineStyle)
 {
     const bool changed =
         gradientchoice::GradientPresetChoice ("Colours##analysis", state.sunGradientPreset, state.sunGradientCustom,
                                               state.sunGradientFlipped, width, overlaylayers::GradientCategory::Sun);
-    if (changed && (mode == 5 || mode == 6 || mode == 9)) {
-        const auto ramp =
-            SunStudyRampStops (state.sunGradientPreset, state.sunGradientCustom, state.sunGradientFlipped);
-        if (mode == 5) {
-            state.sunSingleShadowedRgba = ramp.front ().rgba;
-            state.sunSingleLitRgba = ramp.back ().rgba;
-        }
-        else {
-            state.sunAmPmMorningRgba = ramp.front ().rgba;
-            state.sunAmPmEveningRgba = ramp.back ().rgba;
-        }
-    }
     if (inlineStyle)
         ImGui::SameLine ();
     return ImGui::Checkbox ("Stepped gradient", &state.sunGradientStepped) || changed;

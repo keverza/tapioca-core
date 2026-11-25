@@ -93,7 +93,7 @@ int ChosenMode (const HudState& state)
     if (!state.captureFrame.builder && state.captureFrame.entryMode >= 0 &&
         (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
         return state.captureFrame.entryMode;
-    if (state.captureFrame.builder && (state.sunShotRequested || state.sunShotBusy))
+    if (state.captureFrame.builder && (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
         return state.captureFrame.reportType == 2 ? 0 : state.captureFrame.reportType == 1 ? 9 : 5;
     if (((state.captureFrame.active && !state.captureFrame.builder) || state.sunShotBusy || state.sunShotRequested) &&
         state.captureFrame.studyDay)
@@ -405,7 +405,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs |
                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar);
     const auto& frame = state.captureFrame;
-    const bool layout = frame.studyDay && frame.shadowStyle == 1 && !frame.panelSteps.empty ();
+    const bool layout = frame.builder || (frame.studyDay && frame.shadowStyle == 1 && !frame.panelSteps.empty ());
     if (!ImGui::BeginTable ("##sun-capture-columns", 3,
                             ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::End ();
@@ -453,7 +453,7 @@ void DrawSunStudyCaptureLegend (const HudState& state, const DiligentSceneStats&
     if (mode == 0) {
         const SunStudyViewSettings view = SunStudyViewOf (state);
         // A period names its quantity, unit and frame (#156); a day is hours.
-        const bool periodTitle = period.showsPeriod && !state.sunMapTitle.empty ();
+        const bool periodTitle = !layout && period.showsPeriod && !state.sunMapTitle.empty ();
         const float right = ImGui::GetCursorScreenPos ().x + ImGui::GetContentRegionAvail ().x;
         ImGui::TextUnformatted (periodTitle ? state.sunMapTitle.c_str () : "Direct sun hours");
         // Beside the title while it fits the column, else to the left half:
@@ -583,8 +583,7 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     if (!state.captureFrame.builder && state.captureFrame.entryStep >= 0 &&
         (state.captureFrame.active || state.sunShotRequested || state.sunShotBusy))
         view.step = uint32_t (state.captureFrame.entryStep);
-    if (((state.captureFrame.active && !state.captureFrame.builder) || state.sunShotBusy || state.sunShotRequested) &&
-        state.captureFrame.studyDay) {
+    if ((state.captureFrame.active || state.sunShotBusy || state.sunShotRequested) && state.captureFrame.studyDay) {
         view.step = uint32_t (state.captureFrame.shadowStep);
         view.firstShadowStep = 0;
         view.endShadowStep = uint32_t (state.sunStepMinutes.size ());
@@ -761,8 +760,6 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     const bool obstruction = state.sunView == kObstructionView;
     const bool shadows = !obstruction && (current == 5 || current == 6 || current == 7);
     const bool roles = current == 4;
-    if (shadows || roles || obstruction)
-        viewerhud::DrawAnalysisColourChoice (state, current, ImGui::GetContentRegionAvail ().x * .64f, false);
     const float buttonWidth = (ImGui::GetContentRegionAvail ().x - 3.0f * ImGui::GetStyle ().ItemSpacing.x) / 4.0f;
     ImGui::PushStyleColor (
         ImGuiCol_Button,

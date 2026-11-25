@@ -924,16 +924,25 @@ int main (int argc, char** argv)
                         // The draft paper samples the encoded scene, not an sRGB-decoded or HUD-painted copy.
                         av::viewerhud::CaptureFrame live;
                         live.active = live.builder = true;
+                        live.reportType = int (page.type);
                         live.paperCache = std::make_shared<av::viewerhud::ReportPaperPreview> ();
                         live.paperCache->page.pending = true;
+                        if (matrix) {
+                            live.panelSteps = { -1, int (settings.step) };
+                            live.clockImages.resize (2);
+                            live.paperCache->clockTextures.resize (2);
+                            live.liveColumn = 1;
+                        }
                         av::viewerhud::CopyPaperScene (
                             live, device, context, targets.color->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET),
                             targets.depth->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL));
-                        if (!live.liveImage ||
-                            live.paperCache->live->GetDesc ().Format != Diligent::TEX_FORMAT_RGBA8_UNORM)
+                        auto texture = matrix ? live.paperCache->clockTextures[1] : live.paperCache->live;
+                        if (!live.liveImage || !texture ||
+                            (matrix && (live.clockImages[0] || live.clockImages[1] != live.liveImage)) ||
+                            texture->GetDesc ().Format != Diligent::TEX_FORMAT_RGBA8_UNORM)
                             return 1;
                         Targets copied;
-                        copied.color = live.paperCache->live;
+                        copied.color = texture;
                         copied.staging = targets.staging;
                         if (tile.rgba.empty () || ReadBack (context, copied, o.width, o.height) != tile.rgba)
                             return 1;

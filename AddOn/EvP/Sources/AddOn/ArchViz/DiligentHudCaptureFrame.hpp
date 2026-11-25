@@ -36,6 +36,8 @@ struct CaptureFrame {
     bool editCamera = false, previewOnly = false, paperDirty = true;
     float tileAspect = 1.5f;
     uintptr_t paperImage = 0, liveImage = 0;
+    size_t liveColumn = 0;
+    std::vector<uintptr_t> clockImages;
     ScreenshotRect cameraTilePixels, cameraTileSource;
     bool cameraNavHeld = false;
     std::vector<PaperViewportRect> paperTiles;

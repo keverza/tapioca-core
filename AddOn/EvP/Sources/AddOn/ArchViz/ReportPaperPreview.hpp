@@ -6,12 +6,16 @@
 #include <DeviceContext.h>
 #include <Texture.h>
 #include <RefCntAutoPtr.hpp>
+#include <functional>
 
 namespace geomsrv::archviz::viewerhud {
 struct ReportPaperPreview {
     LayoutReportPage page;
     Diligent::RefCntAutoPtr<Diligent::ITexture> texture;
     Diligent::RefCntAutoPtr<Diligent::ITexture> live;
+    std::vector<Diligent::RefCntAutoPtr<Diligent::ITexture>> clockTextures;
+    std::string study;
+    uint64_t version = 0;
     float composedAspect = -1;
 };
 
@@ -23,7 +27,11 @@ inline void CopyPaperScene (CaptureFrame& f, Diligent::IRenderDevice* device, Di
     f.liveImage = 0;
     if (!f.active || !f.builder || !f.paperCache || !f.paperCache->page.pending || !colour)
         return;
-    auto& live = f.paperCache->live;
+    const bool byClock = f.reportType == int (ReportTemplate::Analysis) && !f.panelSteps.empty ();
+    if (byClock && (f.liveColumn >= f.panelSteps.size () || f.liveColumn >= f.clockImages.size () ||
+                    f.liveColumn >= f.paperCache->clockTextures.size () || f.panelSteps[f.liveColumn] < 0))
+        return;
+    auto& live = byClock ? f.paperCache->clockTextures[f.liveColumn] : f.paperCache->live;
     const auto& src = colour->GetTexture ()->GetDesc ();
     if (!live || live->GetDesc ().Width != src.Width || live->GetDesc ().Height != src.Height) {
         Diligent::TextureDesc desc;
@@ -33,6 +41,8 @@ inline void CopyPaperScene (CaptureFrame& f, Diligent::IRenderDevice* device, Di
         desc.Height = src.Height;
         desc.Format = Diligent::TEX_FORMAT_RGBA8_UNORM;
         desc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+        if (byClock)
+            f.clockImages[f.liveColumn] = 0;
         live.Release ();
         device->CreateTexture (desc, nullptr, &live);
     }
@@ -46,15 +56,22 @@ inline void CopyPaperScene (CaptureFrame& f, Diligent::IRenderDevice* device, Di
     context->CopyTexture (copy);
     context->SetRenderTargets (1, &colour, depth, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     f.liveImage = reinterpret_cast<uintptr_t> (live->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+    if (byClock)
+        f.clockImages[f.liveColumn] = f.liveImage;
 }
 
-inline void UpdateReportPaper (Diligent::IRenderDevice* device, CaptureFrame& f, bool south)
+inline void UpdateReportPaper (Diligent::IRenderDevice* device, CaptureFrame& f, bool south,
+                               const std::function<void (LayoutReportPage&)>& legend = {})
 {
     if (!f.paperCache)
         f.paperCache = std::make_shared<ReportPaperPreview> ();
     auto& cache = *f.paperCache;
     auto& p = cache.page;
     if (f.paperDirty) {
+        f.clockImages.assign (f.panelSteps.size (), 0);
+        cache.clockTextures.clear ();
+        cache.clockTextures.resize (f.clockImages.size ());
+        f.liveColumn = 0;
         p = {};
         p.type = ReportTemplate (f.reportType);
         p.format = f.pageFormat;
@@ -66,9 +83,14 @@ inline void UpdateReportPaper (Diligent::IRenderDevice* device, CaptureFrame& f,
                 ReportPanel t;
                 t.date = !row ? "20 March" : (row == 1) != south ? "21 June" : "21 December";
                 t.season = !row ? "Equinox" : row == 1 ? "Summer solstice" : "Winter solstice";
+                t.metric =
+                    f.reportType == int (ReportTemplate::Analysis) && c < f.panelSteps.size () && f.panelSteps[c] < 0
+                        ? "Not measured"
+                        : "Current study";
                 p.panels.push_back (std::move (t));
             }
-        p.site = "Shared live camera   |   Render preview for seasonal measurements";
+        if (legend)
+            legend (p);
         cache.composedAspect = -1;
         f.paperDirty = false;
     }

@@ -370,17 +370,25 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                 draw->AddText ({ a.x + margin, a.y + margin }, IM_COL32_BLACK,
                                ReportTitle (ReportTemplate (frame.reportType)));
             const bool popup = ImGui::IsPopupOpen (nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+            size_t tileIndex = 0;
             for (const auto& tile : frame.paperTiles) {
                 ImVec2 tl { a.x + tile.x * (b.x - a.x), a.y + tile.y * (b.y - a.y) };
                 ImVec2 br { tl.x + tile.w * (b.x - a.x), tl.y + tile.h * (b.y - a.y) };
-                if (frame.liveImage) {
+                const uintptr_t image =
+                    frame.reportType == int (ReportTemplate::Analysis) && !frame.clockImages.empty ()
+                        ? frame.clockImages[tileIndex % frame.clockImages.size ()]
+                        : frame.liveImage;
+                ++tileIndex;
+                if (image) {
                     const float sw = std::min (rect.Width (), rect.Height () * frame.tileAspect),
                                 sh = sw / frame.tileAspect;
                     const float x = (rect.left + rect.right - sw) * .5f / view.width,
                                 y = (rect.top + rect.bottom - sh) * .5f / view.height;
-                    draw->AddImage (ImTextureID (frame.liveImage), tl, br, { x, y },
+                    draw->AddImage (ImTextureID (image), tl, br, { x, y },
                                     { x + sw / view.width, y + sh / view.height });
                 }
+                if (frame.editCamera)
+                    draw->AddRect (tl, br, IM_COL32 (65, 120, 203, 255), 0.f, 0, 2.f * dpiScale);
                 if (popup || !ImGui::IsMouseHoveringRect (tl, br, false))
                     continue;
                 cameraTile = frame.editCamera;
@@ -391,7 +399,8 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                     const float x = (rect.left + rect.right - sw) * .5f, y = (rect.top + rect.bottom - sh) * .5f;
                     frame.cameraTileSource = { x, y, x + sw, y + sh };
                 }
-                draw->AddRect (tl, br, IM_COL32 (82, 92, 105, 255));
+                if (!frame.editCamera)
+                    draw->AddRect (tl, br, IM_COL32 (82, 92, 105, 255));
                 draw->AddRectFilled ({ br.x - margin, br.y - margin }, br, IM_COL32 (82, 92, 105, 255));
                 if (ImGui::IsMouseHoveringRect ({ br.x - margin, br.y - margin }, br, false) &&
                     ImGui::IsMouseClicked (0)) {
@@ -424,42 +433,28 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
         if (frame.builder) {
             ImGui::TextUnformatted ("Layout Builder");
             ImGui::Separator ();
-        }
-        if (frame.kind == kShotSunStudy) {
-            ImGui::SetNextItemWidth (220 * dpiScale);
-            frame.paperDirty |= DrawAnalysisColourChoice (state,
-                                                          frame.builder ? (frame.reportType == 2   ? 0
-                                                                           : frame.reportType == 1 ? 9
-                                                                                                   : 5)
-                                                                        : frame.entryMode,
-                                                          220 * dpiScale, !frame.builder);
-        }
-        if (frame.builder) {
-            const char* templates[] = { "Shadow Analysis", "Shadow Patterns", "Sunlight Access" };
-            const char* papers[] = { "A4 landscape", "A4 portrait", "A3 landscape", "A3 portrait" };
+            const char* templates[] = { ReportTitle (ReportTemplate::Analysis), ReportTitle (ReportTemplate::Patterns),
+                                        ReportTitle (ReportTemplate::Access) };
             ImGui::SetNextItemWidth (190 * dpiScale);
             frame.paperDirty |= ImGui::Combo ("Workflow output", &frame.reportType, templates, 3);
-            if (frame.reportType != 2) {
-                auto swatch = [&] (const char* label, uint32_t& rgb) {
-                    ImGui::PushID (label);
-                    frame.paperDirty |= gradientchoice::ColourChoice ("##colour", rgb, false);
-                    ImGui::SameLine ();
-                    ImGui::TextUnformatted (label);
-                    ImGui::PopID ();
-                };
-                if (frame.reportType == 0) {
-                    swatch ("Sunlit", state.sunSingleLitRgba);
-                    ImGui::SameLine ();
-                    swatch ("Shaded", state.sunSingleShadowedRgba);
-                }
-                else {
-                    swatch ("Neither", state.sunAmPmSunlitRgba);
-                    ImGui::SameLine ();
-                    swatch ("AM only", state.sunAmPmMorningRgba);
-                    ImGui::SameLine ();
-                    swatch ("PM only", state.sunAmPmEveningRgba);
-                }
-            }
+        }
+        if (frame.kind == kShotSunStudy &&
+            (frame.builder ? frame.reportType == int (ReportTemplate::Access) : frame.entryMode == 0)) {
+            ImGui::SetNextItemWidth (220 * dpiScale);
+            frame.paperDirty |= DrawHoursColourChoice (state, 220 * dpiScale, !frame.builder);
+        }
+        if (frame.builder) {
+            const char* papers[] = { "A4 landscape", "A4 portrait", "A3 landscape", "A3 portrait" };
+            if (frame.reportType == int (ReportTemplate::Analysis))
+                frame.paperDirty |= DrawShadowPalette (
+                    "single", { { &state.sunSingleLitRgba, kSingleShadowLitRgba, "Sunlit", "Sunlit at the tile clock" },
+                                { &state.sunSingleShadowedRgba, kSingleShadowShadowedRgba, "Shaded",
+                                  "Shaded at the tile clock" } });
+            else if (frame.reportType == int (ReportTemplate::Patterns))
+                frame.paperDirty |= DrawShadowPalette (
+                    "ampm", { { &state.sunAmPmSunlitRgba, kAmPmSunlitRgba, "Neither", "Never shaded" },
+                              { &state.sunAmPmMorningRgba, kAmPmMorningRgba, "AM only", "Shaded before noon" },
+                              { &state.sunAmPmEveningRgba, kAmPmEveningRgba, "PM only", "Shaded after noon" } });
             ImGui::SetNextItemWidth (190 * dpiScale);
             frame.paperDirty |= ImGui::Combo ("Page format", &frame.pageFormat, papers, 4);
             ImGui::TextDisabled ("Equinox  /  Summer solstice  /  Winter solstice");
@@ -469,6 +464,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
             else
                 frame.clocks = { 720 };
             frame.paperDirty |= frame.clocks != previousClocks;
+            const auto previousSteps = frame.panelSteps;
             frame.panelSteps.assign (frame.clocks.size (), -1);
             if (shown)
                 for (size_t i = 0; i < frame.clocks.size (); ++i) {
@@ -476,6 +472,7 @@ bool DrawCaptureFrame (HudState& state, const CaptureDock& dock, ScreenshotSize 
                     if (it != shown->stepMinutes.end ())
                         frame.panelSteps[i] = int (it - shown->stepMinutes.begin ());
                 }
+            frame.paperDirty |= frame.panelSteps != previousSteps && !frame.clockImages.empty ();
             auto page = ReportPageFormat (frame.pageFormat);
             ImGui::Text ("Page 1   |   %u x %u px   |   150 dpi", page.width, page.height);
             ImGui::SliderFloat ("Tile W:H", &frame.tileAspect, .4f, 3.f, "%.2f");
