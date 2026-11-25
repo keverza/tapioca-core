@@ -19,6 +19,7 @@ mod limits;
 mod occlusion;
 mod patch_atlas;
 mod patches;
+mod receptor;
 mod reuse;
 mod roles;
 mod sampler;
@@ -80,6 +81,10 @@ pub use patch_atlas::{
 pub use patches::{
     PatchGridOutput, PatchGridRequest, PatchGridSummary, PatchSpanRecord,
     tapioca_sunstudy_patch_grid,
+};
+pub use receptor::{
+    ReceptorLayerOutput, ReceptorLayerRequest, ReceptorLayerSummary,
+    tapioca_sunstudy_receptor_layer,
 };
 pub use reuse::{
     CancelCallback, ReuseMeshView, ReusePlanOutput, ReusePlanRequest, ReusePlanSummary,
@@ -180,6 +185,9 @@ const _: () = {
     assert!(size_of::<BoundListView>() == 40);
     assert!(size_of::<BindingRequest>() == 136);
     assert!(size_of::<BindingOutput>() == 4);
+    assert!(size_of::<ReceptorLayerRequest>() == 96);
+    assert!(size_of::<ReceptorLayerSummary>() == 56);
+    assert!(size_of::<ReceptorLayerOutput>() == 56);
     assert!(size_of::<SampleGridRequest>() == 120);
     assert!(size_of::<FaceLayoutRecord>() == 104);
     assert!(size_of::<SampleGridSummary>() == 48);

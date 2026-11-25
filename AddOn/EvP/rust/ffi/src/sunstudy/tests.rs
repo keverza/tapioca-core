@@ -494,3 +494,107 @@ fn annual_schedule_is_shape_then_fill_and_validated() {
     assert_eq!(status, ERR_ARG);
     assert_eq!(message(&error), "AnnualInvalidDate");
 }
+
+fn receptor_request(samples: [&[f64]; 3], ceilings: &[f64], height: f64) -> ReceptorLayerRequest {
+    let [positions, normals, areas] = samples;
+    ReceptorLayerRequest {
+        positions: view(positions),
+        normals: view(normals),
+        areas: view(areas),
+        ceilings: view(ceilings),
+        normal_offset: 0.01,
+        height,
+        min_host_up: 0.5,
+        normal: 1,
+        area: 1,
+    }
+}
+
+#[test]
+fn receptor_layer_lifts_marks_and_summarises() {
+    // A flat sample, a wall sample, and a flat sample under a 2 m balcony.
+    let positions = [0.0, 0.0, 0.01, 5.0, 0.01, 1.0, 1.0, 0.0, 0.01];
+    let normals = [0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+    let areas = [1.0, 1.0, 1.0];
+    let ceilings = [-1.0, -1.0, 2.0];
+    let request = receptor_request([&positions, &normals, &areas], &ceilings, 3.0);
+    let mut hosts = [0.0; 9];
+    let mut lifted = [0.0; 9];
+    let mut facing = [0.0; 9];
+    let mut weights = [0.0; 3];
+    let mut status = [9_u8; 3];
+    let mut summary = ReceptorLayerSummary::default();
+    let output = ReceptorLayerOutput {
+        hosts: hosts.as_mut_ptr(),
+        positions: lifted.as_mut_ptr(),
+        normals: facing.as_mut_ptr(),
+        areas: weights.as_mut_ptr(),
+        status: status.as_mut_ptr(),
+        capacity: 3,
+        summary: &raw mut summary,
+    };
+    // SAFETY: distinct live locals of the declared sizes.
+    let status_code = unsafe {
+        tapioca_sunstudy_receptor_layer(
+            &raw const request,
+            &raw const output,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(status_code, OK);
+    assert_eq!(status, [0, 1, 2]);
+    assert_eq!(
+        (
+            summary.count,
+            summary.available,
+            summary.steep_host,
+            summary.blocked
+        ),
+        (3, 1, 1, 1)
+    );
+    assert!((summary.available_area - 1.0).abs() < 1e-12);
+    assert!(
+        (summary.unavailable_area - 1.0).abs() < 1e-12,
+        "wall plan area is 0"
+    );
+    assert!((lifted.get(2).copied().unwrap_or_default() - 3.0).abs() < 1e-12);
+    assert_eq!(facing.get(..3), Some(&[0.0, 0.0, 1.0][..]));
+}
+
+#[test]
+fn receptor_layer_refuses_bad_options_and_short_ceilings() {
+    let positions = [0.0, 0.0, 0.01];
+    let normals = [0.0, 0.0, 1.0];
+    let areas = [1.0];
+    let mut summary = ReceptorLayerSummary::default();
+    let output = ReceptorLayerOutput {
+        hosts: std::ptr::null_mut(),
+        positions: std::ptr::null_mut(),
+        normals: std::ptr::null_mut(),
+        areas: std::ptr::null_mut(),
+        status: std::ptr::null_mut(),
+        capacity: 0,
+        summary: &raw mut summary,
+    };
+    let mut error = [0_u8; 64];
+    for (ceilings, height) in [(&[][..], -1.0), (&[1.0, 2.0][..], 1.0)] {
+        let request = receptor_request([&positions, &normals, &areas], ceilings, height);
+        // SAFETY: distinct live locals; summary only.
+        let code = unsafe {
+            tapioca_sunstudy_receptor_layer(
+                &raw const request,
+                &raw const output,
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        assert_eq!(code, ERR_ARG);
+        assert!(
+            message(&error).starts_with("ReceptorLayer"),
+            "{}",
+            message(&error)
+        );
+    }
+    assert_eq!(summary, ReceptorLayerSummary::default(), "nothing written");
+}

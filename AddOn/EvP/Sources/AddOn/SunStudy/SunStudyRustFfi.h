@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (4)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (5)
 
 #ifdef __cplusplus
 extern "C" {
@@ -353,6 +353,46 @@ typedef struct {
 
 TapiocaStatus tapioca_sunstudy_sample_grid (const TapiocaSampleGridRequest* request,
                                             const TapiocaSampleGridOutput* output, char* error, size_t errorCapacity);
+
+/* Planting receptor layer (#278): a sampled grid lifted vertically above its
+ * host. Empty ceilings means no overhead test. status bytes: 0 available,
+ * 1 steep host, 2 blocked overhead, 3 invalid host. */
+typedef struct {
+    TapiocaDoubleView positions; /* xyz per sample, as sampled */
+    TapiocaDoubleView normals;   /* xyz unit host normals */
+    TapiocaDoubleView areas;     /* m2 per sample */
+    TapiocaDoubleView ceilings;  /* per sample overhead distance (< 0 none), or empty */
+    double normalOffset;         /* the sampler's normal offset */
+    double height;               /* metres above the host, 0..100 */
+    double minHostUp;            /* least host-normal Z for an up receptor, (0, 1] */
+    uint8_t normal;              /* 0 surface, 1 up */
+    uint8_t area;                /* 0 surface, 1 plan */
+} TapiocaReceptorLayerRequest;
+
+typedef struct {
+    size_t count;
+    size_t available;
+    size_t steepHost;
+    size_t blocked;
+    size_t invalidHost;
+    double availableArea;
+    double unavailableArea;
+} TapiocaReceptorLayerSummary;
+
+/* capacity == 0: summary only; otherwise every array holds `count` receptors. */
+typedef struct {
+    double* hosts;
+    double* positions;
+    double* normals;
+    double* areas;
+    uint8_t* status;
+    size_t capacity;
+    TapiocaReceptorLayerSummary* summary;
+} TapiocaReceptorLayerOutput;
+
+TapiocaStatus tapioca_sunstudy_receptor_layer (const TapiocaReceptorLayerRequest* request,
+                                               const TapiocaReceptorLayerOutput* output, char* error,
+                                               size_t errorCapacity);
 
 /* Surface-patch sampler. Empty groups / sampleGroup / sampleFace mean none. */
 typedef struct {

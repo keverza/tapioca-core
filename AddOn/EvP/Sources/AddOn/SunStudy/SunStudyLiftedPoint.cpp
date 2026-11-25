@@ -46,6 +46,14 @@ bool SunStudySceneHit (const StudyRecord& record, const double origin[3], const 
     return true;
 }
 
+double SunStudyOverheadDistance (const StudyRecord& record, const double surface[3])
+{
+    // Start just above the surface so the surface itself is not hit.
+    const double up[3] = { 0.0, 0.0, 1.0 };
+    const double origin[3] = { surface[0], surface[1], surface[2] + kTMin };
+    return NearestT (record, origin, up);
+}
+
 bool LiftSunStudyPoint (const StudyRecord& record, const double surface[3], double height, LiftedPoint& lifted)
 {
     lifted = LiftedPoint ();
@@ -55,10 +63,7 @@ bool LiftSunStudyPoint (const StudyRecord& record, const double surface[3], doub
     std::copy (surface, surface + 3, lifted.surface);
     lifted.requestedHeight = (std::max) (0.0, height);
     lifted.height = lifted.requestedHeight;
-    // Overhead: start just above the surface so the surface itself is not hit.
-    const double up[3] = { 0.0, 0.0, 1.0 };
-    const double origin[3] = { surface[0], surface[1], surface[2] + kTMin };
-    const double ceiling = NearestT (record, origin, up);
+    const double ceiling = SunStudyOverheadDistance (record, surface);
     if (ceiling >= 0.0 && ceiling + kTMin - kLiftedPointClearance < lifted.height) {
         lifted.height = (std::max) (0.0, ceiling + kTMin - kLiftedPointClearance);
         lifted.clamped = true;

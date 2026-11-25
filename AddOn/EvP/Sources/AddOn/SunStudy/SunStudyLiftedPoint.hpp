@@ -36,6 +36,12 @@ struct LiftedPoint {
     bool clamped = false; // something overhead lowered it
 };
 
+// Distance from `surface + 0.001 m` straight up to the nearest analysis or
+// context surface, or < 0 for none. The one overhead test: the placed point
+// clamps on it, and a planting receptor layer (SunStudyReceptor) marks a
+// receptor Blocked on it with the same clearance arithmetic.
+double SunStudyOverheadDistance (const StudyRecord& record, const double surface[3]);
+
 // Lifts `surface` by `height` (metres, Z up), clamped below anything overhead.
 bool LiftSunStudyPoint (const StudyRecord& record, const double surface[3], double height, LiftedPoint& lifted);
 

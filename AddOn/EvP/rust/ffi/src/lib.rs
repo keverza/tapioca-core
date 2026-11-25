@@ -212,7 +212,8 @@ pub use sunstudy::{
     tapioca_sunstudy_patch_sample_meshes, tapioca_sunstudy_plan_reuse, tapioca_sunstudy_summarize,
 };
 pub use sunstudy::{
-    FaceLayoutRecord, SampleGridOutput, SampleGridRequest, SampleGridSummary,
+    FaceLayoutRecord, ReceptorLayerOutput, ReceptorLayerRequest, ReceptorLayerSummary,
+    SampleGridOutput, SampleGridRequest, SampleGridSummary, tapioca_sunstudy_receptor_layer,
     tapioca_sunstudy_sample_grid,
 };
 pub use sunstudy::{

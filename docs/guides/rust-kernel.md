@@ -1588,6 +1588,10 @@ has no sun-study core".
   `mark_overhead` applies the single-point lift's overhead arithmetic to
   host-measured ceiling distances and marks a receptor `Blocked` instead of
   clamping it, so one layer never mixes heights. Unavailable is never dark.
+  Export `tapioca_sunstudy_receptor_layer` (sun-study ABI v5); C++
+  `BuildReceptorLayer` (`SunStudyReceptor.hpp`) queries
+  `SunStudyOverheadDistance` -- the placed point's own overhead ray -- once
+  per otherwise-available receptor.
 
 Parity was **bit-for-bit**, not within a tolerance: until P7b,
 `test_sunstudy_rust_parity.cpp` ran each kernel and its C++ original over
