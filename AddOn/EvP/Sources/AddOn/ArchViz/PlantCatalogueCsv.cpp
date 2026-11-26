@@ -87,38 +87,43 @@ json::JsonValue StringsJson (const std::vector<std::string>& items)
 
 const std::vector<std::string>& CatalogueCsvColumns ()
 {
-    static const std::vector<std::string> columns = {
-        "id",
-        "scientificName",
-        "cultivar",
-        "name_lt",
-        "name_en",
-        "section",
-        "sourceNumber",
-        "habit",
-        "breeam",
-        "ornamentalFlowering",
-        "ornithological",
-        "light",
-        "saltTolerance",
-        "growthIntensity",
-        "moistureClasses",
-        "plantingLayers",
-        "matureHeightMinM",
-        "matureHeightMaxM",
-        "matureSpreadMinM",
-        "matureSpreadMaxM",
-        "receiverHeightM",
-        "densityMinPerM2",
-        "densityMaxPerM2",
-        "floweringMonths",
-        "deciduous",
-        "soilTypes",
-        "sites",
-        "siteSoils",
-        "source",
-        "page",
-    };
+    static const std::vector<std::string> columns = [] {
+        std::vector<std::string> c = {
+            "id",
+            "scientificName",
+            "cultivar",
+            "name_lt",
+            "name_en",
+            "section",
+            "sourceNumber",
+            "habit",
+            "breeam",
+            "ornamentalFlowering",
+            "ornithological",
+            "light",
+            "saltTolerance",
+            "growthIntensity",
+            "moistureClasses",
+            "plantingLayers",
+            "matureHeightMinM",
+            "matureHeightMaxM",
+            "matureSpreadMinM",
+            "matureSpreadMaxM",
+            "receiverHeightM",
+            "densityMinPerM2",
+            "densityMaxPerM2",
+            "floweringMonths",
+            "deciduous",
+            "soilTypes",
+            "sites",
+            "siteSoils",
+            "source",
+            "page",
+        };
+        for (const std::string& trait : TraitCsvColumns ())
+            c.push_back (trait);
+        return c;
+    }();
     return columns;
 }
 
@@ -155,7 +160,7 @@ std::string CatalogueToCsv (const Catalogue& catalogue)
         auto lo = [] (const std::optional<Range>& r) { return r && !r->openMin ? Number (r->min) : std::string (); };
         auto hi = [] (const std::optional<Range>& r) { return r && !r->openMax ? Number (r->max) : std::string (); };
         auto knob = [] (bool on) { return on ? std::string ("true") : std::string (); };
-        const std::vector<std::string> fields = {
+        std::vector<std::string> fields = {
             p.id,
             p.scientificName,
             p.cultivar,
@@ -187,6 +192,9 @@ std::string CatalogueToCsv (const Catalogue& catalogue)
             p.sources.empty () ? "" : p.sources[0].sourceId,
             p.sources.empty () || !p.sources[0].page ? "" : std::to_string (p.sources[0].page),
         };
+        for (int t = 0; t < kTraitCount; ++t)
+            fields.push_back (TraitCsvCell (p.traits, Trait (t)));
+        fields.push_back (EvidenceCsvCell (p.traits));
         for (size_t i = 0; i < fields.size (); ++i)
             out += (i ? "," : "") + Quote (fields[i]);
         out += "\r\n";
@@ -337,6 +345,7 @@ std::string CatalogueToJson (const Catalogue& catalogue)
             refs.push_back (json::JsonValue::Object (std::move (ref)));
         }
         o["sourceRefs"] = json::JsonValue::Array (std::move (refs));
+        TraitsToJson (p.traits, o);
         plants.push_back (json::JsonValue::Object (std::move (o)));
     }
     json::JsonObject root;
@@ -551,6 +560,17 @@ bool CatalogueFromCsv (const std::string& text, const Catalogue& base, Catalogue
             if (!found)
                 problems.items.push_back (where + "siteSoils: '" + key + "' is not a known planting site");
         }
+        for (int t = 0; t < kTraitCount; ++t) {
+            const std::string name = TraitPath (Trait (t));
+            std::string why;
+            if (!TraitFromText (Trait (t), cell (name.c_str ()), p.traits.values[size_t (t)], why))
+                problems.items.push_back (where + name + ": " + why);
+        }
+        {
+            std::string why;
+            if (!EvidenceFromText (cell ("evidence"), p.traits.evidence, why))
+                problems.items.push_back (where + "evidence: " + why);
+        }
         const std::string source = cell ("source");
         if (!source.empty ()) {
             PlantSourceRef ref { source, 0 };
@@ -570,6 +590,16 @@ bool CatalogueFromCsv (const std::string& text, const Catalogue& base, Catalogue
                 built.sources.push_back (known != base.sources.end () ? *known : CatalogueSource { source, source });
             }
         }
+        // A source named only by evidence keeps its title and note too.
+        for (const TraitEvidence& e : p.traits.evidence)
+            if (sourceIds.insert (e.sourceId).second) {
+                const auto known = std::find_if (base.sources.begin (), base.sources.end (),
+                                                 [&] (const CatalogueSource& s) { return s.id == e.sourceId; });
+                if (known != base.sources.end ())
+                    built.sources.push_back (*known);
+                else
+                    sourceIds.erase (e.sourceId); // refused below: sources come from plants.json or "source"
+            }
         built.plants.push_back (std::move (p));
     }
     if (!problems.Empty ())

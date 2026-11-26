@@ -13,9 +13,13 @@
 //
 // ⚠️ THE SEED IS THE VILNIUS 2024 CATALOGUE. It is transcribed from the city's
 // planting and maintenance standard (pp. 6-34), as printed. Its species data is
-// the standard's, including the source's spelling; redistribution has not been
-// cleared with the publisher. A regional catalogue is imported by replacing
-// plants.json.
+// the standard's, including the source's spelling. The standard is an official
+// municipal document, not subject to copyright (the project owner's
+// determination), so it ships in full. A regional catalogue is imported by
+// replacing plants.json. The trait blocks (PlantTraits.hpp) are not the
+// standard's: they ship empty, to be filled with sourced values.
+
+#include "ArchViz/PlantTraits.hpp"
 
 #include <array>
 #include <cstddef>
@@ -129,6 +133,9 @@ struct Plant {
     std::array<std::string, kSiteCount> siteSoil; // "" when not given
     std::optional<bool> deciduous;
     std::vector<PlantSourceRef> sources;
+    // Ecology, competition, roots, canopy, phenology, lifecycle, regulatory and
+    // evidence (PlantTraits.hpp): not in the regional standard; filled by hand.
+    PlantTraits traits;
 
     bool HasLight () const
     {

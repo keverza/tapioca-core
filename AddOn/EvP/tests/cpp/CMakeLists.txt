@@ -213,6 +213,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingHudModel.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantCatalogue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantCatalogueCsv.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantTraits.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingFiles.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisLiveRerun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudControls.cpp"

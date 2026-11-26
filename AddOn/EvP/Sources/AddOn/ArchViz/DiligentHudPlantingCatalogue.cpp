@@ -402,6 +402,19 @@ void SelectedPlant (HudState& state)
             months += (months.empty () ? "" : ", ") + std::to_string (m);
         ImGui::Text ("Flowering months: %s", months.c_str ());
     }
+    if (!p.traits.AnyGiven ())
+        ImGui::TextDisabled ("Traits: none filled yet (ecology, competition, roots, canopy, ...).");
+    else if (ImGui::TreeNode ("Traits##plantcat")) {
+        for (int t = 0; t < pl::kTraitCount; ++t)
+            if (p.traits.values[size_t (t)].Given ())
+                ImGui::Text ("%s: %s", pl::TraitPath (pl::Trait (t)).c_str (),
+                             pl::TraitCsvCell (p.traits, pl::Trait (t)).c_str ());
+        for (const auto& e : p.traits.evidence)
+            ImGui::TextDisabled ("%s from %s%s%s", e.field.c_str (), e.sourceId.c_str (),
+                                 e.confidence >= 0 ? ", confidence " : "",
+                                 e.confidence >= 0 ? pl::TraitConfidenceKeys ()[e.confidence] : "");
+        ImGui::TreePop ();
+    }
     if (!p.sourceNumber.empty ())
         ImGui::TextDisabled ("The standard's row %s", p.sourceNumber.c_str ());
     for (const auto& ref : p.sources)

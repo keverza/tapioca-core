@@ -123,6 +123,43 @@ TEST (PlantCatalogueCsv, RangesDensityAndMonthsImport)
     EXPECT_EQ (c.sources[0].id, "vilnius") << "a source named only in the CSV is added";
 }
 
+TEST (PlantCatalogueCsv, TraitsRoundTripAndAreChecked)
+{
+    Catalogue base;
+    base.sources.push_back ({ "ellenberg", "Ellenberg values", "", "", 2023 });
+    Catalogue c;
+    ParseProblems problems;
+    ASSERT_TRUE (CatalogueFromCsv ("id,scientificName,ecology.ellenbergLight,ecology.drainage,"
+                                   "competition.competitiveVigour,phenology.emergenceMonths,regulatory.note,evidence\n"
+                                   "a,Aa,4,freelyDrained|poorlyDrained,high,3|4,check locally,"
+                                   "ecology.ellenbergLight:ellenberg:high:dataset\n",
+                                   base, c, problems))
+        << (problems.Empty () ? "" : problems.items[0]);
+    const PlantTraits& t = c.plants[0].traits;
+    EXPECT_DOUBLE_EQ (*t[Trait::EllenbergLight].number, 4.0);
+    EXPECT_EQ (t[Trait::Drainage].choices, (std::vector<int> { 0, 2 }));
+    EXPECT_STREQ (t.ChoiceKey (Trait::CompetitiveVigour), "high");
+    EXPECT_EQ (t[Trait::RegulatoryNote].text, "check locally");
+    ASSERT_EQ (t.evidence.size (), 1u);
+    EXPECT_EQ (c.sources.size (), 1u) << "a source named only by evidence keeps its entry";
+
+    // Export and import again: every trait survives, so an import never wipes them.
+    Catalogue again;
+    ASSERT_TRUE (CatalogueFromCsv (CatalogueToCsv (c), c, again, problems))
+        << (problems.Empty () ? "" : problems.items[0]);
+    for (int i = 0; i < kTraitCount; ++i)
+        EXPECT_EQ (TraitCsvCell (again.plants[0].traits, Trait (i)), TraitCsvCell (t, Trait (i))) << i;
+    EXPECT_EQ (EvidenceCsvCell (again.plants[0].traits), EvidenceCsvCell (t));
+
+    EXPECT_FALSE (CatalogueFromCsv ("id,scientificName,competition.competitiveVigour,ecology.ellenbergLight,evidence\n"
+                                    "a,Aa,huge,12,light\n",
+                                    base, c, problems));
+    EXPECT_TRUE (Has (problems, "CSV row 2: competition.competitiveVigour: 'huge' is not low, medium or high"));
+    EXPECT_TRUE (Has (problems, "CSV row 2: evidence: 'light' is not field:sourceId"));
+    EXPECT_FALSE (CatalogueFromCsv ("id,scientificName,ecology.ellenbergLight\na,Aa,12\n", base, c, problems));
+    EXPECT_TRUE (Has (problems, "ecology.ellenbergLight: must be 1 to 9")) << "the range comes from the JSON reader";
+}
+
 TEST (PlantCatalogueCsv, OneSidedRangesAreOpen)
 {
     Catalogue c;

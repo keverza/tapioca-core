@@ -401,6 +401,8 @@ void ParsePlant (const json::JsonValue& item, const Reader& r, const std::set<st
         if (!list)
             r.Fail ("sourceRefs", "must be a list");
     }
+    ParseTraits (
+        item, sourceIds, [&] (const std::string& field, const std::string& what) { r.Fail (field, what); }, p.traits);
 }
 
 } // namespace

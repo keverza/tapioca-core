@@ -170,6 +170,80 @@ TEST (PlantCatalogue, EveryProblemIsListedAndNothingLoads)
     EXPECT_TRUE (Has (problems, "plants[4] id: is required"));
 }
 
+TEST (PlantTraits, TheSeedShipsEveryTraitEmpty)
+{
+    Catalogue c;
+    ParseProblems problems;
+    ASSERT_TRUE (ParseCatalogue (SeedPlantsJson (), c, problems)) << (problems.Empty () ? "" : problems.items[0]);
+    for (const Plant& p : c.plants)
+        EXPECT_FALSE (p.traits.AnyGiven ()) << p.id << ": the standard has no traits; nothing is invented";
+    // The seed carries every block, so the lines to fill are visible.
+    for (int t = 0; t < kTraitCount; ++t) {
+        const TraitField& f = TraitFieldOf (Trait (t));
+        const std::string key = std::string ("\"") + f.key + "\":";
+        EXPECT_NE (SeedPlantsJson ().find (key), std::string::npos) << TraitPath (Trait (t));
+    }
+}
+
+TEST (PlantTraits, AFilledRecord)
+{
+    Catalogue c;
+    ParseProblems problems;
+    ASSERT_TRUE (ParseCatalogue (WithPlants (R"({"id": "a", "scientificName": "Aa",
+        "ecology": {"ellenbergLight": 4, "ellenbergMoisture": 6, "pHMin": 5.5, "pHMax": 7.5,
+                    "nutrientPreference": "medium", "drainage": ["freelyDrained", "moderatelyDrained"],
+                    "hardiness": "USDA 4"},
+        "competition": {"establishmentSpeed": "fast", "competitiveVigour": "high", "spreadMode": ["longRhizome"],
+                        "lateralSpread": "high", "selfSeeding": "none"},
+        "roots": {"depthClass": "shallow", "architecture": "fibrous", "competitiveIntensity": "medium"},
+        "canopy": {"density": "dense", "transmittance": 0.2},
+        "phenology": {"emergenceMonths": [3, 4], "senescenceMonths": [10], "leafOnMonths": []},
+        "lifecycle": {"lifespan": "long", "maintenanceSensitivity": null},
+        "regulatory": {"status": "allowed", "scope": "LT", "note": null},
+        "evidence": [{"field": "ecology.ellenbergLight", "sourceId": "s1", "confidence": "high", "method": "dataset"},
+                     {"field": "light", "sourceId": "s1"}]})"),
+                                 c, problems))
+        << (problems.Empty () ? "" : problems.items[0]);
+    const PlantTraits& t = c.plants[0].traits;
+    EXPECT_DOUBLE_EQ (*t[Trait::EllenbergLight].number, 4.0);
+    EXPECT_DOUBLE_EQ (*t[Trait::PhMax].number, 7.5);
+    EXPECT_STREQ (t.ChoiceKey (Trait::CompetitiveVigour), "high");
+    EXPECT_STREQ (t.ChoiceKey (Trait::SelfSeeding), "none");
+    EXPECT_EQ (t[Trait::Drainage].choices, (std::vector<int> { 0, 1 }));
+    EXPECT_EQ (t[Trait::EmergenceMonths].months, (std::vector<int> { 3, 4 }));
+    EXPECT_FALSE (t[Trait::LeafOnMonths].Given ());
+    EXPECT_EQ (t.ChoiceKey (Trait::MaintenanceSensitivity), nullptr) << "null is not given";
+    EXPECT_EQ (t[Trait::Hardiness].text, "USDA 4");
+    ASSERT_EQ (t.evidence.size (), 2u);
+    EXPECT_EQ (t.evidence[0].confidence, 2);
+    EXPECT_EQ (t.evidence[1].field, "light") << "evidence may name the standard's own fields";
+}
+
+TEST (PlantTraits, EveryTraitProblemIsListed)
+{
+    Catalogue c;
+    ParseProblems problems;
+    EXPECT_FALSE (ParseCatalogue (WithPlants (R"({"id": "a", "scientificName": "Aa",
+        "ecology": {"ellenbergLight": 10, "pHMin": 7, "pHMax": 6, "drainage": ["boggy"], "ellenbergMosture": 3},
+        "competition": {"competitiveVigour": "huge", "spreadMode": "clump"},
+        "canopy": "dense",
+        "phenology": {"emergenceMonths": [0]},
+        "evidence": [{"field": "colour", "sourceId": "s1"}, {"field": "light", "sourceId": "nowhere"},
+                     {"field": "light", "sourceId": "s1", "confidence": "certain"}]})"),
+                                  c, problems));
+    EXPECT_TRUE (Has (problems, "ecology.ellenbergLight: must be 1 to 9"));
+    EXPECT_TRUE (Has (problems, "ecology.pHMax: must not be below pHMin"));
+    EXPECT_TRUE (Has (problems, "ecology.drainage[0]: 'boggy' is not freelyDrained"));
+    EXPECT_TRUE (Has (problems, "ecology.ellenbergMosture: is not a known trait")) << "a typo is not silence";
+    EXPECT_TRUE (Has (problems, "competition.competitiveVigour: 'huge' is not low, medium or high"));
+    EXPECT_TRUE (Has (problems, "competition.spreadMode: must be a list"));
+    EXPECT_TRUE (Has (problems, "canopy: must be an object"));
+    EXPECT_TRUE (Has (problems, "phenology.emergenceMonths[0]: must be a month 1-12"));
+    EXPECT_TRUE (Has (problems, "evidence[0]: field must name a trait path or a record field"));
+    EXPECT_TRUE (Has (problems, "evidence[1]: sourceId must name an entry of sources"));
+    EXPECT_TRUE (Has (problems, "evidence[2]: confidence must be low, medium or high"));
+}
+
 TEST (PlantCatalogue, SyntaxErrorsAndVersionsAreActionable)
 {
     Catalogue c;

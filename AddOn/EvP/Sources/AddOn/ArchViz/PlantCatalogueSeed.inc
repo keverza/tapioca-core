@@ -12,7 +12,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       "title": "Miesto želdinimo ir želdinių priežiūros standartas",
       "edition": "2024",
       "year": 2024,
-      "note": "Vilnius, 2024. Tables 1.1 (trees, pp. 7-15), 1.2 (shrubs, pp. 16-19) and 1.3 (perennials and subshrubs, pp. 21-34), with the legend on pp. 6 and 20. Transcribed as printed, including the standard's spelling. The tree table gives no light or water classes; shrubs and perennials do. Redistribution has not been cleared with the publisher."
+      "note": "Vilnius, 2024. Tables 1.1 (trees, pp. 7-15), 1.2 (shrubs, pp. 16-19) and 1.3 (perennials and subshrubs, pp. 21-34), with the legend on pp. 6 and 20. Transcribed as printed, including the standard's spelling. The tree table gives no light or water classes; shrubs and perennials do. An official municipal document, not subject to copyright (the project owner's determination, 2026-11-26), so it ships in full."
     }
   ],
   "plants": [
@@ -46,7 +46,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "squaresParks": "B",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-campestre",
@@ -70,7 +113,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "matureSpreadM": {
         "min": 4.0,
         "max": 8.0
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-campestre-elsrijk",
@@ -112,7 +198,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-miyabei",
@@ -126,7 +255,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         }
       ],
       "sourceNumber": "3",
-      "saltTolerance": "high"
+      "saltTolerance": "high",
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-campestre-nanum",
@@ -164,12 +336,56 @@ constexpr const char* kSeedPlantsPieces[] = {
         "greenStrip": "B",
         "roadside": "B",
         "alleys": "B",
-        "squaresParks": "B",
+)seed",
+    R"seed(        "squaresParks": "B",
         "urbanForest": "B",
         "riverside": "B",
         "onSlabs": "B",
         "containers": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-ginnala",
@@ -214,7 +430,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-platanoides",
@@ -258,7 +517,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-platanoides-columnare",
@@ -297,7 +599,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "riverside": "B",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-pseudoplatanum",
@@ -336,7 +681,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B",
         "urbanForest": "B",
         "riverside": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+)seed",
+    R"seed(        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-rubrum",
@@ -369,8 +758,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "riverside",
         "onSlabs",
-)seed",
-    R"seed(        "containers"
+        "containers"
       ],
       "siteSoils": {
         "greenStrip": "B",
@@ -380,7 +768,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-saccharinum",
@@ -421,7 +852,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-C",
         "riverside": "B-C",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-tataricum-embers",
@@ -463,7 +937,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "acer-tataricum-flame",
@@ -501,7 +1018,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+)seed",
+    R"seed(        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "aesculus-flava",
@@ -537,7 +1098,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "greenStrip": "A-C",
         "squaresParks": "A-C",
         "urbanForest": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "aesculus-pavia",
@@ -571,7 +1175,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "squaresParks": "B-C",
         "urbanForest": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "alnus-glutinosa",
@@ -604,7 +1251,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "urbanForest": "C",
         "riverside": "C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "alnus-glutinosa-laciniata",
@@ -633,7 +1323,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "urbanForest": "A-C",
         "riverside": "A-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "alnus-incana",
@@ -650,7 +1383,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "lt": "Baltalksnis"
       },
       "breeam": true,
-      "saltTolerance": "none"
+)seed",
+    R"seed(      "saltTolerance": "none",
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "alnus-x-spaethii",
@@ -681,7 +1458,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-C",
         "urbanForest": "A-C",
         "riverside": "A-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "amelanchier-laevis-snowflakes",
@@ -723,7 +1543,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "amelanchier-x-grandiflora-autumn-brilliance",
@@ -746,8 +1609,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 8.0
       },
       "matureSpreadM": {
-)seed",
-    R"seed(        "min": 4.0,
+        "min": 4.0,
         "max": 8.0
       },
       "sites": [
@@ -763,7 +1625,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "amelanchier-cumulus",
@@ -804,7 +1709,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+)seed",
+    R"seed(        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "amelanchier-robin-hill",
@@ -843,7 +1792,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "amelanchier-arborea-tradition-trazam",
@@ -882,7 +1874,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "betula-nigra",
@@ -923,7 +1958,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "betula-nigra-dura-heat",
@@ -962,7 +2040,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "C",
         "onSlabs": "C-D",
         "containers": "C-D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+)seed",
+    R"seed(      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "betula-pendula",
@@ -1003,7 +2125,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "betula-pendula-vietinis-sodinukas",
@@ -1041,7 +2206,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "betula-pendula-zwisters-glory",
@@ -1079,7 +2287,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "betula-pubescens",
@@ -1107,7 +2358,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B",
         "urbanForest": "B",
         "riverside": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "carpinus-betulus",
@@ -1121,11 +2415,11 @@ constexpr const char* kSeedPlantsPieces[] = {
         }
       ],
       "localNames": {
-)seed",
-    R"seed(        "lt": "Paprastasis skroblas"
+        "lt": "Paprastasis skroblas"
       },
       "sourceNumber": "27",
-      "breeam": true,
+)seed",
+    R"seed(      "breeam": true,
       "saltTolerance": "none",
       "matureHeightM": {
         "min": 16.0,
@@ -1152,7 +2446,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "B",
         "containers": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "carpinus-betulus-frans-fontaine",
@@ -1193,7 +2530,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "carpinus-betulus-fastigiata",
@@ -1234,7 +2614,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "cercidiphyllum-japonicum",
@@ -1275,7 +2698,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "corylus-colurna",
@@ -1299,7 +2765,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "matureSpreadM": {
         "min": 4.0,
-        "max": 8.0
+)seed",
+    R"seed(        "max": 8.0
       },
       "sites": [
         "greenStrip",
@@ -1312,7 +2779,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "A-B",
         "squaresParks": "A-B",
         "urbanForest": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "crataegus-laevigiata",
@@ -1354,7 +2864,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "crataegus-monogyna",
@@ -1396,7 +2949,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "crataegus-rhipidophylla",
@@ -1440,7 +3036,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "fagus-sylvatica",
@@ -1473,9 +3112,53 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "siteSoils": {
         "alleys": "B-C",
-        "squaresParks": "B-C",
+)seed",
+    R"seed(        "squaresParks": "B-C",
         "urbanForest": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "fraxinus-americana",
@@ -1493,8 +3176,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "sourceNumber": "34",
       "saltTolerance": "high",
-)seed",
-    R"seed(      "matureHeightM": {
+      "matureHeightM": {
         "min": 16.0,
         "max": null
       },
@@ -1511,7 +3193,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-C",
         "urbanForest": "A-C",
         "riverside": "A-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "fraxinus-excelsior",
@@ -1549,7 +3274,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B",
         "urbanForest": "B",
         "riverside": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "fraxinus-pennsylvanica",
@@ -1586,7 +3354,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B",
         "urbanForest": "B",
         "riverside": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ginkgo-biloba",
@@ -1627,7 +3438,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-B",
         "urbanForest": "A-B",
         "riverside": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+)seed",
+    R"seed(        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ginkgo-biloba-princeton-sentry",
@@ -1666,7 +3521,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-B",
         "urbanForest": "A-B",
         "riverside": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ginkgo-biloba-tremonia",
@@ -1704,7 +3602,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-B",
         "urbanForest": "A-B",
         "riverside": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "gleditsia-triacanthos-skyline",
@@ -1739,7 +3680,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "A-B",
         "squaresParks": "A-B",
         "riverside": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "juglans-regia",
@@ -1771,12 +3755,56 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "siteSoils": {
         "squaresParks": "B-D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "larix-decidua",
       "scientificName": "Larix decidua",
-      "section": "trees",
+)seed",
+    R"seed(      "section": "trees",
       "habit": "tree",
       "sourceRefs": [
         {
@@ -1809,7 +3837,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "B-D",
         "squaresParks": "B-D",
         "urbanForest": "B-D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "liriodendron-tulipifera",
@@ -1840,7 +3911,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "siteSoils": {
         "squaresParks": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-evereste",
@@ -1872,8 +3986,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys",
         "squaresParks",
         "roundabouts",
-)seed",
-    R"seed(        "urbanForest",
+        "urbanForest",
         "onSlabs",
         "containers"
       ],
@@ -1884,7 +3997,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-professor-sprenger",
@@ -1927,7 +4083,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-baccata-street-parade",
@@ -1953,7 +4152,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "matureSpreadM": {
         "min": 5.0,
-        "max": 8.0
+)seed",
+    R"seed(        "max": 8.0
       },
       "sites": [
         "greenStrip",
@@ -1972,7 +4172,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-hybrids",
@@ -2015,7 +4258,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-rudolph",
@@ -2057,7 +4343,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-sargentii",
@@ -2099,7 +4428,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-sylvestris",
@@ -2130,7 +4502,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "alleys",
         "squaresParks",
-        "roundabouts",
+)seed",
+    R"seed(        "roundabouts",
         "urbanForest",
         "riverside",
         "onSlabs",
@@ -2144,7 +4517,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-toringo-var-sargentii",
@@ -2183,7 +4599,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "malus-x-robusta-red-sentinel",
@@ -2223,7 +4682,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "padus-maackii",
@@ -2244,8 +4746,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       "ornithological": true,
       "saltTolerance": "low",
       "matureHeightM": {
-)seed",
-    R"seed(        "min": null,
+        "min": null,
         "max": 8.0
       },
       "matureSpreadM": {
@@ -2271,7 +4772,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "picea-abies",
@@ -2305,8 +4849,52 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "squaresParks": "A-B",
         "urbanForest": "A-B",
-        "onSlabs": "D"
-      }
+)seed",
+    R"seed(        "onSlabs": "D"
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "picea-omorika",
@@ -2341,7 +4929,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-B",
         "urbanForest": "A-B",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-heldreichii",
@@ -2375,7 +5006,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "squaresParks": "A-B",
         "urbanForest": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-mugo",
@@ -2413,7 +5087,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "roundabouts": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-mugo-mughus",
@@ -2446,7 +5163,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "roundabouts": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+)seed",
+    R"seed(        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-nigra",
@@ -2484,7 +5245,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-peuce",
@@ -2518,7 +5322,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "alleys": "A-B",
         "squaresParks": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-sylvestris",
@@ -2561,7 +5408,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pyrus-pyraster",
@@ -2598,7 +5488,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "B-C",
         "squaresParks": "B-C",
         "urbanForest": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pyrus-calleryana-aristocrat",
@@ -2613,7 +5546,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "cultivar": "Aristocrat",
       "localNames": {
-        "lt": "Plačialapė kriaušė"
+)seed",
+    R"seed(        "lt": "Plačialapė kriaušė"
       },
       "sourceNumber": "62",
       "ornamentalFlowering": true,
@@ -2627,8 +5561,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "min": 5.0,
         "max": 8.0
       },
-)seed",
-    R"seed(      "sites": [
+      "sites": [
         "greenStrip",
         "roadside",
         "alleys",
@@ -2647,7 +5580,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-C",
         "riverside": "B-C",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pyrus-calleryana-chanticleer",
@@ -2687,7 +5663,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "roadside": "B-C",
         "squaresParks": "B-C",
         "urbanForest": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pyrus-communis",
@@ -2728,7 +5747,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B-C",
         "urbanForest": "B-C",
         "riverside": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "populus-nigra",
@@ -2763,7 +5825,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "A-C",
         "squaresParks": "A-C",
         "urbanForest": "A-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "populus-tremula",
@@ -2787,7 +5892,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 15.0
       },
       "matureSpreadM": {
-        "min": 8.0,
+)seed",
+    R"seed(        "min": 8.0,
         "max": 10.0
       },
       "sites": [
@@ -2799,7 +5905,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "greenStrip": "A-C",
         "roadside": "A-C",
         "squaresParks": "A-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "prunus-avium",
@@ -2842,7 +5991,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-C",
         "riverside": "B-C",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "prunus-avium-plena",
@@ -2882,7 +6074,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-C",
         "riverside": "B-C",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "prunus-padus",
@@ -2926,7 +6161,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "prunus-sargentii",
@@ -2964,14 +6242,58 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "siteSoils": {
-        "greenStrip": "B-C",
+)seed",
+    R"seed(        "greenStrip": "B-C",
         "alleys": "B-C",
         "squaresParks": "B-C",
         "roundabouts": "B-C",
         "urbanForest": "B-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "prunus-spinosa",
@@ -3001,8 +6323,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "sites": [
         "greenStrip",
-)seed",
-    R"seed(        "squaresParks",
+        "squaresParks",
         "roundabouts",
         "urbanForest",
         "riverside",
@@ -3017,7 +6338,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "quercus-bicolor",
@@ -3057,7 +6421,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B-C",
         "urbanForest": "B-C",
         "riverside": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "quercus-palustris",
@@ -3097,7 +6504,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B-C",
         "urbanForest": "B-C",
         "riverside": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "quercus-petraea",
@@ -3137,7 +6587,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-C",
         "riverside": "B-C",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+)seed",
+    R"seed(        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "quercus-robur",
@@ -3178,7 +6672,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B-C",
         "urbanForest": "B-C",
         "riverside": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "quercus-robur-f-pyramidalis",
@@ -3212,7 +6749,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "greenStrip": "B-C",
         "roadside": "B-C",
         "alleys": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-alba",
@@ -3248,7 +6828,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "greenStrip": "B-C",
         "squaresParks": "B-C",
         "riverside": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-alba-tristis",
@@ -3279,7 +6902,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "squaresParks": "B-C",
         "riverside": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+)seed",
+    R"seed(        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-alba-vitelina",
@@ -3312,7 +6979,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B-C",
         "urbanForest": "B-C",
         "riverside": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-caprea",
@@ -3351,7 +7061,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-fragilis-bullata",
@@ -3380,8 +7133,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "sites": [
         "greenStrip",
-)seed",
-    R"seed(        "alleys",
+        "alleys",
         "squaresParks",
         "roundabouts",
         "urbanForest",
@@ -3398,7 +7150,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-myrtilloides",
@@ -3433,7 +7228,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B-C",
         "urbanForest": "B-C",
         "riverside": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "syringa-prestoniae-miss-canada",
@@ -3444,7 +7282,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         {
           "sourceId": "vilnius-2024",
           "page": 13
-        }
+)seed",
+    R"seed(        }
       ],
       "cultivar": "Miss Canada",
       "localNames": {
@@ -3479,7 +7318,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "syringa-reticulata-ivory-silk",
@@ -3527,7 +7409,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "syringa-s-hyacinthiflora-anabel",
@@ -3572,7 +7497,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sorbus-aucuparia",
@@ -3600,7 +7568,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "B-C",
         "squaresParks": "B-C",
         "urbanForest": "B-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sorbus-aria-lutescens",
@@ -3614,7 +7625,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         }
       ],
       "cultivar": "Lutescens",
-      "localNames": {
+)seed",
+    R"seed(      "localNames": {
         "lt": "Miltingasis šermukšnis"
       },
       "sourceNumber": "90",
@@ -3645,7 +7657,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sorbus-commixta-dodong",
@@ -3694,7 +7749,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sorbus-intermedia-incana-e",
@@ -3741,9 +7839,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B",
         "riverside": "A-B",
         "onSlabs": "D",
-)seed",
-    R"seed(        "containers": "D"
-      }
+        "containers": "D"
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sorbus-intermedia",
@@ -3791,7 +7931,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+)seed",
+    R"seed(        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sorbus-latifolia-henk-wink",
@@ -3839,7 +8023,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "taxus-baccata",
@@ -3878,7 +8105,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-xeuropaea-euchlora",
@@ -3920,7 +8190,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-xeuropaea-greenspire",
@@ -3956,10 +8269,54 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "B",
         "squaresParks": "B",
         "urbanForest": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
-      "id": "tilia-cordata",
+)seed",
+    R"seed(      "id": "tilia-cordata",
       "scientificName": "Tilia cordata",
       "section": "trees",
       "habit": "tree",
@@ -3992,7 +8349,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "A-B",
         "squaresParks": "A-B",
         "urbanForest": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-cordata-rancho",
@@ -4031,7 +8431,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-europaea-pallida",
@@ -4069,7 +8512,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "A-B",
         "squaresParks": "A-B",
         "urbanForest": "A-B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-platyphyllos-scop",
@@ -4105,7 +8591,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "B",
         "squaresParks": "B",
         "urbanForest": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-platyphyllos",
@@ -4114,8 +8643,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       "habit": "tree",
       "sourceRefs": [
         {
-)seed",
-    R"seed(          "sourceId": "vilnius-2024",
+          "sourceId": "vilnius-2024",
           "page": 15
         }
       ],
@@ -4135,14 +8663,58 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "sites": [
         "alleys",
-        "squaresParks",
+)seed",
+    R"seed(        "squaresParks",
         "urbanForest"
       ],
       "siteSoils": {
         "alleys": "B",
         "squaresParks": "B",
         "urbanForest": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-tomentosa",
@@ -4182,7 +8754,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-B",
         "urbanForest": "A-B",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-tomentosa-brabant",
@@ -4223,7 +8838,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-B",
         "urbanForest": "A-B",
         "onSlabs": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "tilia-x-euchlora",
@@ -4262,7 +8920,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "B",
         "squaresParks": "B",
         "urbanForest": "B"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ulmus-laevis",
@@ -4299,7 +9000,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-C",
         "urbanForest": "A-C",
         "riverside": "A-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+)seed",
+    R"seed(        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ulmus-glabra",
@@ -4337,7 +9082,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-C",
         "onSlabs": "D",
         "containers": "D"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ulmus-x-new-horizon",
@@ -4372,7 +9160,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-C",
         "urbanForest": "A-C",
         "riverside": "A-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ulmus-x-homestead",
@@ -4407,7 +9238,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-C",
         "urbanForest": "A-C",
         "riverside": "A-C"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ulmus-minor",
@@ -4442,7 +9316,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-C",
         "urbanForest": "A-C",
         "riverside": "A-"
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+)seed",
+    R"seed(        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "aronia-melanocarpa",
@@ -4486,7 +9404,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "berberis-vulgaris",
@@ -4498,8 +9459,7 @@ constexpr const char* kSeedPlantsPieces[] = {
           "sourceId": "vilnius-2024",
           "page": 16
         }
-)seed",
-    R"seed(      ],
+      ],
       "localNames": {
         "lt": "Paprastasis raugerškis"
       },
@@ -4529,7 +9489,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "riverside",
         "onSlabs"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "euonymus-europaeus",
@@ -4568,7 +9571,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "riverside",
         "onSlabs"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "euonymus-verrucosus",
@@ -4607,7 +9653,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "riverside",
         "onSlabs"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "euonymus-alatus",
@@ -4633,7 +9722,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "min": 2.0,
         "max": 2.0
       },
-      "matureSpreadM": {
+)seed",
+    R"seed(      "matureSpreadM": {
         "min": 2.5,
         "max": 2.5
       },
@@ -4648,7 +9738,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "riverside",
         "onSlabs"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "frangula-alnus",
@@ -4685,7 +9818,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-mugo-var-pumila",
@@ -4720,7 +9896,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "roundabouts",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-mugo-zundert",
@@ -4757,7 +9976,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "roundabouts",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-mugo-mughus-shrubs",
@@ -4797,7 +10059,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "roundabouts",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+)seed",
+    R"seed(        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "philadelphus-coronarius-plenus",
@@ -4835,7 +10141,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "onSlabs"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "cornus-sanguinea",
@@ -4878,7 +10227,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "cotoneaster-lucidus",
@@ -4905,8 +10297,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 2.5
       },
       "matureSpreadM": {
-)seed",
-    R"seed(        "min": 2.5,
+        "min": 2.5,
         "max": 2.5
       },
       "plantingDensityPerM2": {
@@ -4920,7 +10311,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "corylus-avellana",
@@ -4959,8 +10393,52 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
-    },
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
+)seed",
+    R"seed(    },
     {
       "id": "forsythia-x-intermedia",
       "scientificName": "Forsythia x intermedia",
@@ -5000,7 +10478,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "hydrangea-macrophylla",
@@ -5042,7 +10563,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "juniperus-communis",
@@ -5079,7 +10643,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "squaresParks",
         "urbanForest"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sambucus-nigra",
@@ -5118,7 +10725,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sambucus-racemosa",
@@ -5149,14 +10799,58 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 3.5
       },
       "plantingDensityPerM2": {
-        "min": 1.0,
+)seed",
+    R"seed(        "min": 1.0,
         "max": 1.0
       },
       "sites": [
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-cinerea",
@@ -5194,7 +10888,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-pentandra",
@@ -5232,7 +10969,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-triandra",
@@ -5270,7 +11050,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-daphnoides",
@@ -5308,14 +11131,57 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+)seed",
+    R"seed(        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-purpurea",
       "scientificName": "Salix purpurea",
       "section": "shrubs",
-)seed",
-    R"seed(      "habit": "shrub",
+      "habit": "shrub",
       "sourceRefs": [
         {
           "sourceId": "vilnius-2024",
@@ -5348,7 +11214,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-lapponum",
@@ -5386,7 +11295,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-viminalis",
@@ -5424,7 +11376,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-repens",
@@ -5462,7 +11457,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "salix-rosmarinifolia",
@@ -5482,14 +11520,58 @@ constexpr const char* kSeedPlantsPieces[] = {
         "min": 1.5,
         "max": 1.5
       },
-      "matureSpreadM": {
+)seed",
+    R"seed(      "matureSpreadM": {
         "min": 1.5,
         "max": 1.5
       },
       "plantingDensityPerM2": {
         "min": 3.0,
         "max": 3.0
-      }
+      },
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "spiraea-cinerea-grefsheim",
@@ -5532,7 +11614,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "spiraea-betulifolia-tor",
@@ -5574,7 +11699,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "syringa-vulgaris-nadezhda",
@@ -5615,7 +11783,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "riverside",
         "onSlabs"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pinus-nigra-nana",
@@ -5653,7 +11864,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "roundabouts",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+)seed",
+    R"seed(      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ribes-alpinum",
@@ -5696,7 +11951,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ribes-nigrum",
@@ -5723,8 +12021,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 1.2
       },
       "matureSpreadM": {
-)seed",
-    R"seed(        "min": 1.2,
+        "min": 1.2,
         "max": 1.2
       },
       "plantingDensityPerM2": {
@@ -5739,7 +12036,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ribes-spicatum",
@@ -5777,7 +12117,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks",
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rhamnus-cathartica",
@@ -5814,7 +12197,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+)seed",
+    R"seed(        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ligustrum-vulgare",
@@ -5856,7 +12283,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rubus-caesius",
@@ -5885,7 +12355,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rubus-fruticosus",
@@ -5914,7 +12427,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rubus-idaeus",
@@ -5943,7 +12499,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rubus-saxatilis",
@@ -5972,7 +12571,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+)seed",
+    R"seed(        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rubus-chamaemorus",
@@ -6001,7 +12644,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "urbanForest",
         "riverside"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "lonicera-xylosteum",
@@ -6041,7 +12727,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "viburnum-opulus",
@@ -6083,7 +12812,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rosa-canina",
@@ -6125,21 +12897,64 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rosa-majalis",
       "scientificName": "Rosa majalis",
       "section": "shrubs",
       "habit": "shrub",
-)seed",
-    R"seed(      "sourceRefs": [
+      "sourceRefs": [
         {
           "sourceId": "vilnius-2024",
           "page": 19
         }
       ],
-      "localNames": {
+)seed",
+    R"seed(      "localNames": {
         "lt": "Miškinis erškėtis"
       },
       "saltTolerance": "high",
@@ -6168,7 +12983,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "potentila-fruticossa",
@@ -6209,7 +13067,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest",
         "onSlabs",
         "containers"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "achillea-filipendulina-coronation-gold",
@@ -6248,7 +13149,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "achillea-millefolium-apple-blossom",
@@ -6286,7 +13230,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "achillea-moonshine",
@@ -6324,7 +13311,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+)seed",
+    R"seed(        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "ajuga-reptans",
@@ -6358,7 +13389,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "agastache-aurantiaca",
@@ -6377,7 +13451,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "allium-christophii",
@@ -6415,7 +13532,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "allium-senescens",
@@ -6453,7 +13613,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "amsonia-salicifolia",
@@ -6466,7 +13669,8 @@ constexpr const char* kSeedPlantsPieces[] = {
           "page": 22
         }
       ],
-      "localNames": {
+)seed",
+    R"seed(      "localNames": {
         "lt": "Amerikinis dirktas"
       },
       "growthIntensity": "slow",
@@ -6493,7 +13697,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "anemone-sylvestris",
@@ -6531,7 +13778,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "anthemis-cotula",
@@ -6543,8 +13833,7 @@ constexpr const char* kSeedPlantsPieces[] = {
           "sourceId": "vilnius-2024",
           "page": 22
         }
-)seed",
-    R"seed(      ],
+      ],
       "localNames": {
         "lt": "Šuninis bobramunis"
       },
@@ -6570,7 +13859,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "artemisia-maritima-splendens",
@@ -6609,7 +13941,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "A"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "artemisia-ludoviciana",
@@ -6648,7 +14023,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+)seed",
+    R"seed(        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "artemisia-powis-castle",
@@ -6688,7 +14107,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "artemisia-schmidtiana-nana",
@@ -6728,7 +14190,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "artemisia-stelleriana",
@@ -6767,7 +14272,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "aruncus-dioides-horatio",
@@ -6808,7 +14356,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+)seed",
+    R"seed(      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "asarum-europaeum",
@@ -6847,7 +14439,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "aster-novae-angliae-purple-dome",
@@ -6887,7 +14522,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "aster-divaricatus",
@@ -6926,7 +14604,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "aster-macrophyllus-twilight",
@@ -6955,8 +14676,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       "plantingLayers": [
         "S"
       ],
-)seed",
-    R"seed(      "plantingDensityPerM2": {
+      "plantingDensityPerM2": {
         "min": 8.0,
         "max": 8.0
       },
@@ -6965,7 +14685,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "astras-little-carlow",
@@ -6995,12 +14758,56 @@ constexpr const char* kSeedPlantsPieces[] = {
         "min": 8.0,
         "max": 8.0
       },
-      "floweringMonths": [
+)seed",
+    R"seed(      "floweringMonths": [
         8
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "aster-ageratoides-asran",
@@ -7035,7 +14842,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "arctostaphylos-uva-ursi",
@@ -7074,7 +14924,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "baptisia-australis",
@@ -7112,7 +15005,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "bergenia-cordifolia",
@@ -7153,7 +15089,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+)seed",
+    R"seed(      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "calluna-vulgaris",
@@ -7192,7 +15172,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "calamagrostis-x-acutiflora-karl-foerster",
@@ -7233,7 +15256,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "calamintha-nepeta",
@@ -7272,7 +15338,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "carex-remota",
@@ -7315,7 +15424,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "centrantus-ruber",
@@ -7329,7 +15481,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         }
       ],
       "localNames": {
-        "lt": "Rausvažiedis viduvis"
+)seed",
+    R"seed(        "lt": "Rausvažiedis viduvis"
       },
       "saltTolerance": "low",
       "growthIntensity": "fast",
@@ -7354,7 +15507,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "crambe-maritima",
@@ -7369,8 +15565,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "localNames": {
         "lt": "Pajūrinė balža"
-)seed",
-    R"seed(      },
+      },
       "saltTolerance": "low",
       "growthIntensity": "slow",
       "light": {
@@ -7393,7 +15588,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "A"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "chasmanthium-latifolium",
@@ -7434,7 +15672,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "corydalis-solida",
@@ -7471,7 +15752,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "darmera-peltata",
@@ -7508,7 +15832,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+)seed",
+    R"seed(      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "dianthus-x-allwoodii-helen",
@@ -7547,7 +15915,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "dianthus-gratianopolitanus",
@@ -7585,7 +15996,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "A"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "echinops-sp",
@@ -7625,7 +16079,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "epimedium-versicolor-sulphureum",
@@ -7665,7 +16162,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+)seed",
+    R"seed(      "evidence": []
     },
     {
       "id": "epimedium-rubrum",
@@ -7706,7 +16247,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "erigeron-glaucus",
@@ -7745,7 +16329,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "euphorbia-amygdaloides",
@@ -7784,11 +16411,53 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
-)seed",
-    R"seed(      "id": "euphorbia-polychroma",
+      "id": "euphorbia-polychroma",
       "scientificName": "Euphorbia polychroma",
       "section": "perennials",
       "habit": "perennial",
@@ -7824,7 +16493,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "eryngium-x-oliverianum",
@@ -7860,11 +16572,55 @@ constexpr const char* kSeedPlantsPieces[] = {
       "floweringMonths": [
         7
       ],
-      "soilTypes": [
+)seed",
+    R"seed(      "soilTypes": [
         "A",
         "B",
         "D"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "eryngium-x-tripartitum",
@@ -7904,7 +16660,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "eupatorium-mac-gateway",
@@ -7944,7 +16743,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "D"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "empetrum-nigrum",
@@ -7982,7 +16824,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "festuca-glauca-elijah-blue",
@@ -8023,7 +16908,51 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+)seed",
+    R"seed(        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "festuca-mairei",
@@ -8063,7 +16992,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "filipendula-rubra-venusta-magnifica",
@@ -8100,7 +17072,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "gaillardia-x-grandiflora-goblin",
@@ -8137,7 +17152,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "galium-odoratum",
@@ -8174,7 +17232,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "galium-verum",
@@ -8195,14 +17296,14 @@ constexpr const char* kSeedPlantsPieces[] = {
           "full"
         ]
       },
-      "moistureClasses": [
+)seed",
+    R"seed(      "moistureClasses": [
         "dry"
       ],
       "plantingLayers": [
         "S"
       ],
-)seed",
-    R"seed(      "plantingDensityPerM2": {
+      "plantingDensityPerM2": {
         "min": 9.0,
         "max": 9.0
       },
@@ -8212,7 +17313,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "goniolimon-tataricum",
@@ -8249,7 +17393,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "geranium-renardii-philippe-vapelle",
@@ -8285,7 +17472,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "geranium-sanguineum",
@@ -8322,7 +17552,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "geranium-macrorrhizum",
@@ -8360,7 +17633,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+)seed",
+    R"seed(      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "gillenia-trifoliata",
@@ -8398,7 +17715,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "heuchera-micrantha-purple-palace",
@@ -8437,7 +17797,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "heuchera-sanguinea-chatterbox",
@@ -8475,7 +17878,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "helleborus-niger",
@@ -8514,7 +17960,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "hemerocallis-sp",
@@ -8532,7 +18021,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "saltTolerance": "low",
       "light": {
-        "acceptedClasses": [
+)seed",
+    R"seed(        "acceptedClasses": [
           "full"
         ]
       },
@@ -8551,7 +18041,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "helictotrichon-sempervirens",
@@ -8586,7 +18119,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "hedera-helix",
@@ -8619,10 +18195,52 @@ constexpr const char* kSeedPlantsPieces[] = {
       "floweringMonths": [
         6
       ],
-)seed",
-    R"seed(      "soilTypes": [
+      "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "humulus-lupulus",
@@ -8656,7 +18274,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "hosta-plantaginea",
@@ -8697,7 +18358,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+)seed",
+    R"seed(        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "hosta-undulata-medio-variegata",
@@ -8739,7 +18444,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "hosta-tardiana-halcion",
@@ -8779,7 +18527,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "iris-sibirica-sp",
@@ -8817,7 +18608,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "leucanthemum-x-superbum-becky",
@@ -8856,7 +18690,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "leymus-arenarius",
@@ -8872,7 +18749,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       "localNames": {
         "lt": "Rugiaveidė"
       },
-      "saltTolerance": "high",
+)seed",
+    R"seed(      "saltTolerance": "high",
       "light": {
         "acceptedClasses": [
           "full"
@@ -8895,7 +18773,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "limonium-latifolium",
@@ -8933,7 +18854,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "luzula-nivea",
@@ -8971,7 +18935,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "matteuccia-struthiopteris",
@@ -9008,7 +19015,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "miscanthus-sp",
@@ -9045,10 +19095,53 @@ constexpr const char* kSeedPlantsPieces[] = {
         8
       ],
       "soilTypes": [
-)seed",
-    R"seed(        "B",
+        "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+)seed",
+    R"seed(        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "molinia-caerulea",
@@ -9085,7 +19178,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "nepeta-x-faassenii",
@@ -9123,7 +19259,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rudbeckia-fulgida-gold-sturm",
@@ -9156,7 +19335,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "rodgersia-aesculifolia",
@@ -9196,7 +19418,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "oenothera-fruticosa-subdp-glauca",
@@ -9214,7 +19479,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "saltTolerance": "low",
       "light": {
-        "acceptedClasses": [
+)seed",
+    R"seed(        "acceptedClasses": [
           "full"
         ]
       },
@@ -9234,7 +19500,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "oenothera-macrocarpa",
@@ -9272,7 +19581,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "origanum-vulgaris",
@@ -9309,7 +19661,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pachysandra-terminalis",
@@ -9347,7 +19742,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "panicum-virgatum",
@@ -9386,7 +19824,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+)seed",
+    R"seed(        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "penstemon-spp-dark-tower",
@@ -9423,7 +19905,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pennisetum-alopecuroides",
@@ -9461,13 +19986,55 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "B",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "persicaria-polymorpha",
       "scientificName": "Persicaria polymorpha",
-)seed",
-    R"seed(      "section": "perennials",
+      "section": "perennials",
       "habit": "perennial",
       "sourceRefs": [
         {
@@ -9499,7 +20066,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "perovskia-atriplicifolia",
@@ -9537,7 +20147,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "phlox-subulata",
@@ -9555,7 +20208,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "saltTolerance": "low",
       "light": {
-        "acceptedClasses": [
+)seed",
+    R"seed(        "acceptedClasses": [
           "full"
         ]
       },
@@ -9574,7 +20228,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "phlox-divaricata",
@@ -9610,7 +20307,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "pulmonaria-angustifolia-blue-ensign",
@@ -9648,7 +20388,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "physostegia-virginiana",
@@ -9685,7 +20468,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "polygonatum-odoratum",
@@ -9723,7 +20549,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+)seed",
+    R"seed(        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "saponaria-ocymoides",
@@ -9762,7 +20632,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sedum-spp",
@@ -9799,7 +20712,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "A"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sedum-herbstfreude",
@@ -9837,7 +20793,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "A"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sempervivum-spp",
@@ -9875,7 +20874,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "C"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "sidalcea-malviflora",
@@ -9889,13 +20931,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         }
       ],
       "localNames": {
-)seed",
-    R"seed(        "lt": "Paprastoji rožūnėlė"
+        "lt": "Paprastoji rožūnėlė"
       },
       "breeam": true,
       "saltTolerance": "low",
       "light": {
-        "acceptedClasses": [
+)seed",
+    R"seed(        "acceptedClasses": [
           "full"
         ]
       },
@@ -9914,7 +20956,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "stachys-lanata-big-ears",
@@ -9951,7 +21036,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "teucrium-subspinosum",
@@ -9989,7 +21117,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "thymus-serpyllum",
@@ -10026,7 +21197,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "A"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "thymus-pulegioides",
@@ -10063,7 +21277,51 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "A"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+)seed",
+    R"seed(        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "schyzachyrium-scoparium",
@@ -10102,7 +21360,50 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A",
         "B",
         "D"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "vaccinium-uliginosum",
@@ -10140,7 +21441,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "vaccinium-myrtillus",
@@ -10178,7 +21522,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "vaccinium-vitis-idaea",
@@ -10216,7 +21603,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "vaccinium-oxycoccos",
@@ -10237,7 +21667,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "acceptedClasses": [
           "full"
         ]
-      },
+)seed",
+    R"seed(      },
       "moistureClasses": [
         "wet"
       ],
@@ -10254,7 +21685,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       "soilTypes": [
         "A",
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "veronica-incana",
@@ -10291,7 +21765,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "A"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "vinca-minor-atropurpurea",
@@ -10313,8 +21830,7 @@ constexpr const char* kSeedPlantsPieces[] = {
           "shade"
         ]
       },
-)seed",
-    R"seed(      "moistureClasses": [
+      "moistureClasses": [
         "dry"
       ],
       "plantingLayers": [
@@ -10329,7 +21845,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     },
     {
       "id": "waldsteinia-ternata",
@@ -10366,7 +21925,50 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "soilTypes": [
         "B"
-      ]
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": null,
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "evidence": []
     }
   ]
 }

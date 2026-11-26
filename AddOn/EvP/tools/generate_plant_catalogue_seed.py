@@ -50,6 +50,27 @@ SITES = {
     "onSlabs",
     "containers",
 }
+# PlantTraits.cpp's blocks and keys; values are checked by the C++ reader.
+TRAIT_KEYS = {
+    "ecology": {
+        "ellenbergLight",
+        "ellenbergMoisture",
+        "ellenbergReaction",
+        "ellenbergNutrients",
+        "ellenbergSalinity",
+        "pHMin",
+        "pHMax",
+        "nutrientPreference",
+        "drainage",
+        "hardiness",
+    },
+    "competition": {"establishmentSpeed", "competitiveVigour", "spreadMode", "lateralSpread", "selfSeeding"},
+    "roots": {"depthClass", "architecture", "competitiveIntensity"},
+    "canopy": {"density", "transmittance"},
+    "phenology": {"emergenceMonths", "senescenceMonths", "leafOnMonths"},
+    "lifecycle": {"lifespan", "maintenanceSensitivity"},
+    "regulatory": {"status", "scope", "note"},
+}
 # MSVC refuses a string literal piece over 16 380 bytes (C2026); stay well below.
 PIECE_BYTES = 8000
 DELIMITER = "seed"
@@ -91,6 +112,13 @@ def _check_plants(document: dict) -> None:
         for ref in plant.get("sourceRefs", []):
             if ref["sourceId"] not in sources:
                 raise SystemExit(f"{PLANTS.name}: {ident}: unknown source {ref['sourceId']}")
+        for group, keys in TRAIT_KEYS.items():
+            for key in plant.get(group) or {}:
+                if key not in keys:
+                    raise SystemExit(f"{PLANTS.name}: {ident}: unknown trait {group}.{key}")
+        for evidence in plant.get("evidence") or []:
+            if evidence.get("sourceId") not in sources:
+                raise SystemExit(f"{PLANTS.name}: {ident}: evidence names unknown source {evidence.get('sourceId')}")
 
 
 def _check_profiles(document: dict) -> None:
