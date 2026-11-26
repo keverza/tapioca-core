@@ -56,6 +56,17 @@ pub fn julian_day(year: i32, month: u32, day: u32) -> f64 {
         - 1524.5
 }
 
+/// Day of the year, 1–366, of a Gregorian date.
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a difference of Julian days within one year is 0-365"
+)]
+pub fn day_of_year(year: i32, month: u32, day: u32) -> u32 {
+    (julian_day(year, month, day) - julian_day(year, 1, 1)).round() as u32 + 1
+}
+
 /// The instant at `civil` on a clock `offset_hours` ahead of UTC.
 #[must_use]
 pub fn instant(civil: Civil, offset_hours: f64) -> Instant {

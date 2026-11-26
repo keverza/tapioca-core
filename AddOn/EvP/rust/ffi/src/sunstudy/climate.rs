@@ -237,6 +237,13 @@ pub struct ClimateHandle {
     climate: Climate,
 }
 
+impl ClimateHandle {
+    /// The run, for the other exports of this surface.
+    pub(crate) fn climate(&self) -> &Climate {
+        &self.climate
+    }
+}
+
 fn refused(error: ClimateRefusal) -> Failure {
     match error {
         ClimateRefusal::Length => Failure::Argument("ClimateLength"),

@@ -193,3 +193,11 @@ fn the_cross_check_accepts_agreement_and_refuses_an_hour_off() {
     // Night pairs are skipped; nothing compared is not accepted.
     assert!(!cross_check(&[[0.0, 1.0, -0.1]], &[[0.0, 1.0, -0.1]]).accepted());
 }
+
+#[test]
+fn days_of_the_year_count_from_the_first_of_january() {
+    assert_eq!(day_of_year(2026, 1, 1), 1);
+    assert_eq!(day_of_year(2026, 3, 1), 60);
+    assert_eq!(day_of_year(2024, 3, 1), 61);
+    assert_eq!(day_of_year(2024, 12, 31), 366);
+}

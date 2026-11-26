@@ -1,0 +1,200 @@
+// One sample set's climate run (#155 F3, #278 Stage 5) and the weather time
+// base it is fed from (#155 P2), offline: a long overhang over a wall, an
+// open sample in front of it, and one sample a planting layer cannot answer.
+
+#include "SunStudy/CpuTraversal.hpp"
+#include "SunStudy/SunStudyClimateRun.hpp"
+
+#include <gtest/gtest.h>
+
+#include <cmath>
+#include <memory>
+#include <vector>
+
+using namespace evp::sunstudy;
+using evp::sunstudy::rust::ClimateInterval;
+using evp::sunstudy::rust::CrossCheckSun;
+using evp::sunstudy::rust::SunCrossCheck;
+using evp::sunstudy::rust::WeatherInstant;
+using evp::sunstudy::rust::WeatherInstants;
+using evp::sunstudy::rust::WeatherPlacement;
+using evp::sunstudy::rust::WeatherStamp;
+using geomsrv::Mesh;
+using geomsrv::QueryEngine;
+using geomsrv::Snapshot;
+
+namespace {
+
+// A 400 m overhang 1 m above the origin, 2 m deep in front of a wall facing -y.
+std::unique_ptr<CpuTraversal> OverhangScene ()
+{
+    auto snap = std::make_shared<Snapshot> ();
+    snap->id = 21;
+    Mesh mesh;
+    mesh.guid = "overhang";
+    mesh.vertices = { -200, -2, 1, 200, -2, 1, 200, 0, 1, -200, 0, 1 };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3 };
+    snap->meshes.push_back (std::move (mesh));
+    return std::make_unique<CpuTraversal> (std::make_shared<QueryEngine> (snap));
+}
+
+// Vilnius, June 21 to 23, hourly records on the station's own clock.
+WeatherPlacement Vilnius ()
+{
+    WeatherPlacement p;
+    p.year = 2026;
+    p.stationOffsetHours = 2.0;
+    p.projectOffsetHours = 2.0;
+    p.latitude = 54.687;
+    p.longitude = 25.28;
+    return p;
+}
+
+std::vector<WeatherStamp> ThreeDays ()
+{
+    std::vector<WeatherStamp> stamps;
+    for (int day = 21; day <= 23; ++day)
+        for (int hour = 1; hour <= 24; ++hour)
+            stamps.push_back ({ 6, day, hour, 60 });
+    return stamps;
+}
+
+// Intervals with the independent sun (a preview, as the run is told) and a
+// clear-sky shape: DNI and DHI follow the sun's height.
+std::vector<ClimateInterval> Intervals (const std::vector<WeatherInstant>& instants)
+{
+    std::vector<ClimateInterval> out;
+    for (const WeatherInstant& w : instants) {
+        ClimateInterval i;
+        i.sun = w.independentSun;
+        i.hours = w.hours;
+        const double up = std::max (0.0, w.independentSun[2]);
+        i.dni = 800.0 * up;
+        i.dhi = up > 0.0 ? 60.0 + 80.0 * up : 0.0;
+        i.albedo = 0.2;
+        i.dewPointC = 10.0;
+        i.dayOfYear = w.dayOfYear;
+        i.month = 5;
+        out.push_back (i);
+    }
+    return out;
+}
+
+ClimateRunRequest Request (const std::vector<ClimateInterval>& intervals)
+{
+    ClimateRunRequest r;
+    // 0: the wall under the overhang; 1: open ground 500 m out, where the
+    // overhang is below every cell; 2: unavailable.
+    r.positions = { 0, 0, 0, 0, -500, 0, 5, -10, 0 };
+    r.normals = { 0, -1, 0, 0, 0, 1, 0, 0, 1 };
+    r.available = { 1, 1, 0 };
+    r.intervals = intervals;
+    r.sunSource = SunSource::Independent;
+    return r;
+}
+
+} // namespace
+
+TEST (SunStudyClimateRun, WeatherRecordsLandOnTheProjectClock)
+{
+    std::vector<WeatherInstant> instants;
+    std::string error;
+    ASSERT_TRUE (WeatherInstants (ThreeDays (), Vilnius (), instants, error)) << error;
+    ASSERT_EQ (instants.size (), 72u);
+    // Hour 13 of June 21: 12:30 on the project's clock, day 172, sun up.
+    const WeatherInstant& noon = instants[12];
+    EXPECT_TRUE (noon.valid);
+    EXPECT_EQ (noon.projectDay, 21);
+    EXPECT_NEAR (noon.projectSeconds, 45000.0, 1e-3);
+    EXPECT_EQ (noon.dayOfYear, 172u);
+    EXPECT_GT (noon.independentSun[2], 0.8);
+    std::vector<WeatherInstant> bad;
+    ASSERT_TRUE (WeatherInstants ({ { 13, 1, 1, 0 } }, Vilnius (), bad, error)) << error;
+    EXPECT_FALSE (bad[0].valid);
+}
+
+TEST (SunStudyClimateRun, TheCrossCheckRefusesASunAnHourOff)
+{
+    std::vector<WeatherInstant> instants;
+    std::string error;
+    ASSERT_TRUE (WeatherInstants (ThreeDays (), Vilnius (), instants, error)) << error;
+    std::vector<double> same, shifted;
+    for (size_t k = 0; k + 1 < instants.size (); ++k) {
+        same.insert (same.end (), instants[k].independentSun.begin (), instants[k].independentSun.end ());
+        shifted.insert (shifted.end (), instants[k + 1].independentSun.begin (), instants[k + 1].independentSun.end ());
+    }
+    SunCrossCheck check;
+    ASSERT_TRUE (CrossCheckSun (same, same, check, error)) << error;
+    EXPECT_TRUE (check.accepted);
+    EXPECT_GT (check.compared, 40u);
+    ASSERT_TRUE (CrossCheckSun (shifted, same, check, error)) << error;
+    EXPECT_FALSE (check.accepted) << "a daylight-saving hour must not pass";
+}
+
+TEST (SunStudyClimateRun, AnOpenSampleGetsTheHorizontalTotalAndAnUnavailableOneGetsNothing)
+{
+    std::vector<WeatherInstant> instants;
+    std::string error;
+    ASSERT_TRUE (WeatherInstants (ThreeDays (), Vilnius (), instants, error)) << error;
+    const auto scene = OverhangScene ();
+    size_t calls = 0, last = 0;
+    ClimateRunResult result;
+    ASSERT_TRUE (RunClimate (
+        *scene, Request (Intervals (instants)), {},
+        [&] (size_t done, size_t) {
+            ++calls;
+            last = done;
+        },
+        result, error))
+        << error;
+    EXPECT_EQ (calls, 73u);
+    EXPECT_EQ (last, 72u);
+    EXPECT_EQ (result.sunSource, SunSource::Independent);
+    EXPECT_EQ (result.traced, 2u);
+    EXPECT_EQ (result.excluded, 1u);
+    EXPECT_GT (result.beamPasses, 40u);
+
+    // Open ground: everything the model's horizontal total holds.
+    const double open = result.report.openHorizontal[5];
+    const double ground = result.direct[1][5] + result.diffuse[1][5] + result.reflected[1][5];
+    EXPECT_NEAR (ground, open, 1e-9 * open);
+    EXPECT_NEAR (result.skyView[1], 1.0, 1e-12);
+    // The wall under the overhang: no high summer beam, a fraction of the sky.
+    EXPECT_LT (result.direct[0][5], 0.2 * result.direct[1][5]);
+    EXPECT_NEAR (result.skyView[0], 0.2254, 0.02 * 0.2254);
+    EXPECT_GT (result.reflected[0][5], 0.0);
+    // Unavailable is not dark: NaN everywhere, never zero.
+    EXPECT_TRUE (std::isnan (result.direct[2][5]) && std::isnan (result.dli[2][5]) && std::isnan (result.skyView[2]));
+    // DLI: the open sample's June energy over the three days' hours.
+    const double expected = open * 3600.0 * 0.45 * 4.57e-6 * 24.0 / result.report.validHours[5];
+    EXPECT_NEAR (result.dli[1][5], expected, 1e-9 * expected);
+    EXPECT_TRUE (std::isnan (result.dli[1][0])) << "no January weather: no January DLI";
+}
+
+TEST (SunStudyClimateRun, ACancelledRunLeavesThePreviousResult)
+{
+    std::vector<WeatherInstant> instants;
+    std::string error;
+    ASSERT_TRUE (WeatherInstants (ThreeDays (), Vilnius (), instants, error)) << error;
+    const auto scene = OverhangScene ();
+    ClimateRunResult result;
+    result.traced = 99;
+    size_t polls = 0;
+    EXPECT_FALSE (RunClimate (*scene, Request (Intervals (instants)), [&] { return ++polls > 10; }, {}, result, error));
+    EXPECT_EQ (error, "Cancelled");
+    EXPECT_EQ (result.traced, 99u);
+    ClimateRunRequest bad = Request ({});
+    bad.available = { 1 };
+    EXPECT_FALSE (RunClimate (*scene, bad, {}, {}, result, error));
+}
+
+TEST (SunStudyClimateRun, AreaWeightedMeansSkipExcludedSamples)
+{
+    rust::Monthly a {}, b {}, gone {};
+    a[3] = 10.0;
+    b[3] = 20.0;
+    gone[3] = std::nan ("");
+    EXPECT_DOUBLE_EQ (AreaWeightedMean ({ a, b, gone }, { 1.0, 3.0, 5.0 }, 3), 17.5);
+    EXPECT_TRUE (std::isnan (AreaWeightedMean ({ gone }, { 1.0 }, 3)));
+    EXPECT_TRUE (std::isnan (AreaWeightedMean ({ a }, { 1.0 }, 12)));
+}

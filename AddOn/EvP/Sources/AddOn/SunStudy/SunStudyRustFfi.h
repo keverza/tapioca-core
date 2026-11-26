@@ -582,6 +582,70 @@ TapiocaStatus tapioca_sunstudy_climate_add (TapiocaSunStudyClimate* handle, cons
 TapiocaStatus tapioca_sunstudy_climate_read (const TapiocaSunStudyClimate* handle,
                                              const TapiocaClimateReadOutput* output, char* error, size_t errorCapacity);
 
+/* Mean daily light integral per sample and month (mol/m2/day) over each
+ * month's valid hours: capacity x 12 values, NaN without valid hours. A
+ * conversion of 0 takes the default (PAR fraction 0.45, 4.57 umol/J). */
+TapiocaStatus tapioca_sunstudy_climate_dli (const TapiocaSunStudyClimate* handle, double parFraction,
+                                            double micromolPerJoule, double* out, size_t capacity, char* error,
+                                            size_t errorCapacity);
+
+/* The weather time base (#155 P2): each EPW record's interval midpoint on the
+ * project's standard-time clock (call the host with daylight saving off), its
+ * day of the year, and an independent (NOAA) sun in the model frame -- a
+ * cross-check for the host's sun, never an analysis input. A stamp out of
+ * range gives valid 0. */
+typedef struct {
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour; /* 1..24, the hour the interval ends in */
+    uint8_t minute;
+} TapiocaWeatherStamp;
+
+typedef struct {
+    struct {
+        const TapiocaWeatherStamp* data;
+        size_t count;
+    } stamps;
+    int32_t year;
+    uint32_t recordsPerHour;
+    double stationOffsetHours; /* EPW header time zone */
+    double projectOffsetHours; /* project standard time, no DST */
+    double latitude;
+    double longitude;
+    double rotation; /* as sky_patches */
+} TapiocaWeatherInstantRequest;
+
+typedef struct {
+    double julianDay; /* UTC, interval midpoint */
+    double hours;
+    double projectSeconds;
+    int32_t projectYear;
+    uint8_t projectMonth;
+    uint8_t projectDay;
+    uint8_t reserved[2];
+    uint32_t dayOfYear;
+    uint8_t valid;
+    uint8_t reserved2[3];
+    double independentSun[3];
+} TapiocaWeatherInstant;
+
+TapiocaStatus tapioca_sunstudy_weather_instants (const TapiocaWeatherInstantRequest* request,
+                                                 TapiocaWeatherInstant* out, size_t capacity, char* error,
+                                                 size_t errorCapacity);
+
+/* Host sun against the independent one: accepted at mean <= 0.5 deg and
+ * max <= 2 deg over the instants where both are up. */
+typedef struct {
+    size_t compared;
+    double meanDegrees;
+    double maxDegrees;
+    uint8_t accepted;
+    uint8_t reserved[7];
+} TapiocaSunCrossCheck;
+
+TapiocaStatus tapioca_sunstudy_sun_cross_check (TapiocaDoubleView host, TapiocaDoubleView independent,
+                                                TapiocaSunCrossCheck* out, char* error, size_t errorCapacity);
+
 /* Planting receptor layer (#278): a sampled grid lifted vertically above its
  * host. Empty ceilings means no overhead test. status bytes: 0 available,
  * 1 steep host, 2 blocked overhead, 3 invalid host. */

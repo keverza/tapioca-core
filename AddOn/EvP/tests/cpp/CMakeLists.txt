@@ -1491,6 +1491,8 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustClimate.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySkyMask.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyclimate.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyClimateRun.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudyclimaterun.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPlantingAreas.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustAtlas.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustOcclusion.cpp"

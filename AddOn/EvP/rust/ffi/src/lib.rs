@@ -285,3 +285,8 @@ pub use sunstudy::{
     tapioca_sunstudy_study_set_sample_meshes, tapioca_sunstudy_study_step_masks,
     tapioca_sunstudy_study_summary, tapioca_sunstudy_study_sync,
 };
+pub use sunstudy::{
+    SunCrossCheckRecord, WeatherInstant, WeatherInstantRequest, WeatherStamp,
+    tapioca_sunstudy_climate_dli, tapioca_sunstudy_sun_cross_check,
+    tapioca_sunstudy_weather_instants,
+};

@@ -120,6 +120,52 @@ struct ClimateTotals {
     double Total (size_t sample, int month) const;
 };
 
+// Daily light integral conversion: an estimate whose PAR fraction and photon
+// efficacy are stated assumptions; 0 takes the defaults (0.45, 4.57 umol/J).
+struct ParConversion {
+    double parFraction = 0.0;
+    double micromolPerJoule = 0.0;
+};
+
+// An EPW record's stamp, as written.
+struct WeatherStamp {
+    int month = 0, day = 0, hour = 0, minute = 0;
+};
+
+struct WeatherPlacement {
+    int year = 2026;
+    int recordsPerHour = 1;
+    double stationOffsetHours = 0.0; // EPW header time zone
+    double projectOffsetHours = 0.0; // project standard time, no DST
+    double latitude = 0.0, longitude = 0.0;
+    double rotation = 0.0; // as SkyPatches
+};
+
+// One record on the project's clock. `independentSun` is the NOAA sun in the
+// model frame: a cross-check for the host's, never an analysis input.
+struct WeatherInstant {
+    bool valid = false;
+    double julianDay = 0.0; // UTC, interval midpoint
+    double hours = 0.0;
+    int projectYear = 0, projectMonth = 0, projectDay = 0;
+    double projectSeconds = 0.0;
+    uint32_t dayOfYear = 0;
+    std::array<double, 3> independentSun {};
+};
+
+bool WeatherInstants (const std::vector<WeatherStamp>& stamps, const WeatherPlacement& placement,
+                      std::vector<WeatherInstant>& out, std::string& error);
+
+struct SunCrossCheck {
+    size_t compared = 0;
+    double meanDegrees = 0.0, maxDegrees = 0.0;
+    bool accepted = false; // mean <= 0.5 deg, max <= 2 deg (#155 P2)
+};
+
+// `host` and `independent`: 3 doubles per instant, same frame.
+bool CrossCheckSun (const std::vector<double>& host, const std::vector<double>& independent, SunCrossCheck& out,
+                    std::string& error);
+
 class RustClimate final {
   public:
     static std::unique_ptr<RustClimate> Create (const ClimateSetup& setup, std::string& error);
@@ -131,6 +177,9 @@ class RustClimate final {
     // A refused interval changes nothing.
     bool Add (const ClimateInterval& interval, const std::vector<uint8_t>& beam, std::string& error);
     bool Read (ClimateTotals& totals, std::string& error) const;
+    // Mean daily light integral, mol/m2/day, per sample and month (NaN for a
+    // month without valid weather hours).
+    bool DailyLightIntegral (const ParConversion& conversion, std::vector<Monthly>& dli, std::string& error) const;
 
   private:
     explicit RustClimate (TapiocaSunStudyClimate* handle);

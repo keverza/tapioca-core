@@ -11,6 +11,10 @@ static_assert (sizeof (TapiocaSkyPatch) == 56);
 static_assert (sizeof (TapiocaSkyCell) == 64);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateCreateRequest) == 160);
 static_assert (sizeof (TapiocaClimateInterval) == 72);
+static_assert (sizeof (TapiocaWeatherStamp) == 4);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaWeatherInstantRequest) == 64);
+static_assert (sizeof (TapiocaWeatherInstant) == 64);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSunCrossCheck) == 32);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReport) == 328);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReadOutput) == 48);
 
@@ -62,6 +66,63 @@ bool SkyCells (SkyPatchSet set, double rotation, uint32_t perSide, std::vector<S
         cell.patch = c.patch;
         cells.push_back (cell);
     }
+    return true;
+}
+
+bool WeatherInstants (const std::vector<WeatherStamp>& stamps, const WeatherPlacement& placement,
+                      std::vector<WeatherInstant>& out, std::string& error)
+{
+    out.clear ();
+    // 255 is out of every field's range: Rust refuses the stamp.
+    const auto narrow = [] (int v) { return static_cast<uint8_t> (v < 0 || v > 255 ? 255 : v); };
+    std::vector<TapiocaWeatherStamp> raw;
+    raw.reserve (stamps.size ());
+    for (const WeatherStamp& st : stamps)
+        raw.push_back ({ narrow (st.month), narrow (st.day), narrow (st.hour), narrow (st.minute) });
+    TapiocaWeatherInstantRequest request {};
+    request.stamps = { raw.data (), raw.size () };
+    request.year = placement.year;
+    request.recordsPerHour = static_cast<uint32_t> (std::max (0, placement.recordsPerHour));
+    request.stationOffsetHours = placement.stationOffsetHours;
+    request.projectOffsetHours = placement.projectOffsetHours;
+    request.latitude = placement.latitude;
+    request.longitude = placement.longitude;
+    request.rotation = placement.rotation;
+    std::vector<TapiocaWeatherInstant> written (raw.size ());
+    const auto call = [&] (char* m, size_t n) {
+        return tapioca_sunstudy_weather_instants (&request, written.data (), written.size (), m, n);
+    };
+    if (!Invoke (call, error))
+        return false;
+    out.reserve (written.size ());
+    for (const TapiocaWeatherInstant& w : written) {
+        WeatherInstant instant;
+        instant.valid = w.valid != 0;
+        instant.julianDay = w.julianDay;
+        instant.hours = w.hours;
+        instant.projectYear = w.projectYear;
+        instant.projectMonth = w.projectMonth;
+        instant.projectDay = w.projectDay;
+        instant.projectSeconds = w.projectSeconds;
+        instant.dayOfYear = w.dayOfYear;
+        std::copy (w.independentSun, w.independentSun + 3, instant.independentSun.begin ());
+        out.push_back (instant);
+    }
+    return true;
+}
+
+bool CrossCheckSun (const std::vector<double>& host, const std::vector<double>& independent, SunCrossCheck& out,
+                    std::string& error)
+{
+    TapiocaSunCrossCheck record {};
+    const TapiocaDoubleView a { host.data (), host.size () };
+    const TapiocaDoubleView b { independent.data (), independent.size () };
+    if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_sun_cross_check (a, b, &record, m, n); }, error))
+        return false;
+    out.compared = record.compared;
+    out.meanDegrees = record.meanDegrees;
+    out.maxDegrees = record.maxDegrees;
+    out.accepted = record.accepted != 0;
     return true;
 }
 
@@ -157,6 +218,28 @@ bool RustClimate::Read (ClimateTotals& totals, std::string& error) const
     r.heldIntervals = report.heldIntervals;
     r.sampleCount = report.sampleCount;
     r.patchCount = report.patchCount;
+    return true;
+}
+
+bool RustClimate::DailyLightIntegral (const ParConversion& conversion, std::vector<Monthly>& dli,
+                                      std::string& error) const
+{
+    dli.clear ();
+    ClimateTotals totals;
+    if (!Read (totals, error)) // the sample count
+        return false;
+    const size_t samples = totals.report.sampleCount;
+    std::vector<double> flat (samples * 12);
+    const auto call = [&] (char* m, size_t n) {
+        return tapioca_sunstudy_climate_dli (handle_, conversion.parFraction, conversion.micromolPerJoule, flat.data (),
+                                             samples, m, n);
+    };
+    if (samples != 0 && !Invoke (call, error))
+        return false;
+    dli.resize (samples);
+    for (size_t s = 0; s < samples; ++s)
+        std::copy (flat.begin () + static_cast<std::ptrdiff_t> (s * 12),
+                   flat.begin () + static_cast<std::ptrdiff_t> (s * 12 + 12), dli[s].begin ());
     return true;
 }
 

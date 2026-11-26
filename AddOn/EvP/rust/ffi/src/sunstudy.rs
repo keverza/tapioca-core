@@ -31,6 +31,7 @@ mod steps;
 mod study;
 mod study_read;
 mod surface;
+mod timebase;
 mod viewpoint_seen;
 mod views;
 mod visibility;
@@ -143,6 +144,11 @@ pub use surface::{
     SurfaceBuildRequest, SurfaceOptionsRecord, SurfaceReadOutput, SurfaceResultHandle,
     SurfaceResultSummary, tapioca_sunstudy_surface_build, tapioca_sunstudy_surface_destroy,
     tapioca_sunstudy_surface_read, tapioca_sunstudy_surface_summary,
+};
+pub use timebase::{
+    SunCrossCheckRecord, WeatherInstant, WeatherInstantRequest, WeatherStamp,
+    tapioca_sunstudy_climate_dli, tapioca_sunstudy_sun_cross_check,
+    tapioca_sunstudy_weather_instants,
 };
 pub use viewpoint_seen::{
     SeenHandle, SeenSummary, tapioca_sunstudy_viewpoint_seen,
@@ -313,6 +319,10 @@ const _: () = {
     assert!(size_of::<SkyPatchRecord>() == 56);
     assert!(size_of::<ClimateCreateRequest>() == 160);
     assert!(size_of::<SkyCellRecord>() == 64);
+    assert!(size_of::<WeatherStamp>() == 4);
+    assert!(size_of::<WeatherInstantRequest>() == 64);
+    assert!(size_of::<WeatherInstant>() == 64);
+    assert!(size_of::<SunCrossCheckRecord>() == 32);
     assert!(size_of::<ClimateIntervalRecord>() == 72);
     assert!(size_of::<ClimateReportRecord>() == 328);
     assert!(size_of::<ClimateReadOutput>() == 48);
