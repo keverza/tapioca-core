@@ -313,6 +313,16 @@ impl Climate {
         if month >= 12 || interval.hours.is_nan() || interval.hours <= 0.0 {
             return Err(ClimateRefusal::Interval);
         }
+        // Every check before any total moves: a refused interval changes nothing.
+        let beam = if interval.needs_beam() {
+            let beam = beam.ok_or(ClimateRefusal::Beam)?;
+            if beam.len() != self.direct.len() {
+                return Err(ClimateRefusal::Length);
+            }
+            Some(beam)
+        } else {
+            None
+        };
         let (dni, dhi) = (interval.dni, interval.dhi);
         if !dni.is_finite() || !dhi.is_finite() {
             add_to(&mut self.report.missing_hours, month, interval.hours);
@@ -336,11 +346,7 @@ impl Climate {
         if dhi > 0.0 {
             self.add_sky(interval, month, dni, dhi);
         }
-        if interval.needs_beam() {
-            let beam = beam.ok_or(ClimateRefusal::Beam)?;
-            if beam.len() != self.direct.len() {
-                return Err(ClimateRefusal::Length);
-            }
+        if let Some(beam) = beam {
             let tau = self
                 .setup
                 .canopy_transmittance

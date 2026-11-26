@@ -337,3 +337,23 @@ fn the_daily_light_integral_converts_energy_over_the_hours_present() {
         None
     );
 }
+
+#[test]
+fn a_refused_interval_changes_nothing() {
+    let s = setup(
+        Dome::new(PatchSet::Tregenza),
+        vec![[0.0, 0.0, 1.0]],
+        OPEN,
+        DiffuseSky::Perez1993,
+        0.0,
+    );
+    let mut c = Climate::new(s).unwrap();
+    let noon = day(5, false)[7];
+    let before = c.clone().finish();
+    assert_eq!(c.add(&noon, None), Err(ClimateRefusal::Beam));
+    assert_eq!(
+        c.add(&noon, Some(&[OPEN, OPEN])),
+        Err(ClimateRefusal::Length)
+    );
+    assert_eq!(c.finish(), before);
+}
