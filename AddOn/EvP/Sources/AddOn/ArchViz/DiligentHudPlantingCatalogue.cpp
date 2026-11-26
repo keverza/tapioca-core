@@ -520,10 +520,18 @@ void SelectedPlant (HudState& state)
         ImGui::TextDisabled ("Quantity: no planting density in the catalogue.");
     hudshell::ItemTip ("Compatible area x the catalogue's plants per m², rounded up. An estimate for the whole "
                        "compatible area, not a planting plan: spacing and packing are not checked.");
-    ImGui::BeginDisabled (fit.layer < 0);
+    const bool canHighlight = fit.layer >= 0 && p.HasLight ();
+    ImGui::BeginDisabled (!canHighlight);
     ImGui::Checkbox ("Highlight where it fits##plantcat", &cat.highlight);
     ImGui::EndDisabled ();
-    hudshell::ItemTip ("Dim the light classes this plant does not accept, in the viewer and the legend.");
+    if (canHighlight)
+        hudshell::ItemTip ("Hatch the light classes this plant accepts and dim the others, in the viewer and the "
+                           "legend.");
+    else if (!p.HasLight ())
+        hudshell::ItemTip ("Not available: the catalogue gives this plant no light classes, so where it fits "
+                           "is not known.");
+    else
+        hudshell::ItemTip ("Not available: %s. Run a layer on the Light tab first.", fit.reason.c_str ());
     if (fit.layer >= 0 && fit.layer != hud.shownLayer) {
         ImGui::SameLine ();
         if (ImGui::SmallButton ("Show its layer##plantcat"))
@@ -533,7 +541,7 @@ void SelectedPlant (HudState& state)
     if (ImGui::SmallButton ("Add to scheme##plantcat"))
         AddToScheme (hud, p);
     hudshell::ItemTip ("Add this plant to the Scheme tab's mix, to be placed on a measured layer.");
-    hud.highlightMask = cat.highlight && fit.layer >= 0 ? pl::AcceptedClassMask (hud, p) : 0;
+    hud.highlightMask = cat.highlight && canHighlight ? pl::AcceptedClassMask (hud, p) : 0;
 }
 
 } // namespace
@@ -547,17 +555,7 @@ void DrawPlantsTab (HudState& state)
     Filters (cat, state.planting.climateState.designZone, state.planting.zones.zones);
     PlantTable (state);
     SelectedPlant (state);
-    ImGui::Separator ();
-    ImGui::BeginDisabled ();
-    int fitMode = 0;
-    ImGui::RadioButton ("Light##plantingfit", &fitMode, 0);
-    ImGui::SameLine ();
-    ImGui::RadioButton ("Space##plantingfit", &fitMode, 1);
-    ImGui::SameLine ();
-    ImGui::RadioButton ("Combined##plantingfit", &fitMode, 2);
-    ImGui::EndDisabled ();
-    hudshell::ItemTip ("Later (Stage 2): where each plant fits by space for its mature crown, or by both.");
-    LaterButton ("Show mature envelope", "Later: the selected plant's mature height and spread at the point.");
+    ImGui::TextDisabled ("Fits here is by light. Room for a grown crown: the Fit tab. Placing plants: Scheme.");
 }
 
 } // namespace geomsrv::archviz::plantinghud

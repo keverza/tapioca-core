@@ -595,19 +595,22 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
                 { SchemeSeverity::Warning, name + ": no " + roomText + " on a light class it accepts.", { int (i) } });
         if (i < result.room.size () && result.room[i].noGo > 0) {
             char text[160];
-            std::snprintf (text, sizeof (text), ": %zu of %zu samples on its light are kept out by no-go zones.",
-                           result.room[i].noGo, result.room[i].lightSamples);
+            std::snprintf (text, sizeof (text), ": no-go zones keep it out of %.0f%% of the area with its light.",
+                           100.0 * double (result.room[i].noGo) /
+                               double ((std::max) (result.room[i].lightSamples, size_t (1))));
             result.notes.push_back ({ SchemeSeverity::Info, name + text, { int (i) } });
         }
         if (space) {
             const SchemeRoom& room = result.room[i];
             if (room.overhead + room.narrow > 0) {
                 char text[220];
+                const double share = 100.0 / double ((std::max) (room.lightSamples, size_t (1)));
                 std::snprintf (text, sizeof (text),
-                               ": %zu of %zu samples on its light lack room for a %.1f m tall, %.1f m wide crown "
-                               "(%zu under an overhang, %zu too close to a wall).",
-                               room.overhead + room.narrow, room.lightSamples, result.sizes[i].height,
-                               2.0 * result.sizes[i].radius, room.overhead, room.narrow);
+                               ": a %.1f m tall, %.1f m wide crown has no room on %.0f%% of the area with its light "
+                               "(%.0f%% under an overhang, %.0f%% too close to a wall).",
+                               result.sizes[i].height, 2.0 * result.sizes[i].radius,
+                               share * double (room.overhead + room.narrow), share * double (room.overhead),
+                               share * double (room.narrow));
                 result.notes.push_back ({ SchemeSeverity::Info, name + text, { int (i) } });
             }
             if (room.beyond > 0)

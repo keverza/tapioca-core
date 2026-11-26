@@ -314,12 +314,9 @@ void ClassesSection (HudState& state)
             ImGui::TextDisabled ("no profiles: see the Plants tab");
         ImGui::EndCombo ();
     }
-    if (active != profiles.end ())
-        hudshell::ItemTip ("%s%s%s\nPicking a profile sets its class edges%s. Profiles live in profiles.json "
-                           "(Plants tab, Open folder). An exact edge belongs to the upper class.",
-                           active->source.c_str (),
-                           active->seasonNote.empty () ? "" : "\nSeason: ", active->seasonNote.c_str (),
-                           active->hasSeason ? ", its season" : "");
+    hudshell::ItemTip ("A profile is a local planting standard's definition of shade, partial shade and full sun, in "
+                       "hours of direct sun a day. Picking one sets those edges%s.",
+                       active != profiles.end () && active->hasSeason ? " and its growing season" : "");
     ImGui::SetNextItemWidth (-LabelColumn ());
     float edges[2] = { hud.partialEdge, hud.sunEdge };
     if (ImGui::DragFloat2 ("edges h##planting", edges, 0.05f, 0.0f, 24.0f, "%.2f h")) {

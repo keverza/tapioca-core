@@ -235,7 +235,8 @@ void DrawSchemeRegion (pl::PlantingHud& hud, int layer)
     ImGui::SetNextItemWidth (ImGui::GetFontSize () * 6.0f);
     ImGui::SliderFloat ("Margin##schemeclearance", &s.clearanceMargin, 0.0f, 2.0f, "%.2f m");
     hudshell::ItemTip ("Kept clear around and above each mature crown, beyond its own size: from walls and "
-                       "overhangs, and from no-go zones.");
+                       "overhangs, and from no-go zones. It moves placed plants and redraws the Fit map; with "
+                       "nothing placed, the viewer does not change.");
     if (!s.roomStatus.empty ())
         ImGui::TextDisabled ("%s", s.roomStatus.c_str ());
     if (!s.site.noGoAllowance.empty ())
@@ -356,6 +357,8 @@ void DrawSchemeTab (HudState& state)
     const int layer = RefreshSchemeRegion (hud);
     RefreshPlacement (hud);
 
+    ImGui::TextWrapped ("Try a planting mix: each plant is placed where its light suits it and its grown crown has "
+                        "room, then checked against its neighbours.");
     DrawSchemeRegion (hud, layer);
     ImGui::Separator ();
     SpeciesTable (hud);
@@ -367,6 +370,8 @@ void DrawSchemeTab (HudState& state)
         hudshell::ItemTip ("The plant selected in Plants.");
     }
 
+    // Placement settings change only placed plants: inert, and said so, until there are some.
+    ImGui::BeginDisabled (s.species.empty ());
     ImGui::SetNextItemWidth (ImGui::GetFontSize () * 8.0f);
     float overlap = s.crownOverlap * 100.0f;
     if (ImGui::SliderFloat ("Crown overlap##scheme", &overlap, 0.0f, 50.0f, "%.0f %%"))
@@ -385,6 +390,7 @@ void DrawSchemeTab (HudState& state)
         s.species.clear ();
         s.highlight = -1;
     }
+    ImGui::EndDisabled ();
     if (!s.species.empty ())
         ImGui::Text ("%zu plant(s) placed.", s.result.plants.size ());
     Notes (s);
