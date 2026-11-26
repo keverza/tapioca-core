@@ -273,6 +273,19 @@ bool RustStudyCore::SunHours (std::vector<double>& hours, std::string& error) co
            Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_study_arrays (handle_, &output, m, n); }, error);
 }
 
+bool RustStudyCore::Present (const std::vector<double>& values, double ceiling, std::string& error) const
+{
+    const TapiocaDoubleView view { values.data (), values.size () };
+    return Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_study_present (handle_, view, ceiling, m, n); },
+                   error);
+}
+
+bool RustStudyCore::Withdraw (std::string& error) const
+{
+    uint8_t was = 0;
+    return Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_study_withdraw (handle_, &was, m, n); }, error);
+}
+
 bool RustStudyCore::StepBits (std::vector<uint8_t>& bits, std::string& error) const
 {
     TapiocaStudyInfo info {};

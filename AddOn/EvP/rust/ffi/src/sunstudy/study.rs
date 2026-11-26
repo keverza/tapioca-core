@@ -567,3 +567,55 @@ pub unsafe extern "C" fn tapioca_sunstudy_study_progress(
         })
     }
 }
+
+/// Present `values` (one per sample, finite, non-negative) instead of the
+/// traced day's hours, read against `ceiling` (`StudyCore::present`): any
+/// per-sample figure drawn through this study's samples and atlas. Replaces
+/// any earlier presentation; the step masks stay the traced day's.
+///
+/// # Safety
+/// The handle must be live; `values` readable for its count.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapioca_sunstudy_study_present(
+    handle: *const StudyHandle,
+    values: SliceView<f64>,
+    ceiling: f64,
+    error: *mut u8,
+    error_capacity: usize,
+) -> i32 {
+    // SAFETY: envelope contains unwinding; the view is checked before use.
+    unsafe {
+        call(error, error_capacity, || {
+            let mut regions = Regions::new(error, error_capacity)?;
+            regions.input(values.data, values.count);
+            regions.check()?;
+            let values = regions.context().slice(values)?.to_vec();
+            study(handle)?.present(values, ceiling).map_err(failure)
+        })
+    }
+}
+
+/// Drop any presentation, so every reader reads the traced day again
+/// (`StudyCore::withdraw`). `was_presented` gets 1 when there was one.
+///
+/// # Safety
+/// The handle must be live; `was_presented` writable and disjoint.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapioca_sunstudy_study_withdraw(
+    handle: *const StudyHandle,
+    was_presented: *mut u8,
+    error: *mut u8,
+    error_capacity: usize,
+) -> i32 {
+    // SAFETY: envelope contains unwinding; the output is checked first.
+    unsafe {
+        call(error, error_capacity, || {
+            let mut regions = Regions::new(error, error_capacity)?;
+            regions.output(was_presented, 1);
+            regions.check()?;
+            let was = study(handle)?.withdraw().map_err(failure)?;
+            was_presented.write(u8::from(was));
+            Ok(())
+        })
+    }
+}

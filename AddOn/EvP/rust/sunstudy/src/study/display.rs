@@ -159,6 +159,23 @@ impl StudyCore {
         Ok(())
     }
 
+    /// Drop whatever [`Self::present`] put in, so every hours reader reads
+    /// the traced day again. True when something was presented.
+    ///
+    /// # Errors
+    /// [`StudyError::Poisoned`].
+    pub fn withdraw(&self) -> Result<bool, StudyError> {
+        // One lock at a time, in the order `present` takes them.
+        let was = self
+            .presented
+            .lock()
+            .map_err(|_| StudyError::Poisoned)?
+            .take()
+            .is_some();
+        *self.summary.lock().map_err(|_| StudyError::Poisoned)? = None;
+        Ok(was)
+    }
+
     /// True once [`Self::present`] replaced the day's hours.
     ///
     /// # Errors

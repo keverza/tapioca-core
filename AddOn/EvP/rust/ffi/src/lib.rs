@@ -280,10 +280,11 @@ pub use sunstudy::{
     StudyReuseOutcome, StudyReuseRequest, StudySampleStepsOutput, StudyStepMaskOutput,
     StudyStepMaskSummary, tapioca_sunstudy_study_advance, tapioca_sunstudy_study_arrays,
     tapioca_sunstudy_study_create, tapioca_sunstudy_study_destroy, tapioca_sunstudy_study_image,
-    tapioca_sunstudy_study_info, tapioca_sunstudy_study_progress, tapioca_sunstudy_study_read_at,
-    tapioca_sunstudy_study_reuse, tapioca_sunstudy_study_sample_steps,
-    tapioca_sunstudy_study_set_sample_meshes, tapioca_sunstudy_study_step_masks,
-    tapioca_sunstudy_study_summary, tapioca_sunstudy_study_sync,
+    tapioca_sunstudy_study_info, tapioca_sunstudy_study_present, tapioca_sunstudy_study_progress,
+    tapioca_sunstudy_study_read_at, tapioca_sunstudy_study_reuse,
+    tapioca_sunstudy_study_sample_steps, tapioca_sunstudy_study_set_sample_meshes,
+    tapioca_sunstudy_study_step_masks, tapioca_sunstudy_study_summary, tapioca_sunstudy_study_sync,
+    tapioca_sunstudy_study_withdraw,
 };
 pub use sunstudy::{
     SunCrossCheckRecord, WeatherInstant, WeatherInstantRequest, WeatherStamp,

@@ -92,6 +92,11 @@ class RustStudyCore final {
     bool Info (TapiocaStudyInfo& info, std::string& error) const;
 
     bool SunHours (std::vector<double>& hours, std::string& error) const;
+    // Show `values` (one per sample, finite, non-negative) in place of the
+    // traced day's hours against `ceiling`, or drop that again. Call these
+    // through SunStudyStore::Represent: its caches are keyed on progress.
+    bool Present (const std::vector<double>& values, double ceiling, std::string& error) const;
+    bool Withdraw (std::string& error) const;
     // One byte per (sample, step), sample-major: the store's Results wire.
     bool StepBits (std::vector<uint8_t>& bits, std::string& error) const;
     bool SampleMeshes (std::vector<uint32_t>& meshes, std::string& error) const;

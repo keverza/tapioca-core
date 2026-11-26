@@ -55,6 +55,9 @@ pub struct StudyInfo {
     pub domain: u8,
     /// `DisplayInfo` status (0 ok, 1 no model-surface atlas).
     pub display_status: u8,
+    /// 1 while other values are presented in place of the traced day's
+    /// hours (`tapioca_sunstudy_study_present`, a period's present).
+    pub presented: u8,
 }
 
 /// Read the study's shape and metadata.
@@ -85,6 +88,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_study_info(
                 spacing: core.spacing(),
                 daylight_hours: core.daylight_ceiling().map_err(failure)?,
                 analysed_area,
+                presented: u8::from(core.is_presented().map_err(failure)?),
                 domain: match core.domain() {
                     StudyDomain::Ground { .. } => 0,
                     StudyDomain::Triangle(_) => 1,

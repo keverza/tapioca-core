@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (7)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (8)
 
 #ifdef __cplusplus
 extern "C" {
@@ -1446,6 +1446,7 @@ typedef struct {
     uint32_t displaySize[2];
     uint8_t domain;
     uint8_t displayStatus;
+    uint8_t presented; /* 1 while other values stand in for the traced day's hours */
 } TapiocaStudyInfo;
 
 TapiocaStatus tapioca_sunstudy_study_info (const TapiocaSunStudyStudy* handle, TapiocaStudyInfo* out, char* error,
@@ -1465,6 +1466,14 @@ TapiocaStatus tapioca_sunstudy_study_arrays (const TapiocaSunStudyStudy* handle,
                                              char* error, size_t errorCapacity);
 TapiocaStatus tapioca_sunstudy_study_summary (const TapiocaSunStudyStudy* handle, TapiocaResultSummary* out,
                                               char* error, size_t errorCapacity);
+
+/* Present one finite, non-negative value per sample in place of the traced
+ * day's hours, read against `ceiling`; replaces any earlier presentation.
+ * Withdraw drops it (`wasPresented` 1 when there was one). */
+TapiocaStatus tapioca_sunstudy_study_present (const TapiocaSunStudyStudy* handle, TapiocaDoubleView values,
+                                              double ceiling, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_study_withdraw (const TapiocaSunStudyStudy* handle, uint8_t* wasPresented, char* error,
+                                               size_t errorCapacity);
 
 /* Shape-then-fill: zero capacities report the sizes only. */
 typedef struct {

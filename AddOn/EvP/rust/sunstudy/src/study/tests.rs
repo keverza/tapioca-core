@@ -560,3 +560,22 @@ fn presented_period_totals_replace_the_days_hours_but_not_its_steps() {
     // The traced day's steps stay the day's: the shadow views still read it.
     assert_eq!(core.step_bits(), Ok(vec![1, 1, 1, 0, 0, 0]));
 }
+
+#[test]
+fn a_withdrawn_presentation_gives_the_traced_day_back() {
+    let positions = vec![1.0, 0.0, 0.0, 5.0, 0.0, 0.0];
+    let Ok(core) = StudyCore::ground(day(3), 1.0, positions, Vec::new()) else {
+        unreachable!("a valid ground grid was refused");
+    };
+    converge(&core);
+    let day_hours = core.sun_hours();
+    assert_eq!(core.withdraw(), Ok(false));
+    assert_eq!(core.present(vec![7.5, 2.5], 10.0), Ok(()));
+    assert_eq!(core.summary().map(|s| s.max_hours), Ok(7.5));
+    assert_eq!(core.withdraw(), Ok(true));
+    assert_eq!(core.is_presented(), Ok(false));
+    assert_eq!(core.sun_hours(), day_hours);
+    assert_eq!(core.daylight_ceiling(), Ok(3.0));
+    // The cached summary went with it.
+    assert_eq!(core.summary().map(|s| s.max_hours), Ok(3.0));
+}

@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 
 #include <memory>
 #include <string>
@@ -161,6 +162,49 @@ TEST (SunStudyRustAnnual, ADayFoldsInAtItsWeightAndIsPresentedThroughItsOwnCore)
     // A presented study would hand back the period, not its day.
     EXPECT_FALSE (annual->Add (*day, 6, 1.0, error));
     EXPECT_EQ (error, "AnnualDayPresented");
+}
+
+// Any per-sample values through a study (#278 DLI map): presented over a
+// period's presentation, read back as the study's hours, and withdrawn to the
+// traced day; the info says which. Values that are not one finite,
+// non-negative value per sample are refused and change nothing.
+TEST (SunStudyRustAnnual, AStudyPresentsAnyValuesAndWithdrawsToItsDay)
+{
+    const auto day = Ground ({ 1.0, 0.0, 0.0, 5.0, 0.0, 0.0 });
+    ASSERT_NE (day, nullptr);
+    Converge (*day);
+    std::string error;
+    std::vector<double> traced, hours;
+    ASSERT_TRUE (day->SunHours (traced, error)) << error;
+    TapiocaStudyInfo info {};
+    ASSERT_TRUE (day->Info (info, error)) << error;
+    EXPECT_EQ (info.presented, 0);
+
+    ASSERT_TRUE (day->Present ({ 7.5, 2.5 }, 10.0, error)) << error;
+    ASSERT_TRUE (day->SunHours (hours, error)) << error;
+    EXPECT_EQ (hours, (std::vector<double> { 7.5, 2.5 }));
+    ASSERT_TRUE (day->Info (info, error)) << error;
+    EXPECT_EQ (info.presented, 1);
+    EXPECT_DOUBLE_EQ (info.daylightHours, 10.0);
+    SunStudyResultSummary summary {};
+    ASSERT_TRUE (day->Summary (summary, error)) << error;
+    EXPECT_DOUBLE_EQ (summary.maxHours, 7.5);
+
+    EXPECT_FALSE (day->Present ({ 1.0 }, 10.0, error));
+    EXPECT_FALSE (day->Present ({ -1.0, 0.0 }, 10.0, error));
+    EXPECT_FALSE (day->Present ({ std::nan (""), 0.0 }, 10.0, error));
+    ASSERT_TRUE (day->SunHours (hours, error)) << error;
+    EXPECT_EQ (hours, (std::vector<double> { 7.5, 2.5 }));
+
+    ASSERT_TRUE (day->Withdraw (error)) << error;
+    ASSERT_TRUE (day->SunHours (hours, error)) << error;
+    EXPECT_EQ (hours, traced);
+    ASSERT_TRUE (day->Info (info, error)) << error;
+    EXPECT_EQ (info.presented, 0);
+    EXPECT_DOUBLE_EQ (info.daylightHours, 3.0);
+    ASSERT_TRUE (day->Summary (summary, error)) << error;
+    EXPECT_DOUBLE_EQ (summary.maxHours, 3.0);
+    ASSERT_TRUE (day->Withdraw (error)) << error; // nothing to drop is not a failure
 }
 
 TEST (SunStudyRustAnnual, OtherSamplesAreNeverMixedIntoAPeriod)

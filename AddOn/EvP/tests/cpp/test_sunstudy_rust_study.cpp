@@ -689,7 +689,8 @@ TEST (SunStudyRustAbi, TheArchiveSpeaksThisHeadersVersion)
     std::string error;
     ASSERT_TRUE (evp::sunstudy::rust::ReadAbiVersion (version, error)) << error;
     EXPECT_EQ (version, TAPIOCA_SUNSTUDY_ABI_VERSION);
-    // v7: sky patches and climate irradiation (#269, #155); v6: EPW weather (#155); v5: planting
-    // receptor layer (#278); v4: the analysis cylinder in the sampling records; v3 annual archive (#152)
-    EXPECT_EQ (version, 7u);
+    // v8: a study presents any per-sample values and withdraws them (#278 DLI map); v7: sky patches
+    // and climate irradiation (#269, #155); v6: EPW weather (#155); v5: planting receptor layer
+    // (#278); v4: the analysis cylinder in the sampling records; v3 annual archive (#152)
+    EXPECT_EQ (version, 8u);
 }
