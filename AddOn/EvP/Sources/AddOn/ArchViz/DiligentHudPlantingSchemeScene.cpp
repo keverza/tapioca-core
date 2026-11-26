@@ -17,7 +17,7 @@ void PublishSchemeScene (HudState& state)
 {
     const planting::SchemeState& s = state.planting.scheme;
     planting::FitState& fit = state.planting.fit;
-    state.plantingSchemeSceneKey = 0;
+    state.plantingSchemeSceneKey = state.plantingEnvelopeSceneKey = 0;
     // The size map is drawn only while the Fit sub-tab is open; it says so each frame.
     const bool map = std::exchange (fit.tabOpen, false) && fit.show && !fit.result.largest.empty ();
     const bool plants = s.show && !s.result.plants.empty ();
@@ -27,7 +27,6 @@ void PublishSchemeScene (HudState& state)
     // Revision, marker, highlight and the map each change the geometry; never 0.
     const uint64_t key = (uint64_t (plants ? s.revision : 0) << 8) ^ (uint64_t (s.marker & 0x3) << 6) ^
                          uint64_t ((s.highlight + 1) & 0x3f) ^ (map ? (fit.revision + 1) * 0x9E3779B97F4A7C15ull : 0) ^
-                         (previewRow != SIZE_MAX ? (uint64_t (previewRow) + 1) * 0xC2B2AE3D27D4EB4Full : 0) ^
                          (uint64_t (1) << 63);
     if (state.plantingSchemeScene == nullptr || state.plantingSchemeSceneBuilt != key) {
         auto geometry = std::make_shared<planting::PlantingSchemeGeometry> ();
@@ -35,12 +34,21 @@ void PublishSchemeScene (HudState& state)
             planting::BuildPlantingSchemeScene (s.result, planting::SchemeMarker (s.marker), s.highlight, *geometry);
         if (map)
             planting::AppendSizeFitMap (fit.site, fit.result, *geometry);
-        if (previewRow != SIZE_MAX)
-            planting::AppendEnvelopePreview (fit.site, previewRow, fit.classes, fit.result, *geometry);
         state.plantingSchemeScene = std::move (geometry);
         state.plantingSchemeSceneBuilt = key;
     }
     state.plantingSchemeSceneKey = key;
+    // The envelope at the cursor follows the hover: built and uploaded alone.
+    if (previewRow == SIZE_MAX)
+        return;
+    const uint64_t envelopeKey = ((uint64_t (previewRow) + 1) * 0xC2B2AE3D27D4EB4Full) ^ (fit.revision << 1) ^ 1;
+    if (state.plantingEnvelopeScene == nullptr || state.plantingEnvelopeSceneBuilt != envelopeKey) {
+        auto envelope = std::make_shared<planting::PlantingSchemeGeometry> ();
+        planting::AppendEnvelopePreview (fit.site, previewRow, fit.classes, fit.result, *envelope);
+        state.plantingEnvelopeScene = std::move (envelope);
+        state.plantingEnvelopeSceneBuilt = envelopeKey;
+    }
+    state.plantingEnvelopeSceneKey = envelopeKey;
 }
 
 } // namespace geomsrv::archviz::plantinghud

@@ -78,8 +78,8 @@ SizeFitResult EvaluateSizeClasses (const PlantingHud& hud, const SchemeSite& sit
 // A display colour per class rank (0 = largest), RGBA8 0xRRGGBBAA: greens,
 // darker for the larger. And the colours for "nothing fits" and "not known".
 uint32_t SizeClassRgba (int rank);
-constexpr uint32_t kSizeNoneRgba = 0xB5544CFFu;
-constexpr uint32_t kSizeUnknownRgba = 0x9A9A9AFFu;
+constexpr uint32_t kSizeNoneRgba = 0xD69A90FFu;
+constexpr uint32_t kSizeUnknownRgba = 0xC4C4C4FFu;
 
 } // namespace geomsrv::archviz::planting
 

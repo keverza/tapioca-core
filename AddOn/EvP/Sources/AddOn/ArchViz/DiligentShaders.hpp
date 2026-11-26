@@ -380,6 +380,11 @@ struct DiligentSceneConstants {
     float textureRotation[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
     float emission[4] = {};
     float finishing[4] = {}; // HDR resolve: bloom and sharpening strengths
+    // ---- appended for the planting HIGHLIGHT (#278) ---------------------------
+    // x = a bit mask of the stepped gradient's bands drawn hatched (a selected
+    // plant's accepted light classes), as a small integer value; 0 = none.
+    // yzw unused. Appended for the reason sunStudyParams gives.
+    float sunStudyHatch[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -421,7 +426,7 @@ enum class DiligentDebugView : int {
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
                                                       16 + 64 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 48 + 32 + 256 +
-                                                      16 + 256 + 16 + 80 + 16 + 16 + 16 + 16 + 16 + 16,
+                                                      16 + 256 + 16 + 80 + 16 + 16 + 16 + 16 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -498,6 +503,7 @@ cbuffer ArchVizConstants
     float4   g_textureRotation; // #252 per range: xy = (cos, sin) of the material's texture rotation
     float4   g_emission;
     float4   g_finishing;
+    float4   g_sunStudyHatch;   // x = bands drawn hatched, as a bit mask value (#278)
 };
 
 // The section plane's signed distance, for SV_ClipDistance0: negative is cut away.
@@ -1165,7 +1171,43 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         psOut.color = StudyOverlayColor (AmPmDurationColor (am, pm) * shade);
         return;
     }
-    psOut.color = HoursOverlayColor (SunRamp (hours, g_sunStudyFilter.z), psIn.worldPos, psIn.normal);
+    // ⚠️ SMOOTH ACROSS CELLS, FOR THE COLOUR ONLY. The hours are blended
+    // bilinearly between the four nearest cell centres of this face's tile, so
+    // a class edge draws as a contour through the cells instead of a staircase
+    // of whole cells. Any neighbour without an answer (a sentinel) keeps the
+    // cell's own value: an edge next to "not analysed" or "unavailable" never
+    // borrows from it. The filter above, the areas and the inspector still
+    // read whole cells.
+    float shownHours = hours;
+    {
+        float fu = dot (relative, face.uAxisAndStart.xyz) * face.originAndInvSpacing.w - face.uAxisAndStart.w - 0.5;
+        float fv = dot (relative, face.vAxisAndStart.xyz) * face.originAndInvSpacing.w - face.vAxisAndStart.w - 0.5;
+        float2 last = face.tile.zw - 1.0;
+        float2 lo = clamp (floor (float2 (fu, fv)), 0.0, last);
+        float2 hi = min (lo + 1.0, last);
+        float2 t = saturate (float2 (fu, fv) - lo);
+        int2 base = int2 (face.tile.xy);
+        float h00 = g_sunAtlas.Load (int3 (base + int2 (lo.x, lo.y), 0));
+        float h10 = g_sunAtlas.Load (int3 (base + int2 (hi.x, lo.y), 0));
+        float h01 = g_sunAtlas.Load (int3 (base + int2 (lo.x, hi.y), 0));
+        float h11 = g_sunAtlas.Load (int3 (base + int2 (hi.x, hi.y), 0));
+        if (min (min (h00, h10), min (h01, h11)) >= 0.0)
+            shownHours = lerp (lerp (h00, h10, t.x), lerp (h01, h11, t.x), t.y);
+    }
+    float3 hoursColour = SunRamp (shownHours, g_sunStudyFilter.z);
+    // A selected plant's accepted classes (the Planting tab's highlight): its
+    // bands in world-fixed diagonal stripes, against the others' dimmed colour.
+    // 0.6 m apart, crossing the unavailable hatch's direction, so neither reads
+    // as the other.
+    uint hatchMask = uint (g_sunStudyHatch.x + 0.5);
+    int hatchBands = int (g_sunStudyPreview.w + 0.5);
+    if (hatchMask != 0u && hatchBands >= 2) {
+        float q = max (g_sunStudyFilter.z, 1e-4);
+        int band = SunBand (floor (shownHours / q + 0.5) * q, hatchBands);
+        if (((hatchMask >> uint (band)) & 1u) != 0u && frac ((psIn.worldPos.x - psIn.worldPos.y) / 0.6) < 0.3)
+            hoursColour *= 0.55;
+    }
+    psOut.color = HoursOverlayColor (hoursColour, psIn.worldPos, psIn.normal);
 }
 )hlsl";
 

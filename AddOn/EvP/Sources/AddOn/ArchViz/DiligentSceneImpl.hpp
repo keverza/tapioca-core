@@ -512,6 +512,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunViewStep = 0;
     uint32_t sunFanMask[3] = { 0u, 0u, 0u };
     uint32_t sunFanCount = 0;
+    uint32_t sunHatchBandMask = 0; // SunStudyViewSettings::hatchBandMask
     // The hours view's display postprocess, HUD-only like the filter above.
     bool sunShadowOverlay = false;
     uint32_t sunLowSunRgba = 0x1F5FD1FFu;
@@ -829,15 +830,17 @@ struct geomsrv::archviz::DiligentScene::Impl {
         sunPathInitFailed = false;
     }
 
-    // The planting scheme (#278): crowns, then same-species lines.
-    GhPreviewLayer plantingSchemeLayers[2];
-    uint64_t plantingSchemeKey = 0;
+    // The planting scheme (#278): crowns, then same-species lines; then the Fit
+    // tab's envelope at the cursor, uploaded on its own key so a hover never
+    // re-uploads the scheme and the size map.
+    GhPreviewLayer plantingSchemeLayers[4];
+    uint64_t plantingSchemeKey = 0, plantingEnvelopeKey = 0;
     bool plantingSchemeInitFailed = false;
     void ShutdownPlantingSchemeOverlay ()
     {
         for (GhPreviewLayer& layer : plantingSchemeLayers)
             layer.Shutdown ();
-        plantingSchemeKey = 0;
+        plantingSchemeKey = plantingEnvelopeKey = 0;
         plantingSchemeInitFailed = false;
     }
 

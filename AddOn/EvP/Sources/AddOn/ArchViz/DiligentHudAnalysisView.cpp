@@ -349,8 +349,9 @@ void UpdateAndDrawAnalysisOverlays (DiligentScene& scene, Diligent::IDeviceConte
                                   state.sunPathSceneKey, modelIsDrawn);
     // The planting scheme (#278): published by the HUD each frame its tab is open.
     scene.DrawPlantingSchemeOverlay (context, viewProj, width, height, colorFormat, depthFormat,
-                                     state.plantingSchemeScene.get (), state.plantingSchemeSceneKey, modelIsDrawn);
-    state.plantingSchemeSceneKey = 0;
+                                     state.plantingSchemeScene.get (), state.plantingSchemeSceneKey,
+                                     state.plantingEnvelopeScene.get (), state.plantingEnvelopeSceneKey, modelIsDrawn);
+    state.plantingSchemeSceneKey = state.plantingEnvelopeSceneKey = 0;
 }
 
 void UpdateAndDrawModelOverlays (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& state,

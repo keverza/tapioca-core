@@ -255,7 +255,7 @@ struct PlantingHud {
     // Display.
     int metric = kSunClass;
     // Class colours, lowest class first: deep shade, shade, partial, sun.
-    uint32_t classRgba[kMaxClasses] = { 0x2E4766FFu, 0x4F6D8FFFu, 0xC9B98AFFu, 0xF2C230FFu };
+    uint32_t classRgba[kMaxClasses] = { 0x7F8FAEFFu, 0xA7BBD4FFu, 0xE6D8B2FFu, 0xF3DC94FFu }; // pastel
     // Empty: the class swatches above; else a gradient library preset (or
     // kCustomGradientId and classCustom) sampled at each band's centre.
     std::string classPreset;

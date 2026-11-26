@@ -17,14 +17,17 @@ void DiligentScene::DrawPlantingSchemeOverlay (Diligent::IDeviceContext* context
                                                uint32_t surfaceWidth, uint32_t surfaceHeight,
                                                uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                                                const planting::PlantingSchemeGeometry* replacement, uint64_t key,
+                                               const planting::PlantingSchemeGeometry* envelope, uint64_t envelopeKey,
                                                bool modelIsDrawn)
 {
     if (impl_ == nullptr || context == nullptr || impl_->device == nullptr || impl_->plantingSchemeInitFailed)
         return;
     if (key == 0 || replacement == nullptr) {
-        impl_->plantingSchemeKey = 0;
+        impl_->plantingSchemeKey = impl_->plantingEnvelopeKey = 0;
         return;
     }
+    if (envelope == nullptr)
+        envelopeKey = 0;
     for (GhPreviewLayer& layer : impl_->plantingSchemeLayers) {
         if (layer.IsReady ())
             continue;
@@ -35,22 +38,29 @@ void DiligentScene::DrawPlantingSchemeOverlay (Diligent::IDeviceContext* context
             return;
         }
     }
-    if (impl_->plantingSchemeKey != key) {
-        const GhPreviewDrawables* sets[2] = { &replacement->crowns, &replacement->links };
+    const auto upload = [&] (const planting::PlantingSchemeGeometry& g, int first, uint64_t& kept, uint64_t wanted) {
+        if (kept == wanted)
+            return true;
+        const GhPreviewDrawables* sets[2] = { &g.crowns, &g.links };
         for (int i = 0; i < 2; ++i) {
             std::string uploadError;
-            if (!impl_->plantingSchemeLayers[i].Upload (impl_->device, context, *sets[i], uploadError)) {
-                impl_->plantingSchemeKey = 0;
+            if (!impl_->plantingSchemeLayers[first + i].Upload (impl_->device, context, *sets[i], uploadError)) {
+                kept = 0;
                 ArchVizLog ("Diligent scene: planting scheme overlay not uploaded (" + uploadError + ")");
-                return;
+                return false;
             }
         }
-        impl_->plantingSchemeKey = key;
-    }
+        kept = wanted;
+        return true;
+    };
+    if (!upload (*replacement, 0, impl_->plantingSchemeKey, key))
+        return;
+    if (envelopeKey != 0 && !upload (*envelope, 2, impl_->plantingEnvelopeKey, envelopeKey))
+        envelopeKey = 0;
     // The model's depth first, as every occluded channel does.
     DrawOcclusionDepth (context, viewProj, true, modelIsDrawn, colorBufferFormat, depthBufferFormat);
-    constexpr float kWidths[2] = { 1.25f, planting::kSchemeLinkPixels };
-    for (int i = 0; i < 2; ++i) {
+    constexpr float kWidths[4] = { 1.25f, planting::kSchemeLinkPixels, 1.25f, planting::kSchemeLinkPixels };
+    for (int i = 0; i < (envelopeKey != 0 ? 4 : 2); ++i) {
         GhPreviewLayer::DrawParams params;
         params.lineWidthPixels = kWidths[i];
         params.ambient = 0.6f; // the cylinders' sides take the light; their tops stay readable

@@ -45,7 +45,7 @@ const char* SizeReasonName (SizeReason r)
 
 uint32_t SizeClassRgba (int rank)
 {
-    static constexpr uint32_t kGreens[] = { 0x1F6B3AFFu, 0x3E9A50FFu, 0x8CC76BFFu, 0xC9E59AFFu };
+    static constexpr uint32_t kGreens[] = { 0x5F9B72FFu, 0x86B98FFFu, 0xB1D5A3FFu, 0xD8EBC6FFu };
     constexpr int n = int (sizeof (kGreens) / sizeof (kGreens[0]));
     return kGreens[std::clamp (rank, 0, n - 1)];
 }

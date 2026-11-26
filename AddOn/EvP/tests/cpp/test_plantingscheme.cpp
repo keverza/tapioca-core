@@ -454,8 +454,8 @@ TEST (PlantingSizeFit, NoGoAndOffAreReasonsAndTheMapHasACellPerSample)
 
     PlantingSchemeGeometry geometry;
     AppendSizeFitMap (site, fit, geometry);
-    EXPECT_EQ (geometry.crowns.translucent.meshVertices.size (), site.Size () * 4);
-    EXPECT_EQ (geometry.crowns.translucent.meshIndices.size (), site.Size () * 6);
+    EXPECT_EQ (geometry.crowns.surfaceDecals.meshVertices.size (), site.Size () * 4);
+    EXPECT_EQ (geometry.crowns.surfaceDecals.meshIndices.size (), site.Size () * 6);
 }
 
 TEST (PlantHardiness, ZonesFromTemperatureAndRanges)

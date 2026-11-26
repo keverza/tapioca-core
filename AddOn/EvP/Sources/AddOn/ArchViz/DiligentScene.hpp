@@ -722,10 +722,12 @@ class DiligentScene final {
 
     // A placed planting scheme (#278): translucent crown cylinders and the
     // lines joining each species, depth-tested like the sun path. Uploaded only
-    // when `key` changes; key 0 hides it.
+    // when `key` changes; key 0 hides it. `envelope` (the Fit tab's crowns at
+    // the cursor) is uploaded only when `envelopeKey` changes; 0 hides it.
     void DrawPlantingSchemeOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
                                     uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                                     const planting::PlantingSchemeGeometry* replacement, uint64_t key,
+                                    const planting::PlantingSchemeGeometry* envelope, uint64_t envelopeKey,
                                     bool modelIsDrawn);
 
     // ---- picking (PLAT-RE34) -----------------------------------------------

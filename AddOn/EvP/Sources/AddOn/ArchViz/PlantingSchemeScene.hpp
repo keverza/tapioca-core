@@ -35,7 +35,8 @@ struct PlantingSchemeGeometry {
 void BuildPlantingSchemeScene (const SchemeResult& scheme, SchemeMarker marker, int highlight,
                                PlantingSchemeGeometry& out);
 
-// The size map (#278 Stage 2): one translucent plan square per sample, the
+// The size map (#278 Stage 2): one opaque plan square per sample (a coplanar
+// decal, out.crowns.surfaceDecals), the
 // sample's cell (its plan area) just above the host, coloured by the largest
 // class that fits (SizeClassRgba by rank), kSizeNoneRgba where none fits and
 // kSizeUnknownRgba where none is known to. Appended to `out.crowns`.

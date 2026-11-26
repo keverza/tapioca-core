@@ -260,6 +260,10 @@ struct SunStudyViewSettings {
     // split at `bandEdges` (ArchViz/SunStudyPreview.hpp).
     int bandCount = 0;
     float bandEdges[11] = {};
+    // The bands drawn hatched, one bit each (bit 0 = the lowest band): the
+    // Planting tab's selected plant and the light classes it accepts. Read
+    // only with bands. 0 = none.
+    uint32_t hatchBandMask = 0;
     // The hours colours: the HUD's gradient preset's stops (#102); fewer than two
     // keeps the scene's default ramp (ArchViz/SunStudyPreview.hpp kSunLegacyRamp).
     overlaylayers::ColourStop ramp[overlaylayers::kMaxStops] = {};

@@ -123,7 +123,9 @@ void AppendEnvelopePreview (const SchemeSite& site, size_t row, const std::vecto
 
 void AppendSizeFitMap (const SchemeSite& site, const SizeFitResult& fit, PlantingSchemeGeometry& out)
 {
-    GhPreviewBucket& b = out.crowns.translucent;
+    // OPAQUE, IN THE COPLANAR DECAL BUCKET: a translucent square mixed the
+    // class colour with the light map under it, and its edge with neighbours.
+    GhPreviewBucket& b = out.crowns.surfaceDecals;
     const size_t n = std::min (site.Size (), fit.largest.size ());
     for (size_t s = 0; s < n; ++s) {
         uint32_t rgba = kSizeNoneRgba;
@@ -133,9 +135,10 @@ void AppendSizeFitMap (const SchemeSite& site, const SizeFitResult& fit, Plantin
         }
         else if (fit.anyUnknown[s])
             rgba = kSizeUnknownRgba;
-        const uint32_t ink = Display (rgba, 170);
-        const double half = (site.area.size () == site.Size () && site.area[s] > 0 ? std::sqrt (site.area[s]) : 0.5) *
-                            0.5 * 0.92; // a hair gap, so the cells read
+        const uint32_t ink = Display (rgba, 255);
+        // The whole cell, so neighbours meet without a seam of the map below.
+        const double half =
+            (site.area.size () == site.Size () && site.area[s] > 0 ? std::sqrt (site.area[s]) : 0.5) * 0.5;
         const double z = site.groundZ[s] + 0.03;
         const uint32_t base = uint32_t (b.meshVertices.size ());
         Vertex (b, site.x[s] - half, site.y[s] - half, z, 0, 0, 1, ink);

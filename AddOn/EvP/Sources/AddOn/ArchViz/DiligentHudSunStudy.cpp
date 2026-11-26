@@ -593,6 +593,9 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
         view.bandCount = std::clamp (state.sunBandCount, kSunBandsMin, kSunBandsMax);
         std::copy (state.sunBandEdges, state.sunBandEdges + 11, view.bandEdges);
         SunStudyClampBandEdges (view.bandCount, view.bandEdges);
+        // The Planting tab's highlight, only while its class bands are the ones shown.
+        if (state.planting.sunHold.held && state.planting.metric == planting::kSunClass)
+            view.hatchBandMask = state.planting.highlightMask;
     }
     const int effective = view.viewOverride >= 0 ? view.viewOverride : CommandedMode (state);
     if (effective == 7 && state.sunFanInterval >= 0 && state.sunFanInterval < kFanCount) {

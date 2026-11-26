@@ -356,6 +356,9 @@ struct HudState {
     // frame loop draws it and consumes it, so leaving the tab hides the markers.
     std::shared_ptr<const planting::PlantingSchemeGeometry> plantingSchemeScene;
     uint64_t plantingSchemeSceneKey = 0, plantingSchemeSceneBuilt = 0;
+    // The Fit tab's envelope at the cursor, apart, so a hover rebuilds only it.
+    std::shared_ptr<const planting::PlantingSchemeGeometry> plantingEnvelopeScene;
+    uint64_t plantingEnvelopeSceneKey = 0, plantingEnvelopeSceneBuilt = 0;
     // The sunpath's words (#182), world-anchored, drawn by the scene text pass
     // with depth; `sunPathSceneText` is that pass's readiness, set before the
     // HUD each frame. False: the HUD draws them itself, unoccluded.
