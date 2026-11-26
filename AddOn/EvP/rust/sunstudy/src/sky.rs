@@ -24,7 +24,7 @@ pub mod cie;
 pub mod dome;
 pub mod perez;
 
-pub use dome::{Dome, Patch, PatchSet};
+pub use dome::{Cell, Dome, Patch, PatchSet};
 
 /// Version of the sky registry: bumped when a distribution, a coefficient, a
 /// patch order or a normalisation rule changes, so a stored result can tell.

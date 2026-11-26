@@ -218,6 +218,12 @@ pub use sunstudy::{
     tapioca_sunstudy_sample_grid,
 };
 pub use sunstudy::{
+    ClimateCreateRequest, ClimateHandle, ClimateIntervalRecord, ClimateReadOutput,
+    ClimateReportRecord, SkyCellRecord, SkyPatchRecord, tapioca_sunstudy_climate_add,
+    tapioca_sunstudy_climate_create, tapioca_sunstudy_climate_destroy,
+    tapioca_sunstudy_climate_read, tapioca_sunstudy_sky_cells, tapioca_sunstudy_sky_patches,
+};
+pub use sunstudy::{
     FirstHitRayRecord, OcclusionRayRecord, RayHitRecord, RayQueryVtable, ViewpointOutput,
     ViewpointRequest, VisibilityHandle, VisibilityOptionsRecord, VisibilityReadOutput,
     VisibilityRunRequest, VisibilitySummary, tapioca_sunstudy_viewpoint,

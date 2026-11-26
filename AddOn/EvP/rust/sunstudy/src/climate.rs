@@ -13,9 +13,11 @@
 //!   the ground albedo times the plane's isotropic ground view `(1 − n_z)/2`.
 //!   The ground is taken as unshaded; that is stated, not hidden.
 //!
-//! A sample's path to the sky or the sun is **open**, through **canopy**, or
-//! **blocked**. Canopy passes the month's transmittance (seasonal leaf cover);
-//! everything else is opaque, as in the geometric study.
+//! A sample sees each sky patch in shares: open, through **canopy** only, and
+//! blocked ([`SkyMasks`]); the beam's path for one interval is **open**,
+//! **canopy** or **blocked** ([`Path`]). Canopy passes the month's
+//! transmittance (seasonal leaf cover); everything else is opaque, as in the
+//! geometric study.
 //!
 //! ⚠️ ENERGY, NOT POWER. Every output is Wh/m² over the intervals presented;
 //! an interval's energy is its mean W/m² times its hours.
@@ -57,80 +59,77 @@ impl Path {
     }
 }
 
-/// Per sample and patch, the path to the sky: two bit sets, packed.
+/// Full share in a mask byte.
+pub const SHARE_FULL: u8 = 255;
+
+/// Per sample and patch, how much of the patch is seen: the share open and the
+/// share through canopy only, each a byte (0–255 of the patch's projected
+/// weight). A patch is rarely all or nothing: a single ray at its centroid
+/// misreads a patch an edge cuts, and that error does not shrink with a finer
+/// dome (#155 P0). The caller traces several rays per patch
+/// ([`crate::sky::Dome::cells`]) and stores the weighted shares.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SkyMasks {
     patches: usize,
-    words: usize,
-    open: Vec<u64>,
-    canopy: Vec<u64>,
+    open: Vec<u8>,
+    canopy: Vec<u8>,
 }
 
 impl SkyMasks {
-    /// All paths blocked, for `samples` × `patches`.
+    /// Nothing seen, for `samples` × `patches`.
     #[must_use]
     pub fn new(samples: usize, patches: usize) -> Self {
-        let words = patches.div_ceil(64);
         Self {
             patches,
-            words,
-            open: vec![0; samples * words],
-            canopy: vec![0; samples * words],
+            open: vec![0; samples * patches],
+            canopy: vec![0; samples * patches],
         }
     }
 
-    /// Set one sample's paths from one wire value per patch.
+    /// Set one sample's shares, one byte per patch; `canopy` may be empty
+    /// (none through canopy). Open plus canopy may not exceed the patch.
     ///
     /// # Errors
-    /// The sample is out of range or `paths` is not one per patch.
-    pub fn set(&mut self, sample: usize, paths: &[u8]) -> Result<(), ClimateRefusal> {
-        if paths.len() != self.patches {
+    /// The sample is out of range, a slice is not one per patch, or a patch's
+    /// shares add up to more than [`SHARE_FULL`].
+    pub fn set(&mut self, sample: usize, open: &[u8], canopy: &[u8]) -> Result<(), ClimateRefusal> {
+        let n = self.patches;
+        if open.len() != n || !(canopy.is_empty() || canopy.len() == n) {
             return Err(ClimateRefusal::Length);
         }
-        let base = sample * self.words;
-        let open = self
-            .open
-            .get_mut(base..base + self.words)
-            .ok_or(ClimateRefusal::Length)?;
-        open.fill(0);
-        for (p, &v) in paths.iter().enumerate() {
-            if Path::from_u8(v) == Path::Open
-                && let Some(w) = open.get_mut(p / 64)
-            {
-                *w |= 1 << (p % 64);
-            }
+        if canopy
+            .iter()
+            .zip(open)
+            .any(|(&c, &o)| u16::from(c) + u16::from(o) > u16::from(SHARE_FULL))
+        {
+            return Err(ClimateRefusal::Length);
         }
-        let canopy = self
-            .canopy
-            .get_mut(base..base + self.words)
+        let range = sample * n..(sample + 1) * n;
+        let target = self
+            .open
+            .get_mut(range.clone())
             .ok_or(ClimateRefusal::Length)?;
-        canopy.fill(0);
-        for (p, &v) in paths.iter().enumerate() {
-            if Path::from_u8(v) == Path::Canopy
-                && let Some(w) = canopy.get_mut(p / 64)
-            {
-                *w |= 1 << (p % 64);
-            }
+        target.copy_from_slice(open);
+        let target = self.canopy.get_mut(range).ok_or(ClimateRefusal::Length)?;
+        if canopy.is_empty() {
+            target.fill(0);
+        } else {
+            target.copy_from_slice(canopy);
         }
         Ok(())
     }
 
-    /// One sample's path to one patch.
+    /// The share of `patch` that `sample` sees, 0–1, canopy passing
+    /// `canopy_transmittance`.
     #[must_use]
-    pub fn path(&self, sample: usize, patch: usize) -> Path {
-        let at = sample * self.words + patch / 64;
-        let bit = 1_u64 << (patch % 64);
-        if self.open.get(at).is_some_and(|w| w & bit != 0) {
-            Path::Open
-        } else if self.canopy.get(at).is_some_and(|w| w & bit != 0) {
-            Path::Canopy
-        } else {
-            Path::Blocked
-        }
+    pub fn pass(&self, sample: usize, patch: usize, canopy_transmittance: f64) -> f64 {
+        let at = sample * self.patches + patch;
+        let byte = |v: &Vec<u8>| f64::from(v.get(at).copied().unwrap_or(0));
+        (byte(&self.open) + canopy_transmittance * byte(&self.canopy)) / f64::from(SHARE_FULL)
     }
 
-    /// Geometric sky view factor of `sample` with unit `normal`: open patches
-    /// count 1, canopy `canopy_transmittance`, in patch order. Weather-free.
+    /// Geometric sky view factor of `sample` with unit `normal`, canopy
+    /// passing `canopy_transmittance`, in patch order. Weather-free.
     #[must_use]
     pub fn view_factor(
         &self,
@@ -141,11 +140,7 @@ impl SkyMasks {
     ) -> f64 {
         let mut sum = 0.0;
         for (p, patch) in dome.patches().iter().enumerate() {
-            let pass = match self.path(sample, p) {
-                Path::Open => 1.0,
-                Path::Canopy => canopy_transmittance,
-                Path::Blocked => 0.0,
-            };
+            let pass = self.pass(sample, p, canopy_transmittance);
             if pass > 0.0 {
                 sum += pass * patch.projected(normal);
             }
@@ -285,7 +280,7 @@ impl Climate {
     pub fn new(setup: ClimateSetup) -> Result<Self, ClimateRefusal> {
         let samples = setup.normals.len();
         if setup.masks.patches != setup.dome.len()
-            || setup.masks.open.len() != samples * setup.masks.words
+            || setup.masks.open.len() != samples * setup.masks.patches
         {
             return Err(ClimateRefusal::Length);
         }
@@ -419,9 +414,35 @@ impl Climate {
         }
     }
 
-    /// Integrate the masks against the monthly fields and return the totals.
+    /// Samples measured.
     #[must_use]
-    pub fn finish(self) -> ClimateTotals {
+    pub fn sample_count(&self) -> usize {
+        self.setup.normals.len()
+    }
+
+    /// Patches per sample.
+    #[must_use]
+    pub fn patch_count(&self) -> usize {
+        self.setup.dome.len()
+    }
+
+    /// Each sample's geometric sky view factor through open paths only: the
+    /// weather-free quantity, kept apart from the climatic totals.
+    #[must_use]
+    pub fn sky_view_factors(&self) -> Vec<f64> {
+        let setup = &self.setup;
+        setup
+            .normals
+            .iter()
+            .enumerate()
+            .map(|(s, &n)| setup.masks.view_factor(&setup.dome, s, n, 0.0))
+            .collect()
+    }
+
+    /// Integrate the masks against the monthly fields: the totals so far. The
+    /// run can go on adding intervals afterwards.
+    #[must_use]
+    pub fn totals(&self) -> ClimateTotals {
         let Self {
             setup,
             direct,
@@ -429,6 +450,8 @@ impl Climate {
             ground,
             report,
         } = self;
+        let direct = direct.clone();
+        let report = report.clone();
         let mut diffuse = vec![[0.0; 12]; direct.len()];
         let mut reflected = vec![[0.0; 12]; direct.len()];
         for (s, normal) in setup.normals.iter().enumerate() {
@@ -442,11 +465,7 @@ impl Climate {
             {
                 let mut sum = 0.0;
                 for (p, (w, f)) in projected.iter().zip(month_field).enumerate() {
-                    let pass = match setup.masks.path(s, p) {
-                        Path::Open => 1.0,
-                        Path::Canopy => tau,
-                        Path::Blocked => 0.0,
-                    };
+                    let pass = setup.masks.pass(s, p, tau);
                     sum += w * pass * f;
                 }
                 add_to(out, m, sum);

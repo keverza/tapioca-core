@@ -80,6 +80,15 @@ pub struct Patch {
     pub frame_angle: f64,
 }
 
+/// One cell of a patch ([`Dome::cells`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cell {
+    /// The patch it belongs to, in the dome's order.
+    pub patch: usize,
+    /// The cell's span and integrals.
+    pub cell: Patch,
+}
+
 /// A patch set, built once.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Dome {
@@ -130,6 +139,40 @@ impl Dome {
                 })
                 .collect(),
         }
+    }
+
+    /// Every patch split into `per_side`² cells (altitude × azimuth, equal
+    /// steps), patch by patch in the dome's order, cells altitude-major. Each
+    /// cell carries its own exact integrals in this dome's frame. A mask pass
+    /// casts one ray per cell and weighs each by its projected solid angle.
+    /// `per_side` 0 is taken as 1.
+    #[must_use]
+    pub fn cells(&self, per_side: u32) -> Vec<Cell> {
+        let k = per_side.max(1);
+        let n = f64::from(k);
+        let mut out = Vec::with_capacity(self.patches.len() * (k * k) as usize);
+        for (index, p) in self.patches.iter().enumerate() {
+            let (da, dp) = (
+                (p.altitude[1] - p.altitude[0]) / n,
+                (p.azimuth[1] - p.azimuth[0]) / n,
+            );
+            for i in 0..k {
+                let a0 = p.altitude[0] + da * f64::from(i);
+                for j in 0..k {
+                    let p0 = p.azimuth[0] + dp * f64::from(j);
+                    let cell = patch([a0, a0 + da], [p0, p0 + dp]);
+                    let turned = Dome {
+                        set: self.set,
+                        patches: vec![cell],
+                    }
+                    .rotated(p.frame_angle);
+                    if let Some(&cell) = turned.patches.first() {
+                        out.push(Cell { patch: index, cell });
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// The set this dome was built from.

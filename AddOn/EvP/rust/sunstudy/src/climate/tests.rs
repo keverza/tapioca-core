@@ -17,10 +17,22 @@ fn at(altitude: f64, azimuth: f64) -> [f64; 3] {
     [p.sin() * a.cos(), p.cos() * a.cos(), a.sin()]
 }
 
+/// A path as (open, canopy) mask shares over a whole patch.
+fn shares(path: u8) -> (u8, u8) {
+    match Path::from_u8(path) {
+        Path::Open => (SHARE_FULL, 0),
+        Path::Canopy => (0, SHARE_FULL),
+        Path::Blocked => (0, 0),
+    }
+}
+
 fn setup(dome: Dome, normals: Vec<[f64; 3]>, path: u8, sky: DiffuseSky, tau: f64) -> ClimateSetup {
     let mut masks = SkyMasks::new(normals.len(), dome.len());
     for s in 0..normals.len() {
-        masks.set(s, &vec![path; dome.len()]).unwrap();
+        let (open, canopy) = shares(path);
+        masks
+            .set(s, &vec![open; dome.len()], &vec![canopy; dome.len()])
+            .unwrap();
     }
     ClimateSetup {
         dome,
@@ -64,7 +76,7 @@ fn run(setup: ClimateSetup, intervals: &[ClimateInterval], beam: u8) -> ClimateT
         c.add(i, i.needs_beam().then_some(paths.as_slice()))
             .unwrap();
     }
-    c.finish()
+    c.totals()
 }
 
 fn close(a: f64, b: f64, rel: f64) -> bool {
@@ -308,20 +320,32 @@ fn a_needed_beam_and_matching_lengths_are_required() {
 }
 
 #[test]
-fn masks_give_the_geometric_view_factor() {
+fn masks_give_the_geometric_view_factor_from_their_shares() {
     let dome = Dome::new(PatchSet::Tregenza);
-    let mut masks = SkyMasks::new(2, dome.len());
-    masks.set(0, &vec![OPEN; dome.len()]).unwrap();
-    let half: Vec<u8> = (0..dome.len())
-        .map(|p| if p % 2 == 0 { OPEN } else { CANOPY })
-        .collect();
-    masks.set(1, &half).unwrap();
-    assert!((masks.view_factor(&dome, 0, [0.0, 0.0, 1.0], 0.0) - 1.0).abs() < 1e-12);
-    let leafless = masks.view_factor(&dome, 1, [0.0, 0.0, 1.0], 1.0);
-    assert!((leafless - 1.0).abs() < 1e-12);
-    assert_eq!(masks.path(1, 1), Path::Canopy);
-    assert_eq!(masks.path(1, 0), Path::Open);
-    assert!(masks.set(0, &[OPEN]).is_err());
+    let n = dome.len();
+    let mut masks = SkyMasks::new(3, n);
+    masks.set(0, &vec![SHARE_FULL; n], &[]).unwrap();
+    // Half of every patch open, the other half behind canopy.
+    masks
+        .set(
+            1,
+            &vec![SHARE_FULL / 2; n],
+            &vec![SHARE_FULL - SHARE_FULL / 2; n],
+        )
+        .unwrap();
+    let up = [0.0, 0.0, 1.0];
+    assert!((masks.view_factor(&dome, 0, up, 0.0) - 1.0).abs() < 1e-12);
+    let open_half = f64::from(SHARE_FULL / 2) / f64::from(SHARE_FULL);
+    assert!((masks.view_factor(&dome, 1, up, 0.0) - open_half).abs() < 1e-12);
+    assert!((masks.view_factor(&dome, 1, up, 1.0) - 1.0).abs() < 1e-12);
+    assert!((masks.pass(1, 7, 0.5) - (open_half + 0.5 * (1.0 - open_half))).abs() < 1e-12);
+    // An untouched sample sees nothing.
+    assert_eq!(masks.view_factor(&dome, 2, up, 1.0), 0.0);
+    assert!(masks.set(0, &[SHARE_FULL], &[]).is_err());
+    assert!(
+        masks.set(0, &vec![200; n], &vec![100; n]).is_err(),
+        "more than the whole patch"
+    );
 }
 
 #[test]
@@ -349,11 +373,11 @@ fn a_refused_interval_changes_nothing() {
     );
     let mut c = Climate::new(s).unwrap();
     let noon = day(5, false)[7];
-    let before = c.clone().finish();
+    let before = c.totals();
     assert_eq!(c.add(&noon, None), Err(ClimateRefusal::Beam));
     assert_eq!(
         c.add(&noon, Some(&[OPEN, OPEN])),
         Err(ClimateRefusal::Length)
     );
-    assert_eq!(c.finish(), before);
+    assert_eq!(c.totals(), before);
 }

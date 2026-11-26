@@ -12,6 +12,7 @@ use crate::boundary::{Failure, call, memory_range, overlaps};
 mod annual;
 mod atlas;
 mod camera;
+mod climate;
 mod follower;
 mod ground;
 mod host;
@@ -52,6 +53,12 @@ pub use atlas::{
 pub use camera::{
     AccumLayoutOutput, GridLadderOutput, GridLadderRequest, ShadowCamera, ShadowCameraRequest,
     tapioca_sunstudy_accum_layout, tapioca_sunstudy_grid_ladder, tapioca_sunstudy_shadow_camera,
+};
+pub use climate::{
+    ClimateCreateRequest, ClimateHandle, ClimateIntervalRecord, ClimateReadOutput,
+    ClimateReportRecord, SkyCellRecord, SkyPatchRecord, tapioca_sunstudy_climate_add,
+    tapioca_sunstudy_climate_create, tapioca_sunstudy_climate_destroy,
+    tapioca_sunstudy_climate_read, tapioca_sunstudy_sky_cells, tapioca_sunstudy_sky_patches,
 };
 pub use follower::{
     FollowerEvent, FollowerHandle, FollowerSnapshot, FollowerTextOutput,
@@ -303,6 +310,12 @@ const _: () = {
     assert!(size_of::<VisibilityRunRequest>() == 208);
     assert!(size_of::<VisibilitySummary>() == 88);
     assert!(size_of::<VisibilityReadOutput>() == 112);
+    assert!(size_of::<SkyPatchRecord>() == 56);
+    assert!(size_of::<ClimateCreateRequest>() == 160);
+    assert!(size_of::<SkyCellRecord>() == 64);
+    assert!(size_of::<ClimateIntervalRecord>() == 72);
+    assert!(size_of::<ClimateReportRecord>() == 328);
+    assert!(size_of::<ClimateReadOutput>() == 48);
 };
 
 type Range = Option<(usize, usize)>;

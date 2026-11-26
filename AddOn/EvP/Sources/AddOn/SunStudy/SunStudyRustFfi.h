@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (6)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (7)
 
 #ifdef __cplusplus
 extern "C" {
@@ -491,6 +491,96 @@ typedef struct {
 
 TapiocaStatus tapioca_sunstudy_station_distance (const TapiocaStationDistanceRequest* request, double* metres,
                                                  char* error, size_t errorCapacity);
+
+/* Sky patch domes (#269): set 0 Tregenza 145, 1 Reinhart 577, in the
+ * contract's order (rows from the horizon, clockwise from north, cap last),
+ * turned by `rotation` radians about z (sky north lands on (-sin, cos)).
+ * With capacity below the count only `written` is set. */
+typedef struct {
+    double direction[3]; /* unit centroid: where a mask ray is cast */
+    double moment[3];    /* integral of d dOmega, sr */
+    double solidAngle;   /* sr */
+} TapiocaSkyPatch;
+
+TapiocaStatus tapioca_sunstudy_sky_patches (uint8_t set, double rotation, TapiocaSkyPatch* out, size_t capacity,
+                                            size_t* written, char* error, size_t errorCapacity);
+
+/* Every patch split into perSide^2 cells (1-16), patch by patch in the
+ * dome's order, cells altitude-major: one mask ray per cell, weighted by
+ * max(0, n . moment). */
+typedef struct {
+    double direction[3];
+    double moment[3];
+    double solidAngle;
+    uint32_t patch;
+    uint32_t reserved;
+} TapiocaSkyCell;
+
+TapiocaStatus tapioca_sunstudy_sky_cells (uint8_t set, double rotation, uint32_t perSide, TapiocaSkyCell* out,
+                                          size_t capacity, size_t* written, char* error, size_t errorCapacity);
+
+/* Climate irradiation (#155 F3): per sample and month, direct, diffuse and
+ * ground-reflected Wh/m2, one weather interval at a time; the sky view
+ * factor through the open shares is read alongside, never mixed in. Sky
+ * masks are shares of each patch, 0-255: seen open, and seen through canopy
+ * only (passes the month's transmittance). The beam's path per sample is 0
+ * blocked, 1 canopy, 2 open. A refused interval changes nothing. Refusal
+ * names: ClimateLength, ClimateInterval, ClimateBeamMissing, ClimateMasks,
+ * ClimateNormals, ClimateSky, ClimateCanopy. */
+typedef struct TapiocaSunStudyClimate TapiocaSunStudyClimate;
+
+typedef struct {
+    TapiocaDoubleView normals; /* 3 per sample, unit, model frame */
+    TapiocaByteView open;      /* samples x patches: share seen open, 0-255 */
+    TapiocaByteView canopy;    /* the same layout, through canopy only; may be empty */
+    double canopyTransmittance[12];
+    double rotation; /* as sky_patches */
+    uint8_t patchSet;
+    uint8_t sky; /* 0 Perez 1993, 1 isotropic */
+    uint8_t reserved[6];
+} TapiocaClimateCreateRequest;
+
+typedef struct {
+    double sun[3]; /* to the sun at the interval midpoint, model frame */
+    double hours;
+    double dni;       /* mean W/m2, NaN missing */
+    double dhi;       /* mean W/m2, NaN missing */
+    double albedo;    /* outside (0, 1]: 0.2 */
+    double dewPointC; /* NaN missing */
+    uint32_t dayOfYear;
+    uint8_t month; /* 0 = January */
+    uint8_t reserved[3];
+} TapiocaClimateInterval;
+
+typedef struct {
+    double validHours[12];
+    double missingHours[12];
+    double openHorizontal[12]; /* sum (DNI sin a + DHI) dt, Wh/m2 */
+    double beamBelowHorizon;   /* Wh/m2 */
+    double maxClampedShare;
+    uint32_t isotropicIntervals;
+    uint32_t heldIntervals;
+    size_t sampleCount;
+    size_t patchCount;
+} TapiocaClimateReport;
+
+typedef struct {
+    double* direct;    /* capacity x 12 */
+    double* diffuse;   /* capacity x 12 */
+    double* reflected; /* capacity x 12 */
+    double* skyView;   /* capacity */
+    size_t capacity;   /* below the sample count: only the report */
+    TapiocaClimateReport* report;
+} TapiocaClimateReadOutput;
+
+TapiocaStatus tapioca_sunstudy_climate_create (const TapiocaClimateCreateRequest* request, TapiocaSunStudyClimate** out,
+                                               char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_climate_destroy (TapiocaSunStudyClimate* handle, char* error, size_t errorCapacity);
+/* `beam`: one path per sample; may be empty with the sun down or DNI 0. */
+TapiocaStatus tapioca_sunstudy_climate_add (TapiocaSunStudyClimate* handle, const TapiocaClimateInterval* interval,
+                                            TapiocaByteView beam, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_climate_read (const TapiocaSunStudyClimate* handle,
+                                             const TapiocaClimateReadOutput* output, char* error, size_t errorCapacity);
 
 /* Planting receptor layer (#278): a sampled grid lifted vertically above its
  * host. Empty ceilings means no overhead test. status bytes: 0 available,

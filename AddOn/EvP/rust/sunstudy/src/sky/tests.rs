@@ -426,3 +426,23 @@ fn perez_luminance_matches_an_independent_reading_of_the_paper() {
         );
     }
 }
+
+#[test]
+fn cells_tile_their_patches_exactly_in_any_frame() {
+    for dome in domes() {
+        let turned = dome.rotated(0.9);
+        let cells = turned.cells(3);
+        assert_eq!(cells.len(), 9 * turned.len());
+        for (index, patch) in turned.patches().iter().enumerate() {
+            let mine: Vec<_> = cells.iter().filter(|c| c.patch == index).collect();
+            assert_eq!(mine.len(), 9);
+            let omega: f64 = mine.iter().map(|c| c.cell.solid_angle).sum();
+            assert!((omega - patch.solid_angle).abs() < 1e-12);
+            for axis in 0..3 {
+                let m: f64 = mine.iter().map(|c| c.cell.moment[axis]).sum();
+                assert!((m - patch.moment[axis]).abs() < 1e-12, "{index} {axis}");
+            }
+        }
+    }
+    assert_eq!(Dome::new(PatchSet::Tregenza).cells(0).len(), 145);
+}
