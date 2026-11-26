@@ -160,6 +160,11 @@ struct SchemeState {
     int marker = 0;     // SchemeMarker
     float crownOverlap = 0.0f;
     bool show = true;
+    // Above-ground space fit (Stage 2): keep mature crowns clear of walls and
+    // overhangs once the layer's room is measured, with this margin, m.
+    bool checkSpace = true;
+    float clearanceMargin = 0.0f;
+    std::string roomStatus; // "Measuring room... 40 %", or why it is not checked
     // The region read for `siteStudy`, as classes at the edges it was read with.
     std::string siteStudy;
     std::vector<double> siteEdges;

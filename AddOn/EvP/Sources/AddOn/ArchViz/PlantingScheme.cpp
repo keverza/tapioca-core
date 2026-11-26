@@ -60,19 +60,55 @@ void LinkSpecies (const std::vector<PlacedPlant>& plants, const std::vector<int>
 
 } // namespace
 
+const char* SpaceFitName (SpaceFit fit)
+{
+    switch (fit) {
+        case SpaceFit::Fits:
+            return "fits";
+        case SpaceFit::Overhead:
+            return "under an overhang";
+        case SpaceFit::Narrow:
+            return "too close to a wall";
+        case SpaceFit::Beyond:
+            return "wider than the measured reach";
+    }
+    return "";
+}
+
+SpaceFit FitAt (const evp::sunstudy::CrownClearance& room, size_t sample, double radius, double height, double margin)
+{
+    const double above = room.overhead[sample];
+    if (above >= 0.0 && above < height + margin)
+        return SpaceFit::Overhead;
+    const double need = radius + margin;
+    const bool beyond = need > room.reach;
+    for (size_t l = 0; l < room.levels.size (); ++l) {
+        if (l > 0 && room.levels[l] > height)
+            break;
+        const double free = room.FreeAt (sample, l);
+        if (free < need && free < room.reach)
+            return SpaceFit::Narrow;
+    }
+    return beyond ? SpaceFit::Beyond : SpaceFit::Fits;
+}
+
 SchemeSite RestrictToZone (const SchemeSite& site, const PlantingZone& zone)
 {
     SchemeSite out;
     out.layerHeight = site.layerHeight;
+    std::vector<size_t> keep;
     for (size_t s = 0; s < site.Size (); ++s) {
         if (!zone.Contains (site.x[s], site.y[s]))
             continue;
+        keep.push_back (s);
         out.x.push_back (site.x[s]);
         out.y.push_back (site.y[s]);
         out.groundZ.push_back (site.groundZ[s]);
         out.cls.push_back (site.cls[s]);
         out.host.push_back (site.host[s]);
     }
+    if (site.clearance.Count () == site.Size ())
+        out.clearance = site.clearance.Subset (keep);
     return out;
 }
 
@@ -300,6 +336,12 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
     std::stable_sort (order.begin (), order.end (),
                       [&] (size_t a, size_t b) { return result.sizes[a].radius > result.sizes[b].radius; });
 
+    // The room is used only when it was measured for these very samples.
+    const bool space = options.checkSpace && !site.clearance.Empty () && site.clearance.Count () == n;
+    result.spaceChecked = space;
+    if (space)
+        result.room.resize (species.size ());
+
     // gap[s]: distance from sample s to the nearest placed crown's edge.
     std::vector<double> gap (n, std::numeric_limits<double>::infinity ());
     bool capped = false;
@@ -312,11 +354,39 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
         const uint32_t mask = plant.HasLight () ? AcceptedClassMask (hud, plant) : ~0u;
         // "As many as fit" runs one past the cap, so reaching it is reported.
         const int wanted = result.wanted[i] > 0 ? result.wanted[i] : options.maxPlants + 1;
-        // The first plant of an empty site goes nearest the accepted samples' centre.
+        // ok[s]: an accepted light class and, when measured, room for the crown.
+        std::vector<uint8_t> ok (n, 0);
+        for (size_t s = 0; s < n; ++s) {
+            if (site.cls[s] < 0 || !((mask >> site.cls[s]) & 1u))
+                continue;
+            if (!space) {
+                ok[s] = 1;
+                continue;
+            }
+            SchemeRoom& room = result.room[i];
+            ++room.lightSamples;
+            switch (FitAt (site.clearance, s, r, result.sizes[i].height, options.clearanceMargin)) {
+                case SpaceFit::Fits:
+                    ++room.fits;
+                    ok[s] = 1;
+                    break;
+                case SpaceFit::Beyond:
+                    ++room.beyond;
+                    ok[s] = 1; // not known is not refused; a note says so
+                    break;
+                case SpaceFit::Overhead:
+                    ++room.overhead;
+                    break;
+                case SpaceFit::Narrow:
+                    ++room.narrow;
+                    break;
+            }
+        }
+        // The first plant of an empty site goes nearest the usable samples' centre.
         double cx = 0, cy = 0;
         size_t accepted = 0;
         for (size_t s = 0; s < n; ++s)
-            if (site.cls[s] >= 0 && (mask >> site.cls[s]) & 1u) {
+            if (ok[s]) {
                 cx += site.x[s];
                 cy += site.y[s];
                 ++accepted;
@@ -333,7 +403,7 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
             size_t best = n;
             double bestScore = -std::numeric_limits<double>::infinity ();
             for (size_t s = 0; s < n; ++s) {
-                if (site.cls[s] < 0 || !((mask >> site.cls[s]) & 1u) || gap[s] < need)
+                if (!ok[s] || gap[s] < need)
                     continue;
                 const double score = std::isinf (gap[s]) ? -std::hypot (site.x[s] - cx, site.y[s] - cy) : gap[s];
                 if (score > bestScore) {
@@ -352,6 +422,7 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
             p.height = result.sizes[i].height;
             p.cls = site.cls[best];
             p.lightChecked = plant.HasLight ();
+            p.spaceChecked = space;
             result.plants.push_back (p);
             ++result.placed[i];
             for (size_t s = 0; s < n; ++s)
@@ -372,18 +443,36 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
         if (!plants[i])
             continue;
         const std::string name = plants[i]->DisplayName ();
+        const std::string roomText = space ? "room for its crown, clear of walls and overhangs" : "room for its crown";
         if (result.wanted[i] > 0 && result.placed[i] < result.wanted[i]) {
             char text[96];
             std::snprintf (text, sizeof (text), "Only %d of %d fit", result.placed[i], result.wanted[i]);
-            result.notes.push_back (
-                { SchemeSeverity::Warning,
-                  std::string (text) + ": " + name +
-                      (plants[i]->HasLight () ? " (accepted light and room for its crown)." : " (room for its crown)."),
-                  { int (i) } });
+            result.notes.push_back ({ SchemeSeverity::Warning,
+                                      std::string (text) + ": " + name + " (" +
+                                          (plants[i]->HasLight () ? "accepted light and " : "") + roomText + ").",
+                                      { int (i) } });
         }
         else if (result.wanted[i] == 0 && result.placed[i] == 0)
             result.notes.push_back (
-                { SchemeSeverity::Warning, name + ": no room on a light class it accepts.", { int (i) } });
+                { SchemeSeverity::Warning, name + ": no " + roomText + " on a light class it accepts.", { int (i) } });
+        if (space) {
+            const SchemeRoom& room = result.room[i];
+            if (room.overhead + room.narrow > 0) {
+                char text[220];
+                std::snprintf (text, sizeof (text),
+                               ": %zu of %zu samples on its light lack room for a %.1f m tall, %.1f m wide crown "
+                               "(%zu under an overhang, %zu too close to a wall).",
+                               room.overhead + room.narrow, room.lightSamples, result.sizes[i].height,
+                               2.0 * result.sizes[i].radius, room.overhead, room.narrow);
+                result.notes.push_back ({ SchemeSeverity::Info, name + text, { int (i) } });
+            }
+            if (room.beyond > 0)
+                result.notes.push_back ({ SchemeSeverity::Info,
+                                          name + ": its crown is wider than the " +
+                                              std::to_string (int (std::lround (site.clearance.reach))) +
+                                              " m measured around each sample; room beyond that is not known.",
+                                          { int (i) } });
+        }
         if (!plants[i]->HasLight () && result.placed[i] > 0)
             result.notes.push_back (
                 { SchemeSeverity::Info, name + " has no light classes: placed without a light check.", { int (i) } });
@@ -400,6 +489,9 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
               {} });
     if (n == 0)
         result.notes.push_back ({ SchemeSeverity::Warning, "No measured samples: run a layer first.", {} });
+    else if (!space && !result.plants.empty ())
+        result.notes.push_back (
+            { SchemeSeverity::Info, "Walls and overhangs were not checked: crowns may run into the building.", {} });
     return result;
 }
 

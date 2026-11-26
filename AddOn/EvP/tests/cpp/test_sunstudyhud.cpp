@@ -140,6 +140,13 @@ bool ReadPlantingSite (const std::string&, double, PlantingSite&, std::string& e
     error = "no store in the offline HUD tests";
     return false;
 }
+void RequestPlantingRoom (const std::string&, double)
+{
+}
+PlantingRoom CurrentPlantingRoom ()
+{
+    return {};
+}
 } // namespace geomsrv::sunstudyhud
 
 namespace geomsrv::archviz::plantingzonesource {

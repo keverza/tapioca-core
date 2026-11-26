@@ -55,4 +55,9 @@ namespace geomsrv::sunstudyhud::sunpath {
 void Shutdown ();
 } // namespace geomsrv::sunstudyhud::sunpath
 
+namespace geomsrv::sunstudyhud::plantingroom {
+// Quit/unload: cancel the room measure and join it (SunStudyHudPlantingRoom.cpp).
+void Shutdown ();
+} // namespace geomsrv::sunstudyhud::plantingroom
+
 #endif

@@ -801,6 +801,7 @@ void Shutdown ()
         thread.join ();
     period::Shutdown ();
     sunpath::Shutdown ();
+    plantingroom::Shutdown ();
 }
 
 } // namespace geomsrv::sunstudyhud

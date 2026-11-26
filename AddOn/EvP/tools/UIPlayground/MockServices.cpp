@@ -10,6 +10,7 @@
 #include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
 #include "SunStudy/SunStudyWeather.hpp"
+#include <algorithm>
 #include <cmath>
 #include "Geometry/MeshStore.hpp"
 #include <stdexcept>
@@ -201,6 +202,42 @@ bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingS
     out.meshGuids = { "FIXTURE-COURTYARD-BED-0A1B", "FIXTURE-ROOF-TERRACE-9C2D" };
     pg::LogMock ("Read planting site -> fixed courtyard bed; layer " + std::to_string (layerHeight) + " m");
     return true;
+}
+// The courtyard's room (#278 Stage 2): walls on all four edges, and a balcony
+// 3 m deep along the north edge with its underside at 2.8 m. Ready at once.
+namespace {
+std::string s_roomStudy;
+}
+void RequestPlantingRoom (const std::string& studyId, double)
+{
+    s_roomStudy = studyId;
+}
+PlantingRoom CurrentPlantingRoom ()
+{
+    static std::shared_ptr<const evp::sunstudy::CrownClearance> s_room = [] {
+        PlantingSite site;
+        std::string error;
+        ReadPlantingSite ("mock", 0.5, site, error);
+        auto room = std::make_shared<evp::sunstudy::CrownClearance> ();
+        const evp::sunstudy::CrownClearanceOptions options;
+        room->levels = options.levels;
+        room->reach = options.reach;
+        room->directions = options.directions;
+        for (size_t i = 0; i < site.x.size (); ++i) {
+            const double x = site.x[i], y = site.y[i];
+            const bool underBalcony = y > 9.0;
+            room->overhead.push_back (underBalcony ? 2.8f : -1.0f);
+            const double wall = (std::min) ((std::min) (x, 20.0 - x), (std::min) (y, 12.0 - y));
+            for (double level : room->levels)
+                room->free.push_back (underBalcony && level >= 2.8 ? 0.0f : float ((std::min) (wall, room->reach)));
+        }
+        return std::shared_ptr<const evp::sunstudy::CrownClearance> (std::move (room));
+    }();
+    PlantingRoom room;
+    room.state = PlantingRoom::State::Ready;
+    room.studyId = s_roomStudy;
+    room.clearance = s_room;
+    return room;
 }
 bool ClearPeriodCache (std::string& error)
 {

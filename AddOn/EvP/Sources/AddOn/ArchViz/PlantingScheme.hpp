@@ -10,9 +10,14 @@
 // host), so a plant is only placed where the layer was measured.
 //
 // ⚠️ A PROPOSAL, NOT A PLAN. Placement is a deterministic spread that keeps
-// mature crowns apart and puts each plant on a light class it accepts. It does
-// not check roots, utilities, paths or the standard's own spacing rules, and
-// nothing is written to the model.
+// mature crowns apart and puts each plant on a light class it accepts and,
+// when the site's room was measured (SunStudyCrownClearance), where its mature
+// crown clears overhangs and walls. It does not check roots, utilities, paths
+// or the standard's own spacing rules, and nothing is written to the model.
+//
+// ⚠️ ABOVE GROUND ONLY. The space fit is a cylinder of the mature crown radius
+// and height against the study's own geometry. Rooting is never assessed, and
+// the panel says so.
 //
 // ⚠️ UNKNOWN IS NOT A PASS. A plant without light classes is placed on any
 // measured sample and reported as unchecked; a missing spread uses the density's
@@ -24,6 +29,7 @@
 
 #include "ArchViz/PlantCatalogue.hpp"
 #include "ArchViz/PlantingZones.hpp"
+#include "SunStudy/SunStudyCrownClearance.hpp"
 
 #include <cstdint>
 #include <string>
@@ -52,6 +58,8 @@ struct SchemeSite {
     std::vector<int> cls;        // the tab's class (ClassOf), -1 unavailable
     std::vector<uint32_t> host;  // host index, for the notes
     float layerHeight = 0;
+    // The room above each sample; empty when not measured (space not checked).
+    evp::sunstudy::CrownClearance clearance;
     size_t Size () const
     {
         return x.size ();
@@ -65,6 +73,7 @@ struct PlacedPlant {
     double height = 0; // mature height used for the marker, m
     int cls = -1;
     bool lightChecked = false; // the plant has light classes
+    bool spaceChecked = false; // the site's room was measured
 };
 
 struct SchemeLink {
@@ -84,18 +93,44 @@ struct SchemeSpeciesSize {
     std::string radiusFrom, heightFrom; // "spread", "density", "assumed", "height", "layer"
 };
 
+// Why a sample does or does not hold a crown, above ground.
+enum class SpaceFit : uint8_t {
+    Fits,
+    Overhead, // something above is lower than the crown's height and the margin
+    Narrow,   // a wall or other surface is closer than the radius and the margin, at some level the crown reaches
+    Beyond    // the crown is wider than the measured reach: not known
+};
+const char* SpaceFitName (SpaceFit fit);
+
+// The fit of a crown `radius` wide and `height` tall at `sample`, with
+// `margin` m kept clear on every side and above. Levels at or below the height
+// are checked, and always the lowest.
+SpaceFit FitAt (const evp::sunstudy::CrownClearance& room, size_t sample, double radius, double height, double margin);
+
+// Per species, how the samples on its accepted light classes fared.
+struct SchemeRoom {
+    size_t lightSamples = 0; // on an accepted light class
+    size_t fits = 0, overhead = 0, narrow = 0, beyond = 0;
+};
+
 struct SchemeResult {
     std::vector<PlacedPlant> plants;
     std::vector<SchemeLink> links;
     std::vector<int> wanted, placed; // per species; wanted 0 = as many as fit
     std::vector<SchemeSpeciesSize> sizes;
+    std::vector<SchemeRoom> room; // per species; empty when the space was not checked
     std::vector<SchemeNote> notes;
+    bool spaceChecked = false;
 };
 
 struct SchemeOptions {
     // Crowns may overlap by this fraction of the smaller radius (0 = touching).
     double crownOverlap = 0.0;
     int maxPlants = 400; // all species together; a cap, reported when reached
+    // Kept clear around and above each mature crown, m, when the room is known.
+    double clearanceMargin = 0.0;
+    // False: ignore a measured room (the "Clear of walls and overhangs" switch).
+    bool checkSpace = true;
 };
 
 // The crown radius and marker height a plant is placed with, and where they

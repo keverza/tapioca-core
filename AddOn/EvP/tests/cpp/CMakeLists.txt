@@ -183,6 +183,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunPathStudyData.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyObstruction.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyLiftedPoint.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyCrownClearance.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySolarCut.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySolarExposure.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySolarCutCells.cpp"

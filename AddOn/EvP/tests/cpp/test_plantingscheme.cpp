@@ -243,3 +243,86 @@ TEST (PlantingScheme, AZoneLimitsWherePlantsGo)
     EXPECT_EQ (r.placed[0], 0) << "a full-sun tree has no accepted light in a shaded zone";
     EXPECT_TRUE (Has (r.notes, "Only 0 of 1 fit"));
 }
+
+namespace {
+
+// The courtyard's room: a wall along its east edge (x = 10) at every level,
+// and a balcony over y > 7 with its underside at 3 m.
+evp::sunstudy::CrownClearance CourtyardRoom (const SchemeSite& site)
+{
+    evp::sunstudy::CrownClearance room;
+    room.levels = evp::sunstudy::CrownClearanceOptions ().levels;
+    room.reach = 12.0;
+    room.directions = 32;
+    for (size_t s = 0; s < site.Size (); ++s) {
+        const bool balcony = site.y[s] > 7.0;
+        room.overhead.push_back (balcony ? 3.0f : -1.0f);
+        for (double level : room.levels)
+            room.free.push_back (balcony && level >= 3.0 ? 0.0f : float (10.0 - site.x[s]));
+    }
+    return room;
+}
+
+} // namespace
+
+TEST (PlantingScheme, FitAtReadsOverheadAndTheLevelsTheCrownReaches)
+{
+    evp::sunstudy::CrownClearance room;
+    room.levels = { 0.5, 2.0, 6.0 };
+    room.reach = 4.0;
+    room.directions = 32;
+    room.overhead = { -1.0f, 2.5f };
+    room.free = { 3.0f, 3.0f, 0.5f, 4.0f, 4.0f, 0.0f };
+    EXPECT_EQ (FitAt (room, 0, 1.0, 3.0, 0.0), SpaceFit::Fits) << "the 6 m level is above a 3 m crown";
+    EXPECT_EQ (FitAt (room, 0, 1.0, 6.0, 0.0), SpaceFit::Narrow) << "a 6 m crown reaches the narrow level";
+    EXPECT_EQ (FitAt (room, 0, 2.9, 1.0, 0.2), SpaceFit::Narrow) << "the margin counts sideways";
+    EXPECT_EQ (FitAt (room, 1, 1.0, 2.0, 0.0), SpaceFit::Fits);
+    EXPECT_EQ (FitAt (room, 1, 1.0, 2.4, 0.2), SpaceFit::Overhead) << "the margin counts above";
+    EXPECT_EQ (FitAt (room, 1, 5.0, 1.0, 0.0), SpaceFit::Beyond) << "wider than the reach is not known";
+    EXPECT_EQ (FitAt (room, 0, 0.1, 0.1, 0.0), SpaceFit::Fits) << "the lowest level always counts";
+}
+
+TEST (PlantingScheme, MeasuredRoomKeepsCrownsClearOfWallsAndOverhangs)
+{
+    const Catalogue c = Plants ();
+    const PlantingHud hud = Hud ();
+    SchemeSite site = Courtyard ();
+    site.clearance = CourtyardRoom (site);
+    const SchemeResult r = PlaceScheme (hud, c, { { "tree", 0 } }, site);
+    ASSERT_TRUE (r.spaceChecked);
+    ASSERT_GT (r.placed[0], 0);
+    for (const auto& p : r.plants) {
+        EXPECT_TRUE (p.spaceChecked);
+        EXPECT_LE (p.x, 8.5 + 1e-9) << "the crown clears the east wall";
+        EXPECT_LE (p.y, 7.0 + 1e-9) << "an 8 m tree never stands under the 3 m balcony";
+    }
+    ASSERT_EQ (r.room.size (), 1u);
+    const SchemeRoom& room = r.room[0];
+    EXPECT_EQ (room.lightSamples, 200u);
+    EXPECT_EQ (room.overhead, 60u) << "y > 7 on the sunny half: 10 x 6 samples";
+    EXPECT_EQ (room.narrow, 42u) << "x > 8.5 outside the balcony: 3 x 14";
+    EXPECT_EQ (room.fits + room.overhead + room.narrow + room.beyond, room.lightSamples);
+    EXPECT_TRUE (Has (r.notes, "too close to a wall"));
+
+    // Switched off, the same room is ignored, and the notes say walls were not checked.
+    SchemeOptions off;
+    off.checkSpace = false;
+    const SchemeResult loose = PlaceScheme (hud, c, { { "tree", 0 } }, site, off);
+    EXPECT_FALSE (loose.spaceChecked);
+    EXPECT_GT (loose.placed[0], r.placed[0]);
+    EXPECT_TRUE (Has (loose.notes, "Walls and overhangs were not checked"));
+}
+
+TEST (PlantingScheme, AZoneKeepsTheRoomOfItsOwnSamples)
+{
+    SchemeSite site = Courtyard ();
+    site.clearance = CourtyardRoom (site);
+    PlantingZone zone;
+    zone.rings = { { 6, 6, 10, 6, 10, 10, 6, 10 } };
+    const SchemeSite inside = RestrictToZone (site, zone);
+    ASSERT_EQ (inside.clearance.Count (), inside.Size ());
+    for (size_t s = 0; s < inside.Size (); ++s) {
+        EXPECT_EQ (inside.clearance.overhead[s], inside.y[s] > 7.0 ? 3.0f : -1.0f);
+        EXPECT_FLOAT_EQ (inside.clearance.FreeAt (s, 0), float (10.0 - inside.x[s]));
+    }
+}

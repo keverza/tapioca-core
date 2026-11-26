@@ -11,6 +11,7 @@
 // Submit/Cancel/Current are safe from any thread. The run itself is on its own
 // thread; commands that need the host main thread go through MainThreadGate.
 
+#include "SunStudy/SunStudyCrownClearance.hpp"
 #include "SunStudy/SunStudyPlantingAreas.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
 
@@ -363,6 +364,23 @@ struct PlantingSite {
     std::vector<std::string> meshGuids;
 };
 bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingSite& out, std::string& error);
+
+// ---- the room above a planting layer (#278 Stage 2) ------------------------
+//
+// The above-ground room for a mature crown at every sample of a planting
+// study, in ReadPlantingSite's order (SunStudyCrownClearance). Measured once
+// per study on a worker thread against the study's own occluders; asking again
+// for the same study is free. Asking for another study cancels the running one.
+struct PlantingRoom {
+    enum class State : uint8_t { Idle, Measuring, Ready, Failed };
+    State state = State::Idle;
+    std::string studyId;
+    size_t done = 0, total = 0;                                     // samples, while measuring
+    std::string error;                                              // Failed
+    std::shared_ptr<const evp::sunstudy::CrownClearance> clearance; // Ready
+};
+void RequestPlantingRoom (const std::string& studyId, double layerHeight);
+PlantingRoom CurrentPlantingRoom ();
 
 } // namespace geomsrv::sunstudyhud
 

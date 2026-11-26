@@ -4,6 +4,7 @@
 #include "SunStudy/SunStudyReceptor.hpp"
 #include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyLiftedPoint.hpp"
+#include "SunStudy/SunStudyCrownClearance.hpp"
 
 #include "MeshFixtures.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
@@ -11,6 +12,7 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cmath>
 #include <memory>
 
@@ -258,4 +260,64 @@ TEST (SunStudyReceptor, UnavailableAreaIsSplitByHostAndWhy)
     SampleGrid kept = grid;
     ASSERT_TRUE (KeepAvailableReceptors (kept, layer));
     EXPECT_TRUE (UnavailableByGroup (kept, layer).empty ());
+}
+
+// #278 Stage 2: the room a mature crown has. The balcony scene, plus a wall
+// along the bed's east edge, 6 m tall.
+TEST (SunStudyCrownClearance, OverheadAndFreeRadiusPerLevel)
+{
+    auto snapshot = std::make_shared<geomsrv::Snapshot> ();
+    snapshot->id = 2782;
+    snapshot->meshes = { evptest::MakeBox ("bed", 0, 0, -0.3, 10, 10, 0.3),
+                         evptest::MakeBox ("balcony", 0, 0, 2.5, 4, 10, 0.2),
+                         evptest::MakeBox ("wall", 10, 0, 0, 0.3, 10, 6) };
+    const auto occluders = BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
+    ASSERT_NE (occluders, nullptr);
+
+    // Open ground at (6, 5); under the balcony at (2, 5); and (6, 5) sunk 0.2 m
+    // into its own host, whose sides must not read as walls.
+    const std::vector<double> x { 6, 2, 6 }, y { 5, 5, 5 }, z { 0, 0, -0.2 };
+    const std::vector<uint32_t> host { 0, 0, 0 };
+    CrownClearanceOptions options;
+    options.levels = { 0.15, 1.0, 2.6, 7.0 };
+    options.reach = 12.0;
+    options.maxParallel = 1;
+    CrownClearance room;
+    std::string error;
+    std::atomic<size_t> done { 0 };
+    ASSERT_TRUE (MeasureCrownClearance (*occluders, x, y, z, host, { "bed" }, options, room, error, {}, &done))
+        << error;
+    ASSERT_EQ (room.Count (), 3u);
+    EXPECT_EQ (done.load (), 3u);
+
+    EXPECT_LT (room.overhead[0], 0.0f) << "open sky";
+    EXPECT_NEAR (room.FreeAt (0, 1), 4.0, 1e-4) << "the wall is 4 m east";
+    EXPECT_NEAR (room.FreeAt (0, 2), 2.0, 1e-4)
+        << "at 2.6 m, through the balcony's thickness, its edge (x = 4) is nearer";
+    EXPECT_NEAR (room.FreeAt (0, 3), 12.0, 1e-4) << "above the 6 m wall nothing is in reach";
+
+    EXPECT_NEAR (room.overhead[1], 2.5 - 0.001, 1e-4) << "the balcony's underside";
+    EXPECT_NEAR (room.FreeAt (1, 1), 8.0, 1e-4);
+    EXPECT_EQ (room.FreeAt (1, 2), 0.0f) << "2.6 m is above the balcony's underside: no crown there";
+    EXPECT_EQ (room.FreeAt (1, 3), 0.0f);
+
+    EXPECT_NEAR (room.FreeAt (2, 0), 12.0, 1e-4) << "the sample's own host is not an obstacle";
+}
+
+TEST (SunStudyCrownClearance, MismatchedInputAndCancellationAreRefused)
+{
+    auto snapshot = std::make_shared<geomsrv::Snapshot> ();
+    snapshot->id = 2783;
+    snapshot->meshes = { evptest::MakeBox ("bed", 0, 0, -0.3, 10, 10, 0.3) };
+    const auto occluders = BuildSunStudyOccluders (*snapshot, kernels::ResolveElementRoles (*snapshot, {}, {}, {}));
+    CrownClearance room;
+    std::string error;
+    EXPECT_FALSE (MeasureCrownClearance (*occluders, { 1, 2 }, { 1 }, { 0, 0 }, { 0, 0 }, { "bed" }, {}, room, error));
+    EXPECT_FALSE (error.empty ());
+    std::vector<double> many (500, 5.0), ground (500, 0.0);
+    const std::vector<uint32_t> host (500, 0);
+    EXPECT_FALSE (
+        MeasureCrownClearance (*occluders, many, many, ground, host, { "bed" }, {}, room, error, [] { return true; }));
+    EXPECT_EQ (error, "cancelled");
+    EXPECT_TRUE (room.Empty ());
 }
