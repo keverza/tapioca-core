@@ -3,8 +3,8 @@
 //! The SDK-free half of the native sun study, ported from
 //! `Sources/AddOn/SunStudy/` behind the C ABI in `tapioca-core-ffi`. Every
 //! function takes numbers and returns numbers: no host, rendering, platform,
-//! filesystem or FFI dependency, and no solar-position formula (the host supplies
-//! sun directions). The C++ implementation stays the production authority and
+//! filesystem or FFI dependency, and no solar-position formula in any analysis
+//! (the host supplies sun directions; [`solar`] only cross-checks them). The C++ implementation stays the production authority and
 //! the parity oracle until the integration flip.
 
 #![forbid(unsafe_code)]
@@ -29,6 +29,7 @@ pub mod sampler;
 pub mod series;
 pub mod session;
 pub mod sky;
+pub mod solar;
 pub mod step_atlas;
 pub mod study;
 pub mod summary;
