@@ -409,6 +409,12 @@ struct PlantingClimate {
     std::array<double, 12> coverage {};  // valid share of the month's weather hours; NaN without any
     double skyView = 0.0;                // geometric, area-weighted mean, 0-1
     double seconds = 0.0;
+    // The file check (#155 P3): how far the file's DNI and DHI rebuild its own
+    // GHI, (model - file) / file; NaN where a month does not compare. Shown,
+    // never absorbed into a figure above.
+    std::array<double, 12> closureMonthly {};
+    double closureAnnual = 0.0, closureTolerance = 0.0;
+    bool closureWithin = false;
     // Per sample of the layer, January first, mol/m2/day; NaN without weather.
     std::shared_ptr<const std::vector<std::array<double, 12>>> sampleDli;
 };

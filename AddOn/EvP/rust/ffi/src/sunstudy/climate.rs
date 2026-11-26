@@ -8,7 +8,8 @@ use super::Regions;
 use crate::borrow::SliceView;
 use crate::boundary::{Failure, call, memory_range};
 use tapioca_sunstudy::climate::{
-    Climate, ClimateInterval, ClimateRefusal, ClimateSetup, DiffuseSky, SkyMasks,
+    Climate, ClimateInterval, ClimateRefusal, ClimateSetup, DiffuseSky, FILE_CONSISTENCY_TOLERANCE,
+    SkyMasks, horizontal_closure,
 };
 use tapioca_sunstudy::sky::{Dome, PatchSet};
 
@@ -181,6 +182,8 @@ pub struct ClimateIntervalRecord {
     pub albedo: f64,
     /// Dew point, °C; NaN missing.
     pub dew_point_c: f64,
+    /// The file's mean GHI, W/m²; NaN missing. Checked only, never summed.
+    pub ghi: f64,
     /// 1–366.
     pub day_of_year: u32,
     /// 0 = January.
@@ -199,6 +202,21 @@ pub struct ClimateReportRecord {
     pub missing_hours: [f64; 12],
     /// Σ(DNI·sin α + DHI)·Δt per month, Wh/m².
     pub open_horizontal: [f64; 12],
+    /// Over intervals with DNI, DHI and GHI present: the model's total ...
+    pub compared_model: [f64; 12],
+    /// ... the file's Σ GHI·Δt ...
+    pub compared_file: [f64; 12],
+    /// ... and their hours, per month.
+    pub compared_hours: [f64; 12],
+    /// `horizontal_closure`: (model − file) / file per month, NaN where a
+    /// month does not compare ...
+    pub closure_monthly: [f64; 12],
+    /// ... over the year (NaN when no month compares) ...
+    pub closure_annual: f64,
+    /// ... the tolerance the year is judged against ...
+    pub closure_tolerance: f64,
+    /// ... and the hours compared.
+    pub closure_hours: f64,
     /// DNI energy lost with the sun below the horizon, Wh/m².
     pub beam_below_horizon: f64,
     /// Largest negative-radiance share clamped in one interval.
@@ -207,6 +225,12 @@ pub struct ClimateReportRecord {
     pub isotropic_intervals: u32,
     /// Intervals whose Perez parameters were held.
     pub held_intervals: u32,
+    /// The month (0 = January) furthest from the file, −1 when none compares.
+    pub closure_worst_month: i8,
+    /// 1 when the year is within the tolerance.
+    pub closure_within: u8,
+    /// Zero.
+    pub reserved: [u8; 6],
     /// Samples.
     pub sample_count: usize,
     /// Patches per sample.
@@ -412,6 +436,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_climate_add(
                         dhi: r.dhi,
                         albedo: r.albedo,
                         dew_point_c: r.dew_point_c,
+                        ghi: r.ghi,
                     },
                     (!beam.is_empty()).then_some(beam),
                 )
@@ -452,10 +477,24 @@ pub unsafe extern "C" fn tapioca_sunstudy_climate_read(
             let climate = climate(handle)?;
             let totals = climate.totals();
             let r = &totals.report;
+            let closure = horizontal_closure(r);
             o.report.write(ClimateReportRecord {
                 valid_hours: r.valid_hours,
                 missing_hours: r.missing_hours,
                 open_horizontal: r.open_horizontal,
+                compared_model: r.compared_model,
+                compared_file: r.compared_file,
+                compared_hours: r.compared_hours,
+                closure_monthly: closure.monthly,
+                closure_annual: closure.annual,
+                closure_tolerance: FILE_CONSISTENCY_TOLERANCE,
+                closure_hours: closure.hours,
+                closure_worst_month: closure
+                    .worst_month
+                    .and_then(|m| i8::try_from(m).ok())
+                    .unwrap_or(-1),
+                closure_within: u8::from(closure.within),
+                reserved: [0; 6],
                 beam_below_horizon: r.beam_below_horizon,
                 max_clamped_share: r.max_clamped_share,
                 isotropic_intervals: r.isotropic_intervals,

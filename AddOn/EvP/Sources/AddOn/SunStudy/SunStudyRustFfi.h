@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (8)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (9)
 
 #ifdef __cplusplus
 extern "C" {
@@ -547,6 +547,7 @@ typedef struct {
     double dhi;       /* mean W/m2, NaN missing */
     double albedo;    /* outside (0, 1]: 0.2 */
     double dewPointC; /* NaN missing */
+    double ghi;       /* the file's mean W/m2, NaN missing: checked, never summed */
     uint32_t dayOfYear;
     uint8_t month; /* 0 = January */
     uint8_t reserved[3];
@@ -556,10 +557,24 @@ typedef struct {
     double validHours[12];
     double missingHours[12];
     double openHorizontal[12]; /* sum (DNI sin a + DHI) dt, Wh/m2 */
-    double beamBelowHorizon;   /* Wh/m2 */
+    /* Over intervals with DNI, DHI and GHI present: the model's total, the
+     * file's sum GHI dt (Wh/m2) and their hours, per month. */
+    double comparedModel[12];
+    double comparedFile[12];
+    double comparedHours[12];
+    /* (model - file) / file per month (NaN: not compared), the year, the
+     * tolerance the year is judged against, and the hours compared. */
+    double closureMonthly[12];
+    double closureAnnual;
+    double closureTolerance;
+    double closureHours;
+    double beamBelowHorizon; /* Wh/m2 */
     double maxClampedShare;
     uint32_t isotropicIntervals;
     uint32_t heldIntervals;
+    int8_t closureWorstMonth; /* 0 = January, -1 none */
+    uint8_t closureWithin;
+    uint8_t reserved[6];
     size_t sampleCount;
     size_t patchCount;
 } TapiocaClimateReport;

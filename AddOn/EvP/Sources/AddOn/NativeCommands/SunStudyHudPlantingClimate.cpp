@@ -156,6 +156,7 @@ void Run (const Want& want)
         interval.dhi = r.Get (ss::WeatherField::DiffuseHorizontal);
         interval.albedo = r.Get (ss::WeatherField::Albedo);
         interval.dewPointC = r.Get (ss::WeatherField::DewPoint);
+        interval.ghi = r.Get (ss::WeatherField::GlobalHorizontal); // the file check only
         interval.dayOfYear = instant.dayOfYear;
         interval.month = int (r.month) - 1;
         request.intervals.push_back (interval);
@@ -210,6 +211,10 @@ void Run (const Want& want)
         c.skyView = viewArea > 0.0 ? viewSum / viewArea : nan;
         c.seconds = seconds;
         c.sampleDli = sampleDli;
+        c.closureMonthly = result.report.closureMonthly;
+        c.closureAnnual = result.report.closureAnnual;
+        c.closureTolerance = result.report.closureTolerance;
+        c.closureWithin = result.report.closureWithin;
     });
 }
 

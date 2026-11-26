@@ -63,6 +63,8 @@ fn day(month: u8, overcast: bool) -> Vec<ClimateInterval> {
                 dhi,
                 albedo: 0.3,
                 dew_point_c: 12.0,
+                // The file's own GHI, consistent with its DNI and DHI.
+                ghi: dni * (altitude.to_radians().sin()).max(0.0) + dhi,
             }
         })
         .collect()
@@ -380,4 +382,92 @@ fn a_refused_interval_changes_nothing() {
         Err(ClimateRefusal::Length)
     );
     assert_eq!(c.totals(), before);
+}
+
+#[test]
+fn a_consistent_file_closes_and_its_ghi_never_moves_a_total() {
+    let normals = vec![[0.0, 0.0, 1.0]];
+    let intervals: Vec<_> = day(5, false).into_iter().chain(day(5, true)).collect();
+    let totals = run(
+        setup(
+            Dome::new(PatchSet::Tregenza),
+            normals.clone(),
+            OPEN,
+            DiffuseSky::Perez1993,
+            0.0,
+        ),
+        &intervals,
+        OPEN,
+    );
+    let closure = horizontal_closure(&totals.report);
+    assert!(closure.annual.abs() < 1e-12, "{}", closure.annual);
+    assert!(closure.monthly[5].abs() < 1e-12);
+    assert!(closure.monthly[0].is_nan()); // nothing to compare in January
+    assert_eq!(closure.worst_month, Some(5));
+    assert!(closure.within);
+    assert!((closure.hours - 30.0).abs() < 1e-12);
+
+    // A file whose GHI reads 10 % high: flagged, and no total moves.
+    let high: Vec<_> = intervals
+        .iter()
+        .map(|i| ClimateInterval {
+            ghi: i.ghi * 1.1,
+            ..*i
+        })
+        .collect();
+    let again = run(
+        setup(
+            Dome::new(PatchSet::Tregenza),
+            normals,
+            OPEN,
+            DiffuseSky::Perez1993,
+            0.0,
+        ),
+        &high,
+        OPEN,
+    );
+    assert_eq!(again.direct, totals.direct);
+    assert_eq!(again.diffuse, totals.diffuse);
+    assert_eq!(again.reflected, totals.reflected);
+    let flagged = horizontal_closure(&again.report);
+    assert!((flagged.annual - (1.0 / 1.1 - 1.0)).abs() < 1e-12);
+    assert!(!flagged.within);
+}
+
+#[test]
+fn hours_without_ghi_or_a_dark_month_are_not_compared() {
+    let mut intervals = day(5, false);
+    for i in intervals.iter_mut().take(4) {
+        i.ghi = f64::NAN;
+    }
+    // A dark December: 0.5 kWh/m² in the file, below the comparison floor.
+    intervals.push(ClimateInterval {
+        month: 11,
+        hours: 1.0,
+        day_of_year: 355,
+        sun: at(5.0, 180.0),
+        dni: 0.0,
+        dhi: 500.0,
+        albedo: 0.2,
+        dew_point_c: 0.0,
+        ghi: 500.0,
+    });
+    let totals = run(
+        setup(
+            Dome::new(PatchSet::Tregenza),
+            vec![[0.0, 0.0, 1.0]],
+            OPEN,
+            DiffuseSky::Isotropic,
+            0.0,
+        ),
+        &intervals,
+        OPEN,
+    );
+    let r = &totals.report;
+    assert!((r.compared_hours[5] - 11.0).abs() < 1e-12);
+    assert!(r.compared_model[5] < r.open_horizontal[5]);
+    let closure = horizontal_closure(r);
+    assert!(closure.annual.abs() < 1e-12);
+    assert!(closure.monthly[11].is_nan());
+    assert_eq!(closure.worst_month, Some(5));
 }

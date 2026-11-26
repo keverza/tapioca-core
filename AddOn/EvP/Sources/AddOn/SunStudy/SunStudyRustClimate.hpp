@@ -18,6 +18,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -84,10 +85,11 @@ struct ClimateSetup {
 struct ClimateInterval {
     std::array<double, 3> sun {}; // unit, to the sun at the interval midpoint
     double hours = 1.0;
-    double dni = 0.0;       // mean W/m2; NaN missing
-    double dhi = 0.0;       // mean W/m2; NaN missing
-    double albedo = 0.0;    // outside (0, 1]: 0.2
-    double dewPointC = 0.0; // NaN missing
+    double dni = 0.0;                                       // mean W/m2; NaN missing
+    double dhi = 0.0;                                       // mean W/m2; NaN missing
+    double albedo = 0.0;                                    // outside (0, 1]: 0.2
+    double dewPointC = 0.0;                                 // NaN missing
+    double ghi = std::numeric_limits<double>::quiet_NaN (); // the file's, W/m2: checked only
     uint32_t dayOfYear = 1;
     int month = 0; // 0 = January
 
@@ -102,7 +104,15 @@ struct ClimateReport {
     std::array<double, 12> validHours {};
     std::array<double, 12> missingHours {};
     std::array<double, 12> openHorizontal {}; // sum (DNI sin a + DHI) dt, Wh/m2
-    double beamBelowHorizon = 0.0;            // Wh/m2 lost with the sun down
+    // Over intervals with DNI, DHI and GHI present, per month.
+    std::array<double, 12> comparedModel {}, comparedFile {}, comparedHours {};
+    // How well the file's DNI and DHI rebuild its GHI (#155 P3): (model -
+    // file) / file, NaN where a month does not compare. Shown, never absorbed.
+    std::array<double, 12> closureMonthly {};
+    double closureAnnual = 0.0, closureTolerance = 0.0, closureHours = 0.0;
+    int closureWorstMonth = -1; // 0 = January
+    bool closureWithin = false;
+    double beamBelowHorizon = 0.0; // Wh/m2 lost with the sun down
     double maxClampedShare = 0.0;
     uint32_t isotropicIntervals = 0;
     uint32_t heldIntervals = 0;

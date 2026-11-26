@@ -4,16 +4,24 @@
 
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyClimateRun.hpp"
+#include "SunStudy/SunStudyWeather.hpp"
 
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <vector>
 
 using namespace evp::sunstudy;
 using evp::sunstudy::rust::ClimateInterval;
+using evp::sunstudy::rust::ClimateSetup;
+using evp::sunstudy::rust::ClimateTotals;
 using evp::sunstudy::rust::CrossCheckSun;
+using evp::sunstudy::rust::DiffuseSky;
+using evp::sunstudy::rust::SkyPath;
 using evp::sunstudy::rust::SunCrossCheck;
 using evp::sunstudy::rust::WeatherInstant;
 using evp::sunstudy::rust::WeatherInstants;
@@ -197,4 +205,102 @@ TEST (SunStudyClimateRun, AreaWeightedMeansSkipExcludedSamples)
     EXPECT_DOUBLE_EQ (AreaWeightedMean ({ a, b, gone }, { 1.0, 3.0, 5.0 }, 3), 17.5);
     EXPECT_TRUE (std::isnan (AreaWeightedMean ({ gone }, { 1.0 }, 3)));
     EXPECT_TRUE (std::isnan (AreaWeightedMean ({ a }, { 1.0 }, 12)));
+}
+
+// The file check (#155 P3): an open horizontal sample's model total is
+// Σ(DNI·sin α + DHI); a file whose GHI reads apart from it is reported, never
+// absorbed. A consistent file closes; one with GHI 10 % high is flagged.
+TEST (SunStudyClimateRun, TheHorizontalClosureReportsTheFilesOwnGhi)
+{
+    std::vector<WeatherInstant> instants;
+    std::string error;
+    ASSERT_TRUE (WeatherInstants (ThreeDays (), Vilnius (), instants, error)) << error;
+    for (const double factor : { 1.0, 1.1 }) {
+        std::vector<ClimateInterval> intervals = Intervals (instants);
+        for (ClimateInterval& i : intervals)
+            i.ghi = factor * (i.dni * std::max (0.0, i.sun[2]) + i.dhi);
+        auto request = Request (intervals);
+        ClimateRunResult result;
+        auto scene = OverhangScene ();
+        ASSERT_TRUE (RunClimate (*scene, request, {}, {}, result, error)) << error;
+        const auto& r = result.report;
+        EXPECT_NEAR (r.closureAnnual, 1.0 / factor - 1.0, 1e-9) << factor;
+        EXPECT_EQ (r.closureWithin, factor == 1.0);
+        EXPECT_EQ (r.closureWorstMonth, 5);
+        EXPECT_DOUBLE_EQ (r.closureTolerance, 0.05);
+        // The file's GHI never moves a total: the open sample is the model's.
+        EXPECT_NEAR (result.direct[1][5] + result.diffuse[1][5], r.openHorizontal[5], 1e-6 * r.openHorizontal[5]);
+    }
+}
+
+// Opt-in: TAPIOCA_EPW_DIR names a folder of the reference weather files
+// (tapioca-ref\EPW, zipped or not; never committed). Each one's DNI and DHI,
+// with the independent sun at the interval midpoint, rebuild its own GHI
+// within the file-consistency tolerance over the year. The monthly shares are
+// printed: the evidence for that tolerance.
+TEST (SunStudyClimateRun, ReferenceWeatherFilesCloseOnTheirOwnGhi)
+{
+    const char* dir = std::getenv ("TAPIOCA_EPW_DIR");
+    if (dir == nullptr || *dir == 0)
+        GTEST_SKIP () << "set TAPIOCA_EPW_DIR to a folder of .epw files";
+    int checked = 0;
+    for (const auto& entry : std::filesystem::directory_iterator (std::filesystem::u8path (dir))) {
+        if (entry.path ().extension () != ".epw" && !IsZipPath (entry.path ()))
+            continue;
+        WeatherData w;
+        std::string error;
+        ASSERT_TRUE (ReadWeatherFile (entry.path (), w, error)) << error;
+        WeatherPlacement place;
+        place.year = 2026;
+        place.recordsPerHour = int (w.identity.recordsPerHour);
+        place.stationOffsetHours = w.identity.timeZoneHours;
+        place.projectOffsetHours = w.identity.timeZoneHours;
+        place.latitude = w.identity.latitude;
+        place.longitude = w.identity.longitude;
+        std::vector<WeatherStamp> stamps;
+        std::vector<const WeatherRecord*> kept;
+        for (const WeatherRecord& r : w.records) {
+            if (r.month == 2 && r.day == 29)
+                continue;
+            stamps.push_back ({ r.month, r.day, r.hour, r.minute });
+            kept.push_back (&r);
+        }
+        std::vector<WeatherInstant> instants;
+        ASSERT_TRUE (WeatherInstants (stamps, place, instants, error)) << error;
+        ClimateSetup setup;
+        setup.sky = DiffuseSky::Isotropic;
+        setup.normals = { 0, 0, 1 };
+        setup.open.assign (145, 255);
+        auto climate = rust::RustClimate::Create (setup, error);
+        ASSERT_NE (climate, nullptr) << error;
+        for (size_t k = 0; k < kept.size (); ++k) {
+            if (!instants[k].valid)
+                continue;
+            ClimateInterval i;
+            i.sun = instants[k].independentSun;
+            i.hours = instants[k].hours;
+            i.dni = kept[k]->Get (WeatherField::DirectNormal);
+            i.dhi = kept[k]->Get (WeatherField::DiffuseHorizontal);
+            i.ghi = kept[k]->Get (WeatherField::GlobalHorizontal);
+            i.albedo = 0.2;
+            i.dewPointC = std::nan ("");
+            i.dayOfYear = instants[k].dayOfYear;
+            i.month = int (kept[k]->month) - 1;
+            const std::vector<uint8_t> beam =
+                i.NeedsBeam () ? std::vector<uint8_t> { uint8_t (SkyPath::Open) } : std::vector<uint8_t> {};
+            ASSERT_TRUE (climate->Add (i, beam, error)) << error;
+        }
+        ClimateTotals totals;
+        ASSERT_TRUE (climate->Read (totals, error)) << error;
+        const auto& r = totals.report;
+        std::printf ("closure %s: year %+.2f %%, worst month %d,", entry.path ().filename ().string ().c_str (),
+                     100.0 * r.closureAnnual, r.closureWorstMonth + 1);
+        for (double m : r.closureMonthly)
+            std::printf (" %+.1f", 100.0 * m);
+        std::printf ("\n");
+        EXPECT_TRUE (r.closureWithin) << entry.path ().filename ().string () << ": " << r.closureAnnual;
+        ++checked;
+    }
+    if (checked == 0)
+        GTEST_SKIP () << "no weather file in TAPIOCA_EPW_DIR";
 }

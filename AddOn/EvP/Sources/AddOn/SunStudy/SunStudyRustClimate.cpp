@@ -10,12 +10,12 @@ using namespace detail;
 static_assert (sizeof (TapiocaSkyPatch) == 56);
 static_assert (sizeof (TapiocaSkyCell) == 64);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateCreateRequest) == 160);
-static_assert (sizeof (TapiocaClimateInterval) == 72);
+static_assert (sizeof (TapiocaClimateInterval) == 80);
 static_assert (sizeof (TapiocaWeatherStamp) == 4);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaWeatherInstantRequest) == 64);
 static_assert (sizeof (TapiocaWeatherInstant) == 64);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSunCrossCheck) == 32);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReport) == 328);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReport) == 744);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReadOutput) == 48);
 
 bool SkyPatches (SkyPatchSet set, double rotation, std::vector<SkyPatch>& patches, std::string& error)
@@ -173,6 +173,7 @@ bool RustClimate::Add (const ClimateInterval& interval, const std::vector<uint8_
     record.dhi = interval.dhi;
     record.albedo = interval.albedo;
     record.dewPointC = interval.dewPointC;
+    record.ghi = interval.ghi;
     record.dayOfYear = interval.dayOfYear;
     record.month = static_cast<uint8_t> (interval.month);
     const TapiocaByteView view { beam.data (), beam.size () };
@@ -212,6 +213,15 @@ bool RustClimate::Read (ClimateTotals& totals, std::string& error) const
     std::copy (report.validHours, report.validHours + 12, r.validHours.begin ());
     std::copy (report.missingHours, report.missingHours + 12, r.missingHours.begin ());
     std::copy (report.openHorizontal, report.openHorizontal + 12, r.openHorizontal.begin ());
+    std::copy (report.comparedModel, report.comparedModel + 12, r.comparedModel.begin ());
+    std::copy (report.comparedFile, report.comparedFile + 12, r.comparedFile.begin ());
+    std::copy (report.comparedHours, report.comparedHours + 12, r.comparedHours.begin ());
+    std::copy (report.closureMonthly, report.closureMonthly + 12, r.closureMonthly.begin ());
+    r.closureAnnual = report.closureAnnual;
+    r.closureTolerance = report.closureTolerance;
+    r.closureHours = report.closureHours;
+    r.closureWorstMonth = report.closureWorstMonth;
+    r.closureWithin = report.closureWithin != 0;
     r.beamBelowHorizon = report.beamBelowHorizon;
     r.maxClampedShare = report.maxClampedShare;
     r.isotropicIntervals = report.isotropicIntervals;

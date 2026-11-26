@@ -325,8 +325,8 @@ const _: () = {
     assert!(size_of::<WeatherInstantRequest>() == 64);
     assert!(size_of::<WeatherInstant>() == 64);
     assert!(size_of::<SunCrossCheckRecord>() == 32);
-    assert!(size_of::<ClimateIntervalRecord>() == 72);
-    assert!(size_of::<ClimateReportRecord>() == 328);
+    assert!(size_of::<ClimateIntervalRecord>() == 80);
+    assert!(size_of::<ClimateReportRecord>() == 744);
     assert!(size_of::<ClimateReadOutput>() == 48);
 };
 

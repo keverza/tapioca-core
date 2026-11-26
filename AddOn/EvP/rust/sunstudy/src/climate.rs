@@ -193,6 +193,10 @@ pub struct ClimateInterval {
     pub albedo: f64,
     /// Dew point, °C; NaN when missing.
     pub dew_point_c: f64,
+    /// The file's own mean global horizontal irradiance, W/m²; NaN when
+    /// missing. Never used in a total: only checked against DNI and DHI
+    /// ([`horizontal_closure`]).
+    pub ghi: f64,
 }
 
 impl ClimateInterval {
@@ -231,6 +235,13 @@ pub struct ClimateReport {
     pub max_clamped_share: f64,
     /// Intervals where the Perez parameters were held to their ranges.
     pub held_intervals: u32,
+    /// Over the intervals with DNI, DHI and GHI all present, per month:
+    /// the model's Σ(DNI·sin α + DHI)·Δt, Wh/m² ...
+    pub compared_model: [f64; 12],
+    /// ... the file's Σ GHI·Δt over the same intervals, Wh/m² ...
+    pub compared_file: [f64; 12],
+    /// ... and their hours.
+    pub compared_hours: [f64; 12],
 }
 
 /// Per sample, per month, Wh/m².
@@ -332,6 +343,15 @@ impl Climate {
         let beam_horizontal = if sin_alt > 0.0 { dni * sin_alt } else { 0.0 };
         let horizontal = (beam_horizontal + dhi) * interval.hours;
         add_to(&mut self.report.open_horizontal, month, horizontal);
+        if interval.ghi.is_finite() {
+            add_to(&mut self.report.compared_model, month, horizontal);
+            add_to(
+                &mut self.report.compared_file,
+                month,
+                interval.ghi.max(0.0) * interval.hours,
+            );
+            add_to(&mut self.report.compared_hours, month, interval.hours);
+        }
         let albedo = if interval.albedo > 0.0 && interval.albedo <= 1.0 {
             interval.albedo
         } else {
@@ -527,3 +547,67 @@ pub fn daily_light_integral(
 
 #[cfg(test)]
 mod tests;
+
+/// The file-consistency tolerance on the year: the model's horizontal total
+/// Σ(DNI·sin α + DHI) may differ from the file's Σ GHI by this share before
+/// the file is flagged. Months are shown, not judged: a month's few
+/// low-sun hours carry the midpoint-sun error of a whole hour.
+pub const FILE_CONSISTENCY_TOLERANCE: f64 = 0.05;
+
+/// A month whose file total is below this, Wh/m², is too dark to compare.
+pub const CLOSURE_MIN_FILE_WH: f64 = 1000.0;
+
+/// How well the file's DNI and DHI rebuild its own GHI (#155 P3): the
+/// discrepancy shown, never absorbed into a total.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HorizontalClosure {
+    /// (model − file) / file per month; NaN without a comparable month.
+    pub monthly: [f64; 12],
+    /// The same over the year; NaN when no month compares.
+    pub annual: f64,
+    /// The month (0 = January) with the largest |monthly|, if any compares.
+    pub worst_month: Option<u8>,
+    /// |annual| within [`FILE_CONSISTENCY_TOLERANCE`].
+    pub within: bool,
+    /// Hours compared over the year.
+    pub hours: f64,
+}
+
+/// Compare the model's horizontal total with the file's GHI from a run's
+/// report.
+#[must_use]
+pub fn horizontal_closure(report: &ClimateReport) -> HorizontalClosure {
+    let mut monthly = [f64::NAN; 12];
+    let (mut model, mut file) = (0.0, 0.0);
+    let hours: f64 = report.compared_hours.iter().sum();
+    let mut worst: Option<(u8, f64)> = None;
+    for (((slot, &a), &b), month) in monthly
+        .iter_mut()
+        .zip(&report.compared_model)
+        .zip(&report.compared_file)
+        .zip(0_u8..)
+    {
+        if b < CLOSURE_MIN_FILE_WH {
+            continue;
+        }
+        model += a;
+        file += b;
+        let share = (a - b) / b;
+        *slot = share;
+        if worst.is_none_or(|(_, w)| share.abs() > w.abs()) {
+            worst = Some((month, share));
+        }
+    }
+    let annual = if file > 0.0 {
+        (model - file) / file
+    } else {
+        f64::NAN
+    };
+    HorizontalClosure {
+        monthly,
+        annual,
+        worst_month: worst.map(|(m, _)| m),
+        within: annual.abs() <= FILE_CONSISTENCY_TOLERANCE,
+        hours,
+    }
+}

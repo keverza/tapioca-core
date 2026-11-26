@@ -145,6 +145,7 @@ fn a_run_reads_its_daily_light_integral() {
             dhi: if h < 12 { 500.0 } else { 0.0 },
             albedo: 0.2,
             dew_point_c: f64::NAN,
+            ghi: f64::NAN,
             day_of_year: 80,
             month: 2,
             reserved: [0; 3],

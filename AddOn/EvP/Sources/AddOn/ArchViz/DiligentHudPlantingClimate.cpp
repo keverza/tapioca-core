@@ -319,6 +319,29 @@ void SeasonRow (pl::PlantingHud& hud)
                               : "It runs over New Year; a custom season stays within one year.");
 }
 
+// The file check over the year (#155 P3): shown, never absorbed.
+void FileCheckLine (const sunstudyhud::PlantingClimate& run)
+{
+    if (std::isnan (run.closureAnnual)) {
+        ImGui::TextDisabled ("File check: the file gives no global horizontal light to compare.");
+        return;
+    }
+    const double pct = 100.0 * run.closureAnnual;
+    if (run.closureWithin)
+        ImGui::TextDisabled ("File check: its direct and diffuse light rebuild its global horizontal light to %+.1f %% "
+                             "over the year (within %.0f %%).",
+                             pct, 100.0 * run.closureTolerance);
+    else
+        ImGui::TextColored (ImVec4 (0.95f, 0.70f, 0.35f, 1.0f),
+                            "File check: its direct and diffuse light differ from its global horizontal light by "
+                            "%+.1f %% over the year (more than %.0f %%). The figures use direct and diffuse light; "
+                            "check the file.",
+                            pct, 100.0 * run.closureTolerance);
+    hudshell::ItemTip ("Every figure here is built from the file's direct-normal and diffuse light. The file also "
+                       "states global horizontal light; on open ground the two should agree. A difference is shown, "
+                       "not corrected.");
+}
+
 // The DLI map on the shown layer: a tick, the month, and its ramp.
 void DliMapControls (pl::PlantingHud& hud, const pl::Layer& layer, const sunstudyhud::PlantingClimate& run)
 {
@@ -424,11 +447,12 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
                          run.station.c_str (), run.year, run.samples, run.seconds, run.sunMeanDegrees);
     const ImGuiTableFlags flags =
         ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
-    if (ImGui::BeginTable ("##climatelight", 4, flags)) {
+    if (ImGui::BeginTable ("##climatelight", 5, flags)) {
         ImGui::TableSetupColumn ("Month");
         ImGui::TableSetupColumn ("DLI mol/m2/day");
         ImGui::TableSetupColumn ("Light kWh/m2");
         ImGui::TableSetupColumn ("Weather hours");
+        ImGui::TableSetupColumn ("File check");
         ImGui::TableHeadersRow ();
         for (int m = 0; m < 12; ++m) {
             const double dli = run.dli[size_t (m)];
@@ -443,12 +467,21 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
             ImGui::Text ("%.0f", run.energyKwh[size_t (m)]);
             ImGui::TableNextColumn ();
             ImGui::Text ("%.0f %%", 100.0 * run.coverage[size_t (m)]);
+            ImGui::TableNextColumn ();
+            const double check = run.closureMonthly[size_t (m)];
+            if (std::isnan (check))
+                ImGui::TextDisabled ("-");
+            else
+                ImGui::Text ("%+.1f %%", 100.0 * check);
         }
         ImGui::EndTable ();
     }
     hudshell::ItemTip ("Area-weighted over the layer's samples. DLI: the month's light as photosynthetic photons "
                        "a day (0.45 of the energy is photosynthetic light, 4.57 umol per joule): an estimate. "
-                       "Weather hours: the share of the month's hours with radiation in the file.");
+                       "Weather hours: the share of the month's hours with radiation in the file. File check: how "
+                       "far the file's direct and diffuse light rebuild its own global horizontal figure (a dash: "
+                       "too little light that month to compare).");
+    FileCheckLine (run);
     ImGui::TextDisabled ("Sky view %.2f (geometry). Estimate: ground taken as unshaded, everything that casts a "
                          "shadow treated as solid.",
                          run.skyView);

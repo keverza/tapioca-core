@@ -137,6 +137,7 @@ fn a_run_crosses_the_boundary_and_reads_back_its_totals() {
         dhi: 120.0,
         albedo: 0.25,
         dew_point_c: f64::NAN,
+        ghi: 600.0 * a.sin() + 132.0, // the file reads 12 W/m² above its DNI and DHI
         day_of_year: 160,
         month: 5,
         reserved: [0; 3],
@@ -186,6 +187,17 @@ fn a_run_crosses_the_boundary_and_reads_back_its_totals() {
     assert_eq!((report.sample_count, report.patch_count), (2, 145));
     let open = 600.0 * a.sin() + 120.0;
     assert!((report.open_horizontal[5] - open).abs() < 1e-9);
+    // The file's GHI crosses the boundary beside the model's, for the check.
+    assert!((report.compared_model[5] - open).abs() < 1e-9);
+    assert!((report.compared_file[5] - (open + 12.0)).abs() < 1e-9);
+    assert!((report.compared_hours[5] - 1.0).abs() < 1e-12);
+    // One hour is below the comparison floor (1 kWh/m² a month): shown as
+    // not compared, never as a pass.
+    assert!(report.closure_monthly[5].is_nan() && report.closure_annual.is_nan());
+    assert_eq!(report.closure_worst_month, -1);
+    assert_eq!(report.closure_within, 0);
+    assert!((report.closure_tolerance - 0.05).abs() < 1e-15);
+    assert!((report.closure_hours - 1.0).abs() < 1e-12);
     assert!((direct[5] + diffuse[5] - open).abs() < 1e-9 * open);
     // The canopy sample: half the beam it faces.
     assert!((direct[12 + 5] - 0.5 * 600.0 * a.cos()).abs() < 1e-9);
