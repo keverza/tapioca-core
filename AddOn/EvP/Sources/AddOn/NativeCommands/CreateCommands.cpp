@@ -604,8 +604,12 @@ class CreateWallCommand : public WriteCommand {
 //
 //   x, y          : double[N]   origin of each column
 //   base          : double?     world-Z of the column bottom (default 0)
+//   bases         : double[N]?  world-Z of EACH column's bottom, instead of `base`;
+//                               all go on the story `bases[0]` resolves to, each at
+//                               its own offset (planting on uneven ground, #278)
 //   floorInd      : int?        story that OWNS the columns; omitted => nearest
 //   height        : double?     column height; omitted => the tool's default
+//   heights       : double[N]?  EACH column's height, instead of `height`
 //   layer         : string?     LAYER NAME from an evp.Layer picker
 //   shape         : "rectangular" | "circular" | "profile" | omitted
 //   width, height2: double?     section size in METRES  (shape="rectangular")
@@ -674,6 +678,15 @@ class CreateColumnCommand : public WriteCommand {
 
         double base = 0.0;
         params.Get ("base", base);
+        GS::Array<double> bases, heights;
+        const bool perBase = params.Get ("bases", bases);
+        const bool perHeight = params.Get ("heights", heights);
+        if ((perBase && bases.GetSize () != n) || (perHeight && heights.GetSize () != n)) {
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("bases/heights must have one value per column", "EvP.CreateColumn"));
+        }
+        if (perBase)
+            base = bases[0];
         GS::Int32 requestedFloor = 0;
         const bool haveFloor = params.Get ("floorInd", requestedFloor);
         short floorInd = 0;
@@ -775,8 +788,11 @@ class CreateColumnCommand : public WriteCommand {
             element.header.floorInd = floorInd;
             element.column.origoPos.x = xs[i];
             element.column.origoPos.y = ys[i];
-            element.column.bottomOffset = bottomOffset;
-            if (haveHeight)
+            // One story for all; a column whose own base differs sits at its offset from it.
+            element.column.bottomOffset = perBase ? bottomOffset + (bases[i] - base) : bottomOffset;
+            if (perHeight && heights[i] > 0.0)
+                element.column.height = heights[i];
+            else if (haveHeight)
                 element.column.height = height;
             if (haveAngle)
                 element.column.axisRotationAngle = angle;
@@ -854,8 +870,7 @@ const NativeCommandRegistration CreateCommandRegistrations[] = {
       R"json({"type":"object","properties":{"begX":{"type":"array","minItems":1,"items":{"type":"number"}},"begY":{"type":"array","minItems":1,"items":{"type":"number"}},"endX":{"type":"array","minItems":1,"items":{"type":"number"}},"endY":{"type":"array","minItems":1,"items":{"type":"number"}},"arcAngles":{"type":"array","items":{"type":"number"}},"base":{"type":"number"},"floorInd":{"type":"integer"},"height":{"type":"number"},"structure":{"type":"string","enum":["basic","composite","profile"]},"attrName":{"type":"string"},"thickness":{"type":"number"},"refLine":{"type":"string","enum":["outside","center","inside","coreOutside","coreCenter","coreInside"]},"flipped":{"type":"boolean"}},"additionalProperties":false,"required":["begX","begY","endX","endY"]})json",
       R"json({"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"succeeded":{"type":"boolean"},"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"error":{"type":"string"}},"additionalProperties":false,"required":["succeeded"]}},"created":{"type":"integer","minimum":1},"floorInd":{"type":"integer"}},"additionalProperties":false,"required":["results","created","floorInd"]})json" },
     { "CreateColumn", &MakeRegisteredNativeCommand<CreateColumnCommand>, false,
-      R"json({"type":"object","properties":{"x":{"type":"array","minItems":1,"items":{"type":"number"}},"y":{"type":"array","minItems":1,"items":{"type":"number"}},"base":{"type":"number"},"floorInd":{"type":"integer"},"height":{"type":"number"},"layer":{"type":"string"},"shape":{"type":"string","enum":["rectangular","circular","profile"]},"width":{"type":"number"},"height2":{"type":"number"},"diameter":{"type":"number"},"profile":{"type":"string"},"material":{"type":"string"},"angle":{"type":"number"}},"additionalProperties":false,"required":["x","y"]})json",
-      R"json({"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"succeeded":{"type":"boolean"},"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"error":{"type":"string"}},"additionalProperties":false,"required":["succeeded"]}},"count":{"type":"integer","minimum":0},"floorInd":{"type":"integer"}},"additionalProperties":false,"required":["results","count","floorInd"]})json" },
+      R"json({"type":"object","properties":{"x":{"type":"array","minItems":1,"items":{"type":"number"}},"y":{"type":"array","minItems":1,"items":{"type":"number"}},"base":{"type":"number"},"bases":{"type":"array","minItems":1,"items":{"type":"number"}},"floorInd":{"type":"integer"},"height":{"type":"number"},"heights":{"type":"array","minItems":1,"items":{"type":"number","exclusiveMinimum":0}},"layer":{"type":"string"},"shape":{"type":"string","enum":["rectangular","circular","profile"]},"width":{"type":"number"},"height2":{"type":"number"},"diameter":{"type":"number"},"profile":{"type":"string"},"material":{"type":"string"},"angle":{"type":"number"}},"additionalProperties":false,"required":["x","y"]})json", R"json({"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"succeeded":{"type":"boolean"},"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"error":{"type":"string"}},"additionalProperties":false,"required":["succeeded"]}},"count":{"type":"integer","minimum":0},"floorInd":{"type":"integer"}},"additionalProperties":false,"required":["results","count","floorInd"]})json" },
 };
 
 } // namespace
