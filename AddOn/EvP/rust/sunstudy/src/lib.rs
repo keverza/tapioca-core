@@ -27,6 +27,7 @@ pub mod roles;
 pub mod sampler;
 pub mod series;
 pub mod session;
+pub mod sky;
 pub mod step_atlas;
 pub mod study;
 pub mod summary;
