@@ -215,10 +215,8 @@ void CatalogueRow (HudState& state)
         ImGui::PopStyleColor ();
         ImGui::TreePop ();
     }
-    for (const auto& source : cat.plants.sources)
-        if (!source.note.empty ())
-            ImGui::TextDisabled ("%s: %s", source.title.empty () ? source.id.c_str () : source.title.c_str (),
-                                 source.note.c_str ());
+    // ⚠️ NO SOURCE LINES in the tab (the owner's decision, 2026-11-26): provenance
+    // stays in the catalogue files and the private sources record, never on screen.
 }
 
 void Filters (pl::CatalogueState& cat, int designZone, const std::vector<pl::PlantingZone>& zones)
@@ -468,17 +466,8 @@ void SelectedPlant (HudState& state)
             if (p.traits.values[size_t (t)].Given ())
                 ImGui::Text ("%s: %s", pl::TraitPath (pl::Trait (t)).c_str (),
                              pl::TraitCsvCell (p.traits, pl::Trait (t)).c_str ());
-        for (const auto& e : p.traits.evidence)
-            ImGui::TextDisabled ("%s from %s%s%s", e.field.c_str (), e.sourceId.c_str (),
-                                 e.confidence >= 0 ? ", confidence " : "",
-                                 e.confidence >= 0 ? pl::TraitConfidenceKeys ()[e.confidence] : "");
         ImGui::TreePop ();
     }
-    if (!p.sourceNumber.empty ())
-        ImGui::TextDisabled ("The standard's row %s", p.sourceNumber.c_str ());
-    for (const auto& ref : p.sources)
-        ImGui::TextDisabled ("Source: %s%s", ref.sourceId.c_str (),
-                             ref.page ? (", p. " + std::to_string (ref.page)).c_str () : "");
     if (fit.status == pl::PlantFit::Status::Unknown)
         ImGui::TextDisabled ("Fit unknown: %s.", fit.reason.c_str ());
     else
