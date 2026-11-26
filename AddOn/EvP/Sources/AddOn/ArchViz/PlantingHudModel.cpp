@@ -269,6 +269,9 @@ void KeepLayer (PlantingHud& hud, float height, const std::string& studyId, bool
         hud.layers[size_t (at)].period = period;
         hud.layers[size_t (at)].label = label;
         hud.layers[size_t (at)].display.reset (); // another study: its picture comes when it is shown
+        hud.layers[size_t (at)].classAreas.clear ();
+        hud.layers[size_t (at)].areaEdges.clear ();
+        hud.layers[size_t (at)].evaluatedArea = 0.0;
         hud.shownLayer = at;
         return;
     }
@@ -276,6 +279,52 @@ void KeepLayer (PlantingHud& hud, float height, const std::string& studyId, bool
     std::sort (hud.layers.begin (), hud.layers.end (),
                [] (const Layer& a, const Layer& b) { return a.height < b.height; });
     hud.shownLayer = LayerAt (hud, height);
+}
+
+void KeepLayerAreas (PlantingHud& hud, const std::string& studyId, const std::vector<double>& edges,
+                     const std::vector<double>& classAreas, double evaluatedArea)
+{
+    for (Layer& layer : hud.layers) {
+        if (layer.studyId != studyId)
+            continue;
+        layer.classAreas = classAreas;
+        layer.areaEdges = edges;
+        layer.evaluatedArea = evaluatedArea;
+    }
+}
+
+uint32_t DimmedRgba (uint32_t rgba)
+{
+    // Halfway to a neutral grey, and drawn at half opacity.
+    auto mix = [] (uint32_t c) { return (c + 0x9A) / 2; };
+    const uint32_t r = mix ((rgba >> 24) & 0xFF), g = mix ((rgba >> 16) & 0xFF), b = mix ((rgba >> 8) & 0xFF);
+    const uint32_t a = ((rgba & 0xFF) + 1) / 2;
+    return (r << 24) | (g << 16) | (b << 8) | a;
+}
+
+bool SeasonDatesFromWeather (const std::vector<evp::sunstudy::WeatherDay>& days,
+                             const evp::sunstudy::GrowingSeason& season, SeasonDates& out)
+{
+    if (!season.found || season.first >= days.size () || season.last >= days.size () || season.last < season.first)
+        return false;
+    const auto& a = days[season.first];
+    const auto& b = days[season.last];
+    if (a.month > b.month || (a.month == b.month && a.day > b.day))
+        return false; // the data period itself wraps
+    out = { a.month, a.day, b.month, b.day, season.first == season.last, false };
+    return true;
+}
+
+StationMatch MatchStation (double distanceM, double heightDifferenceM)
+{
+    if (!std::isfinite (distanceM) || !std::isfinite (heightDifferenceM))
+        return StationMatch::Unknown;
+    const double dz = std::abs (heightDifferenceM);
+    if (distanceM > 150000.0 || dz > 300.0)
+        return StationMatch::Far;
+    if (distanceM > 30000.0 || dz > 50.0)
+        return StationMatch::Warn;
+    return StationMatch::Near;
 }
 
 } // namespace geomsrv::archviz::planting

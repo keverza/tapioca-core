@@ -211,6 +211,8 @@ set (EVP_SUNSTUDY_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/ViewpointBakeStub.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisTabs.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingHudModel.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantCatalogue.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingFiles.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisLiveRerun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointOverlayGeometry.cpp"
@@ -594,6 +596,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudCaptureFrame.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlanting.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingResults.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingCatalogue.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingClimate.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/LayoutReportPage.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerScreenshotGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
@@ -1263,6 +1267,7 @@ set (EVP_TEST_SOURCES
     test_sunstudy_point_profile.cpp
     test_analysistabs.cpp
     test_plantinghudmodel.cpp
+    test_plantcatalogue.cpp
     test_layoutreportplanting.cpp
     test_analysisliverun.cpp
     test_analysispath.cpp

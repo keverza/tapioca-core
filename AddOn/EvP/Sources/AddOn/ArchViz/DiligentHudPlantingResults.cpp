@@ -310,40 +310,6 @@ void DrawResults (HudState& state, const DiligentSceneStats& scene)
     ReportRow (state, scene);
 }
 
-void DrawPlantsTab (HudState& state)
-{
-    pl::PlantingHud& hud = state.planting;
-    ImGui::TextDisabled ("Plant catalogue: Stage 3.");
-    LaterButton ("Pick plant catalogue...",
-                 "Later: a local plant list (JSON) with each species' light class, mature height and spread.");
-    ImGui::SameLine ();
-    ImGui::TextDisabled ("%s", hud.catalogPath.empty () ? "no catalogue" : hud.catalogPath.c_str ());
-    ImGui::BeginDisabled ();
-    int size = 0;
-    ImGui::SetNextItemWidth (-ImGui::GetFontSize () * 6.0f);
-    ImGui::Combo ("plant size##planting", &size, "All\0Ground cover\0Low\0Shrub\0Tree\0");
-    int fit = 0;
-    ImGui::RadioButton ("Light only##plantingfit", &fit, 0);
-    ImGui::SameLine ();
-    ImGui::RadioButton ("Space##plantingfit", &fit, 1);
-    ImGui::SameLine ();
-    ImGui::RadioButton ("Combined##plantingfit", &fit, 2);
-    ImGui::EndDisabled ();
-    hudshell::ItemTip ("Later: where each plant size fits by light, by space for its mature crown, or both.");
-    if (ImGui::BeginTable ("##planting-plants", 4, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn ("Plant");
-        ImGui::TableSetupColumn ("Light");
-        ImGui::TableSetupColumn ("Size");
-        ImGui::TableSetupColumn ("Fits");
-        ImGui::TableHeadersRow ();
-        ImGui::TableNextRow ();
-        ImGui::TableNextColumn ();
-        ImGui::TextDisabled ("no catalogue loaded");
-        ImGui::EndTable ();
-    }
-    LaterButton ("Show mature envelope", "Later: the selected plant's mature height and spread at the point.");
-}
-
 void DrawCompareTab (HudState& state)
 {
     (void) state;

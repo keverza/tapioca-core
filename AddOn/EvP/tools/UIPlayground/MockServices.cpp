@@ -8,6 +8,8 @@
 #include "SunStudy/SunPathStudyData.hpp"
 #include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
+#include "SunStudy/SunStudyWeather.hpp"
+#include <cmath>
 #include "Geometry/MeshStore.hpp"
 #include <stdexcept>
 
@@ -185,6 +187,72 @@ bool ClearPeriodCache (std::string& error)
     return true;
 }
 } // namespace geomsrv::sunstudyhud
+namespace evp::sunstudy {
+// EPW weather (#155 P1): the Playground has no Rust parser. Any picked file
+// reads as one synthetic Vilnius-like year, so the Climate section can be laid
+// out offline; nothing on disk is parsed.
+bool ReadWeatherFile (const std::filesystem::path& path, WeatherData& out, std::string& error)
+{
+    error.clear ();
+    out = WeatherData ();
+    auto& id = out.identity;
+    id.city = "Synthetic station";
+    id.country = "LTU";
+    id.source = "Playground mock";
+    id.wmo = "000000";
+    id.latitude = 54.6364;
+    id.longitude = 25.2908;
+    id.timeZoneHours = 2.0;
+    id.elevationM = 196.9;
+    id.sha256 = std::string (64, '0');
+    id.missing[size_t (WeatherField::DiffuseHorizontal)] = 12;
+    static constexpr int kDays[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    int n = 0;
+    for (int m = 0; m < 12; ++m) {
+        auto& month = out.months[size_t (m)];
+        month.records = size_t (kDays[m]) * 24;
+        double sum = 0;
+        for (int d = 1; d <= kDays[m]; ++d, ++n) {
+            const double t = 7.0 - 12.0 * std::cos (n / 365.0 * 6.283185307);
+            out.days.push_back ({ uint8_t (m + 1), uint8_t (d), t, 0.0, 0 });
+            sum += t;
+        }
+        month.meanDryBulbC = sum / kDays[m];
+        month.minDryBulbC = month.meanDryBulbC - 6.0;
+        month.maxDryBulbC = month.meanDryBulbC + 6.0;
+        month.globalHorizontalKwhM2 = 10.0 + 150.0 * std::max (0.0, std::sin ((m + 0.5) / 12.0 * 3.14159265));
+    }
+    out.records.resize (8760);
+    tapioca::playground::LogMock ("Read weather file (mock): " + path.filename ().string ());
+    return true;
+}
+bool FindGrowingSeason (const std::vector<WeatherDay>& days, int windowDays, double thresholdC, bool,
+                        GrowingSeason& out, std::string& error)
+{
+    error.clear ();
+    out = GrowingSeason ();
+    if (windowDays < 1 || windowDays % 2 == 0) {
+        error = "WeatherSeasonRule";
+        return false;
+    }
+    size_t run = 0;
+    for (size_t i = 0; i < days.size (); ++i) {
+        run = days[i].meanDryBulbC >= thresholdC ? run + 1 : 0;
+        if (run > 0 && run > (out.found ? out.last - out.first + 1 : 0))
+            out = { true, i + 1 - run, i };
+    }
+    return true;
+}
+bool StationDistance (double latA, double lonA, double latB, double lonB, double& metres, std::string& error)
+{
+    error.clear ();
+    const double k = 3.14159265358979 / 180.0;
+    const double h = std::pow (std::sin ((latB - latA) * k / 2), 2) +
+                     std::cos (latA * k) * std::cos (latB * k) * std::pow (std::sin ((lonB - lonA) * k / 2), 2);
+    metres = 2.0 * 6371008.8 * std::asin (std::min (1.0, std::sqrt (h)));
+    return true;
+}
+} // namespace evp::sunstudy
 namespace geomsrv::sunstudyhud {
 // No completed study is stored here: the sun path has no day to show.
 bool ReadSunPathStudyDay (const std::string&, SunPathStudyDay&)

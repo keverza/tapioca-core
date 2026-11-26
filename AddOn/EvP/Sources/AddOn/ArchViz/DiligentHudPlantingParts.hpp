@@ -3,13 +3,15 @@
 
 // The Planting tab's pieces shared by its two translation units (#278 Stage
 // 1C): DiligentHudPlanting.cpp (form, run queue, shared tint) and
-// DiligentHudPlantingResults.cpp (results, areas, report, Plants, Compare).
+// DiligentHudPlantingResults.cpp (results, areas, report, Compare),
+// DiligentHudPlantingCatalogue.cpp (Plants) and DiligentHudPlantingClimate.cpp.
 
 #include "ArchViz/PlantingHudModel.hpp"
 
 #include <imgui.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -48,7 +50,17 @@ void ClearLayers (HudState& state);
 void RefreshAreas (HudState& state, const std::string& studyId, uint64_t version);
 
 void DrawResults (HudState& state, const DiligentSceneStats& scene);
+// The Plants sub-tab and its catalogue (DiligentHudPlantingCatalogue.cpp).
 void DrawPlantsTab (HudState& state);
+// Seed and read the catalogue folder once; Reload reads it again.
+void EnsureCatalogue (HudState& state);
+void ReloadCatalogue (planting::CatalogueState& cat);
+// Read each kept layer's whole-layer class areas at the current edges, once.
+void RefreshLayerAreas (HudState& state);
+// Open a folder in Explorer on a short-lived thread of its own.
+void OpenFolderInExplorer (const std::filesystem::path& folder);
+// The Light sub-tab's Climate section (DiligentHudPlantingClimate.cpp).
+void DrawClimateSection (HudState& state, const DiligentSceneStats& scene);
 void DrawCompareTab (HudState& state);
 
 } // namespace plantinghud

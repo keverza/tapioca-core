@@ -12,7 +12,9 @@
 // same edges, so the legend and the numbers agree at every edge but the slack.
 
 #include "ArchViz/GradientLibrary.hpp"
+#include "ArchViz/PlantCatalogue.hpp"
 #include "SunStudy/SunStudyPlantingAreas.hpp"
+#include "SunStudy/SunStudyWeather.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -91,6 +93,38 @@ struct Layer {
     // Its display as last shown, for the Layout Builder's planting page (#278):
     // kept by the frame loop whenever this layer is the study on screen.
     std::shared_ptr<const SunStudyAtlasUpload> display;
+    // Its whole-layer class areas (m²) and the edges they were read at, for
+    // the Plants tab's fit; empty until read.
+    std::vector<double> classAreas;
+    double evaluatedArea = 0.0;
+    std::vector<double> areaEdges;
+};
+
+// The local plant catalogue as the Plants tab holds it (#278 Stage 3).
+struct CatalogueState {
+    bool attempted = false; // the folder was seeded and read once
+    std::string folder;
+    Catalogue plants;
+    std::vector<Profile> profiles;
+    bool plantsLoaded = false, profilesLoaded = false;
+    std::vector<std::string> problems; // the last read's, both files
+    std::string status;                // "Read 8 plants and 1 profile."
+    PlantFilter filter;
+    int selected = -1; // index into plants.plants
+    bool highlight = false;
+};
+
+// The weather file the Climate section shows (#155 P1). Not a light input yet.
+struct ClimateState {
+    bool scanned = false;
+    std::string folder;
+    std::vector<std::string> files; // file names in the folder
+    int selected = -1;
+    std::shared_ptr<const evp::sunstudy::WeatherData> data;
+    std::string error;
+    float thresholdC = 5.0f;
+    int windowDays = 7;
+    evp::sunstudy::GrowingSeason season;
 };
 
 struct PlantingHud {
@@ -111,10 +145,11 @@ struct PlantingHud {
     float deepShadeEdge = kDefaultDeepShade;
     float minHostUp = 0.5f; // steeper hosts are unavailable (cos of the slope)
     int backend = 0;        // 0 CPU, 1 GPU
-    // Climate and catalogue: inputs of later stages, shown now.
-    int climate = 0; // 0 geometry only, 1 EPW (later)
-    std::string epwPath;
-    std::string catalogPath;
+    // Climate and catalogue.
+    int climate = 0; // 0 geometry only; weather-weighted hours wait for #155 P2
+    ClimateState climateState;
+    CatalogueState catalogue;
+    std::string profileId = "vilnius-2024";
 
     // Run queue: heights still to trace, the one running, and the finished ones.
     std::vector<float> pending;
@@ -138,6 +173,9 @@ struct PlantingHud {
     bool classFlipped = false;
     std::vector<overlaylayers::ColourStop> classCustom;
     // The hours ramp, when the metric is hours a day.
+    // Classes the selected plant accepts (bit per class); others are drawn
+    // dimmed. 0: no highlight.
+    uint32_t highlightMask = 0;
     std::string hoursPreset = "sun-hours-classic";
     bool hoursFlipped = false;
     std::vector<overlaylayers::ColourStop> hoursCustom;
@@ -206,6 +244,22 @@ std::vector<size_t> PageLayers (const PlantingHud& hud, size_t limit);
 // "Full sun 35% | Partial shade 41% | Shade 24%" from class areas, highest class
 // first; "" when nothing was measured.
 std::string ClassShares (const PlantingHud& hud, const std::vector<double>& classAreas);
+
+// Record a layer's whole-layer class areas read at `edges`.
+void KeepLayerAreas (PlantingHud& hud, const std::string& studyId, const std::vector<double>& edges,
+                     const std::vector<double>& classAreas, double evaluatedArea);
+// A colour drawn for a class outside the highlight: towards grey, faded.
+uint32_t DimmedRgba (uint32_t rgba);
+
+// The weather file's growing season as form dates; false when there is none
+// or it crosses New Year (a custom season stays within one year).
+bool SeasonDatesFromWeather (const std::vector<evp::sunstudy::WeatherDay>& days,
+                             const evp::sunstudy::GrowingSeason& season, SeasonDates& out);
+
+// How far a weather station is from the project: within 30 km and 50 m of
+// height it is near; beyond 150 km or 300 m it is far. Proposed defaults.
+enum class StationMatch : int { Unknown, Near, Warn, Far };
+StationMatch MatchStation (double distanceM, double heightDifferenceM);
 
 // The layer finished for `height`, or -1.
 int LayerAt (const PlantingHud& hud, float height);

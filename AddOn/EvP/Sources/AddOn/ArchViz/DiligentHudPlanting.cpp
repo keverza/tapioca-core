@@ -72,11 +72,17 @@ std::vector<uint32_t> plantinghud::ShownClassColours (const pl::PlantingHud& hud
     if (hud.classPreset.empty ()) {
         for (int cls = 0; cls < count; ++cls)
             colours.push_back (pl::ClassRgba (hud, cls));
-        return colours;
     }
-    const auto stops = SunStudyRampStops (hud.classPreset, hud.classCustom, hud.classFlipped);
-    for (const auto& stop : pl::ClassStops (hud, kSunRampTop))
-        colours.push_back (gradientchoice::ColourAt (stops, stop.at));
+    else {
+        const auto stops = SunStudyRampStops (hud.classPreset, hud.classCustom, hud.classFlipped);
+        for (const auto& stop : pl::ClassStops (hud, kSunRampTop))
+            colours.push_back (gradientchoice::ColourAt (stops, stop.at));
+    }
+    // A selected plant's highlight (Plants tab): the classes it does not accept, dimmed.
+    if (hud.highlightMask != 0)
+        for (size_t cls = 0; cls < colours.size (); ++cls)
+            if (!(hud.highlightMask & (1u << cls)))
+                colours[cls] = pl::DimmedRgba (colours[cls]);
     return colours;
 }
 
@@ -293,26 +299,36 @@ void LayersSection (pl::PlantingHud& hud)
                        "unavailable, drawn hatched; it is never counted as shade.");
 }
 
-void ClassesSection (pl::PlantingHud& hud)
+void ClassesSection (HudState& state)
 {
     if (!ImGui::CollapsingHeader ("Light classes", ImGuiTreeNodeFlags_DefaultOpen))
         return;
+    plantinghud::EnsureCatalogue (state);
+    pl::PlantingHud& hud = state.planting;
+    const auto& profiles = hud.catalogue.profiles;
+    const auto active =
+        std::find_if (profiles.begin (), profiles.end (), [&] (const pl::Profile& p) { return p.id == hud.profileId; });
     ImGui::SetNextItemWidth (-LabelColumn ());
-    if (ImGui::BeginCombo ("profile##planting", "Vilnius 2024")) {
-        ImGui::Selectable ("Vilnius 2024", true);
-        ImGui::BeginDisabled ();
-        ImGui::Selectable ("Load profile...");
-        ImGui::EndDisabled ();
-        hudshell::ItemTip ("Later: regional profiles with their own classes and seasons.");
+    if (ImGui::BeginCombo ("profile##planting", active == profiles.end () ? "custom" : active->name.c_str ())) {
+        for (const auto& profile : profiles)
+            if (ImGui::Selectable (profile.name.c_str (), profile.id == hud.profileId))
+                pl::ApplyProfile (hud, profile);
+        if (profiles.empty ())
+            ImGui::TextDisabled ("no profiles: see the Plants tab");
         ImGui::EndCombo ();
     }
-    hudshell::ItemTip ("Miesto zeldinimo standartas 2024, p. 20: shade under 3 h, partial shade 3 to 6 h, full sun "
-                       "6 h or more of direct sun a day. An exact edge belongs to the upper class.");
+    if (active != profiles.end ())
+        hudshell::ItemTip ("%s%s%s\nPicking a profile sets its class edges%s. Profiles live in profiles.json "
+                           "(Plants tab, Open folder). An exact edge belongs to the upper class.",
+                           active->source.c_str (),
+                           active->seasonNote.empty () ? "" : "\nSeason: ", active->seasonNote.c_str (),
+                           active->hasSeason ? ", its season" : "");
     ImGui::SetNextItemWidth (-LabelColumn ());
     float edges[2] = { hud.partialEdge, hud.sunEdge };
     if (ImGui::DragFloat2 ("edges h##planting", edges, 0.05f, 0.0f, 24.0f, "%.2f h")) {
         hud.partialEdge = edges[0];
         hud.sunEdge = edges[1];
+        hud.profileId.clear (); // edited by hand: no longer the profile's
     }
     hudshell::ItemTip ("Partial shade from the first edge, full sun from the second, in hours a day.");
     ImGui::Checkbox ("Deep shade below##planting", &hud.deepShade);
@@ -328,23 +344,6 @@ void ClassesSection (pl::PlantingHud& hud)
         hud.sunEdge = pl::kDefaultSun;
         hud.deepShadeEdge = pl::kDefaultDeepShade;
     }
-}
-
-void ClimateSection (pl::PlantingHud& hud)
-{
-    if (!ImGui::CollapsingHeader ("Climate"))
-        return;
-    ImGui::RadioButton ("Geometry only##plantingclimate", &hud.climate, 0);
-    hudshell::ItemTip ("Direct-sun hours from the sun's path and the model alone: no weather, no clouds.");
-    ImGui::SameLine ();
-    ImGui::BeginDisabled ();
-    int later = hud.climate;
-    ImGui::RadioButton ("Weather file##plantingclimate", &later, 1);
-    ImGui::EndDisabled ();
-    hudshell::ItemTip ("Later: weight the hours by an EPW file's sunshine, and add daily light integral.");
-    LaterButton ("Pick EPW...", "Later: a local EnergyPlus weather file (.epw). Nothing is downloaded.");
-    ImGui::SameLine ();
-    ImGui::TextDisabled ("%s", hud.epwPath.empty () ? "no weather file" : hud.epwPath.c_str ());
 }
 
 void AdvancedSection (pl::PlantingHud& hud)
@@ -473,6 +472,7 @@ void plantinghud::RefreshAreas (HudState& state, const std::string& studyId, uin
     std::string error;
     if (sunstudyhud::ReadPlantingAreas (studyId, areas.edges, read, error)) {
         areas.period = read.period;
+        pl::KeepLayerAreas (hud, studyId, areas.edges, read.table.total.classAreas, read.table.total.evaluatedArea);
         areas.table = std::move (read.table);
         areas.hostGuids = std::move (read.hostGuids);
         areas.error.clear ();
@@ -481,6 +481,29 @@ void plantinghud::RefreshAreas (HudState& state, const std::string& studyId, uin
     areas.table = {};
     areas.hostGuids.clear ();
     areas.error = error.empty () ? "The area table could not be read." : error;
+}
+
+void plantinghud::RefreshLayerAreas (HudState& state)
+{
+    pl::PlantingHud& hud = state.planting;
+    if (hud.runningRun != 0)
+        return;
+    const std::vector<double> edges = pl::AreaEdges (hud);
+    for (pl::Layer& layer : hud.layers) {
+        if (layer.areaEdges == edges)
+            continue; // read (or tried) at these edges
+        sunstudyhud::PlantingAreas read;
+        std::string error;
+        if (sunstudyhud::ReadPlantingAreas (layer.studyId, edges, read, error)) {
+            layer.classAreas = read.table.total.classAreas;
+            layer.evaluatedArea = read.table.total.evaluatedArea;
+        }
+        else {
+            layer.classAreas.clear (); // no longer kept: unknown until traced again
+            layer.evaluatedArea = 0.0;
+        }
+        layer.areaEdges = edges;
+    }
 }
 
 void OpenPlantingBuilder (HudState& state)
@@ -623,12 +646,13 @@ void DrawPlantingHudSection (HudState& state, const DiligentSceneStats& scene)
         return;
     if (ImGui::BeginTabItem ("Light")) {
         pl::PlantingHud& hud = state.planting;
+        hud.highlightMask = 0; // the Plants tab's highlight is drawn only there
         ImGui::BeginDisabled (hud.runningRun != 0);
         AreasSection (state);
         PeriodSection (hud);
         LayersSection (hud);
-        ClassesSection (hud);
-        ClimateSection (hud);
+        ClassesSection (state);
+        plantinghud::DrawClimateSection (state, scene);
         AdvancedSection (hud);
         ImGui::EndDisabled ();
         RunRow (state);
@@ -640,6 +664,7 @@ void DrawPlantingHudSection (HudState& state, const DiligentSceneStats& scene)
         ImGui::EndTabItem ();
     }
     if (ImGui::BeginTabItem ("Compare")) {
+        state.planting.highlightMask = 0;
         plantinghud::DrawCompareTab (state);
         ImGui::EndTabItem ();
     }
