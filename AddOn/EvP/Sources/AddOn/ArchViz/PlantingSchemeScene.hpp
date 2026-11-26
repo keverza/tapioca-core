@@ -41,6 +41,13 @@ void BuildPlantingSchemeScene (const SchemeResult& scheme, SchemeMarker marker, 
 // kSizeUnknownRgba where none is known to. Appended to `out.crowns`.
 void AppendSizeFitMap (const SchemeSite& site, const SizeFitResult& fit, PlantingSchemeGeometry& out);
 
+// The envelope preview at one sample (#278 Stage 2): every switched-on class's
+// mature crown as a cylinder of its spread and height on the host, in its rank
+// colour where it fits and kSizeNoneRgba where it does not, each with a rim at
+// its top. Appended to `out`.
+void AppendEnvelopePreview (const SchemeSite& site, size_t row, const std::vector<SizeClass>& classes,
+                            const SizeFitResult& fit, PlantingSchemeGeometry& out);
+
 } // namespace geomsrv::archviz::planting
 
 #endif

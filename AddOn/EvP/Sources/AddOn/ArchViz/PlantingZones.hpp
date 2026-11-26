@@ -23,11 +23,15 @@
 // the "outside every zone" row counts it nowhere. Rows can therefore sum to more
 // than the measured area, and the table says so when they do.
 
+#include "ArchViz/PlantCatalogue.hpp"
+
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace geomsrv::archviz::planting {
+
+struct PlantingHud;
 
 enum class ZoneRole : uint8_t {
     Bed, // a planting zone: area rows, and the Scheme may be limited to it
@@ -75,6 +79,11 @@ struct ZoneClassAreas {
 };
 ZoneClassAreas ClassAreasInZone (const std::vector<uint32_t>& masks, uint32_t zoneBit, const std::vector<double>& hours,
                                  const std::vector<double>& areas, const std::vector<double>& edges);
+
+// A plant's fit inside one zone: `layerFit` (FitOf, the layer nearest its
+// height) narrowed to the zone's row read on that same layer. The evaluated
+// area is the zone's measured area. A zone with no measured samples is Unknown.
+PlantFit FitInZone (const PlantingHud& hud, const Plant& plant, const PlantFit& layerFit, const ZoneClassAreas& zone);
 
 } // namespace geomsrv::archviz::planting
 

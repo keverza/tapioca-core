@@ -83,6 +83,12 @@ void PublishSchemeScene (HudState& state);
 // rows for the shown layer (read once per study, edges and zone list).
 void DrawZonesRow (HudState& state);
 const planting::ZonesState& RefreshZoneRows (HudState& state, const std::string& studyId, float layerHeight);
+// Each zone's class areas on kept layer `layer` (parallel to the zones), read
+// once per study, edges and zone list; null when the layer cannot be read.
+const std::vector<planting::ZoneClassAreas>* ZoneRowsOfLayer (HudState& state, int layer);
+// A plant's fit in the Plants tab's chosen zone (CatalogueState::zone), or on
+// its whole layer when none is chosen.
+planting::PlantFit FitForPlantsTab (HudState& state, const planting::Plant& plant);
 
 } // namespace plantinghud
 } // namespace geomsrv::archviz

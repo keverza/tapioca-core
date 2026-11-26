@@ -166,4 +166,45 @@ const pl::ZonesState& RefreshZoneRows (HudState& state, const std::string& study
     return z;
 }
 
+const std::vector<pl::ZoneClassAreas>* ZoneRowsOfLayer (HudState& state, int layer)
+{
+    pl::PlantingHud& hud = state.planting;
+    pl::ZonesState& z = hud.zones;
+    if (layer < 0 || size_t (layer) >= hud.layers.size () || z.zones.empty ())
+        return nullptr;
+    const pl::Layer& l = hud.layers[size_t (layer)];
+    const std::vector<double> edges = pl::AreaEdges (hud);
+    pl::ZonesState::LayerRows& cached = z.byStudy[l.studyId];
+    if (cached.revision != z.revision || cached.edges != edges) {
+        cached.revision = z.revision;
+        cached.edges = edges;
+        cached.rows.clear ();
+        cached.error.clear ();
+        sunstudyhud::PlantingSite site;
+        if (sunstudyhud::ReadPlantingSite (l.studyId, l.height, site, cached.error)) {
+            const std::vector<uint32_t> masks = pl::ZoneMasks (z.zones, site.x, site.y);
+            for (size_t i = 0; i < z.zones.size () && i < pl::kMaxPlantingZones; ++i)
+                cached.rows.push_back (pl::ClassAreasInZone (masks, 1u << i, site.hours, site.areas, edges));
+        }
+    }
+    return cached.rows.size () == z.zones.size () ? &cached.rows : nullptr;
+}
+
+pl::PlantFit FitForPlantsTab (HudState& state, const pl::Plant& plant)
+{
+    pl::PlantingHud& hud = state.planting;
+    const pl::PlantFit fit = pl::FitOf (hud, plant);
+    const int zone = hud.catalogue.zone;
+    if (zone < 0 || size_t (zone) >= hud.zones.zones.size ())
+        return fit;
+    const auto* rows = ZoneRowsOfLayer (state, fit.layer);
+    if (rows == nullptr) {
+        pl::PlantFit unknown = fit;
+        unknown.status = pl::PlantFit::Status::Unknown;
+        unknown.reason = "the zone could not be read on that layer";
+        return unknown;
+    }
+    return pl::FitInZone (hud, plant, fit, (*rows)[size_t (zone)]);
+}
+
 } // namespace geomsrv::archviz::plantinghud

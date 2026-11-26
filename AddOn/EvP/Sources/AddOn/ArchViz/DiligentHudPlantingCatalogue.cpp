@@ -11,6 +11,7 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudPlantingParts.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/PlantHardiness.hpp"
 #include "ArchViz/PlantingFiles.hpp"
 
 #include <imgui.h>
@@ -208,7 +209,7 @@ void CatalogueRow (HudState& state)
                                  source.note.c_str ());
 }
 
-void Filters (pl::CatalogueState& cat)
+void Filters (pl::CatalogueState& cat, int designZone, const std::vector<pl::PlantingZone>& zones)
 {
     char text[128] = {};
     std::snprintf (text, sizeof (text), "%s", cat.filter.text.c_str ());
@@ -269,10 +270,54 @@ void Filters (pl::CatalogueState& cat)
     ImGui::SameLine ();
     ImGui::Checkbox ("BREEAM##plantbreeam", &cat.filter.breeamOnly);
     hudshell::ItemTip ("Only plants the catalogue marks for BREEAM.");
-    if (cat.filter.Any () || !cat.filter.text.empty ()) {
+    {
+        const int zone = designZone;
+        if (zone < 0)
+            cat.filter.hardyZone = -1;
         ImGui::SameLine ();
-        if (ImGui::SmallButton ("Clear##plantfilters"))
+        ImGui::BeginDisabled (zone < 0);
+        bool hardy = cat.filter.hardyZone >= 0;
+        const std::string label =
+            zone >= 0 ? "Hardy in " + pl::UsdaName (zone) + "##planthardy" : std::string ("Hardy here##planthardy");
+        if (ImGui::Checkbox (label.c_str (), &hardy))
+            cat.filter.hardyZone = hardy ? zone : -1;
+        if (hardy && cat.filter.hardyZone != zone)
+            cat.filter.hardyZone = zone; // the design zone moved
+        ImGui::EndDisabled ();
+        hudshell::ItemTip (zone >= 0 ? "Only plants whose catalogue rating (USDA or RHS) is hardy in the design zone. "
+                                       "A plant without a rating is left out."
+                                     : "Set a design zone first: Light > Climate > Winter hardiness.");
+    }
+    {
+        if (cat.zone >= int (zones.size ()) || (cat.zone >= 0 && zones[size_t (cat.zone)].role != pl::ZoneRole::Bed))
+            cat.zone = -1;
+        ImGui::SameLine ();
+        ImGui::SetNextItemWidth (ImGui::GetFontSize () * 7.5f);
+        ImGui::BeginDisabled (zones.empty ());
+        const std::string label = cat.zone < 0 ? std::string ("whole layer") : zones[size_t (cat.zone)].name;
+        if (ImGui::BeginCombo ("##plantzone", label.c_str ())) {
+            if (ImGui::Selectable ("whole layer", cat.zone < 0))
+                cat.zone = -1;
+            for (size_t i = 0; i < zones.size (); ++i) {
+                if (zones[i].role != pl::ZoneRole::Bed)
+                    continue;
+                const std::string item = zones[i].name + "##plantzone" + std::to_string (i);
+                if (ImGui::Selectable (item.c_str (), cat.zone == int (i)))
+                    cat.zone = int (i);
+            }
+            ImGui::EndCombo ();
+        }
+        ImGui::EndDisabled ();
+        hudshell::ItemTip (zones.empty () ? "Read zones first: Light > Planting areas > Zones from polylines."
+                                          : "Read Fits inside this bed, on each plant's own layer, and list only the "
+                                            "plants with compatible area there.");
+    }
+    if (cat.filter.Any () || !cat.filter.text.empty () || cat.zone >= 0) {
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("Clear##plantfilters")) {
             cat.filter = {};
+            cat.zone = -1;
+        }
     }
     if (cat.filter.light < 0)
         cat.filterFromPointHeight = -1;
@@ -314,8 +359,10 @@ void PlantTable (HudState& state)
         const pl::Plant& p = cat.plants.plants[i];
         if (!pl::Matches (p, cat.filter))
             continue;
+        const pl::PlantFit fit = FitForPlantsTab (state, p);
+        if (cat.zone >= 0 && fit.status == pl::PlantFit::Status::None)
+            continue; // a bed is chosen: only plants with compatible area in it
         ++shown;
-        const pl::PlantFit fit = pl::FitOf (hud, p);
         ImGui::TableNextRow ();
         ImGui::TableNextColumn ();
         ImGui::PushID (int (i));
@@ -365,7 +412,7 @@ void SelectedPlant (HudState& state)
         return;
     }
     const pl::Plant& p = cat.plants.plants[size_t (cat.selected)];
-    const pl::PlantFit fit = pl::FitOf (hud, p);
+    const pl::PlantFit fit = FitForPlantsTab (state, p);
     ImGui::SeparatorText (p.DisplayName ().c_str ());
     ImGui::Text ("Section: %s   Habit: %s", pl::SectionName (p.section), pl::HabitName (p.habit));
     ImGui::Text ("Light: %s", LightLetters (p).c_str ());
@@ -423,8 +470,37 @@ void SelectedPlant (HudState& state)
     if (fit.status == pl::PlantFit::Status::Unknown)
         ImGui::TextDisabled ("Fit unknown: %s.", fit.reason.c_str ());
     else
-        ImGui::Text ("Compatible: %s of %.1f m² measured at %.2f m.", FitText (fit).c_str (), fit.evaluatedArea,
-                     fit.layerHeight);
+        ImGui::Text ("Compatible: %s of %.1f m² measured at %.2f m%s.", FitText (fit).c_str (), fit.evaluatedArea,
+                     fit.layerHeight,
+                     cat.zone >= 0 ? (", in " + hud.zones.zones[size_t (cat.zone)].name).c_str () : "");
+    // Every bed at once, on the plant's own layer.
+    if (const auto* rows = ZoneRowsOfLayer (state, fit.layer)) {
+        const pl::PlantFit layerFit = pl::FitOf (hud, p);
+        std::string beds;
+        for (size_t z = 0; z < hud.zones.zones.size (); ++z) {
+            if (hud.zones.zones[z].role != pl::ZoneRole::Bed)
+                continue;
+            const pl::PlantFit in = pl::FitInZone (hud, p, layerFit, (*rows)[z]);
+            beds += (beds.empty () ? "" : "; ") + hud.zones.zones[z].name + " " + FitText (in);
+        }
+        if (!beds.empty ())
+            ImGui::TextWrapped ("In beds: %s.", beds.c_str ());
+    }
+    {
+        const int zone = hud.climateState.designZone;
+        const std::string& range = p.traits[pl::Trait::Hardiness].text;
+        if (zone >= 0) {
+            const pl::Hardiness h = pl::HardinessAt (range, zone);
+            const std::string z = pl::UsdaName (zone);
+            if (h == pl::Hardiness::TooCold)
+                ImGui::TextColored (ImVec4 (0.95f, 0.45f, 0.40f, 1.0f), "Not hardy in USDA %s (rated %s).", z.c_str (),
+                                    range.c_str ());
+            else if (h == pl::Hardiness::Unknown)
+                ImGui::TextDisabled ("Hardiness in USDA %s: not known (no USDA or RHS rating).", z.c_str ());
+            else
+                ImGui::Text ("Hardy in USDA %s (rated %s).", z.c_str (), range.c_str ());
+        }
+    }
     if (const auto quantity = pl::PlantQuantity (p, fit))
         ImGui::Text ("Quantity: %.0f to %.0f plants at %g to %g per m² over the compatible area.", quantity->min,
                      quantity->max, p.densityPerM2->min, p.densityPerM2->max);
@@ -456,7 +532,7 @@ void DrawPlantsTab (HudState& state)
     RefreshLayerAreas (state);
     pl::CatalogueState& cat = state.planting.catalogue;
     CatalogueRow (state);
-    Filters (cat);
+    Filters (cat, state.planting.climateState.designZone, state.planting.zones.zones);
     PlantTable (state);
     SelectedPlant (state);
     ImGui::Separator ();

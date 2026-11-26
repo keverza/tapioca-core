@@ -1,5 +1,6 @@
 #include "ArchViz/PlantingScheme.hpp"
 
+#include "ArchViz/PlantHardiness.hpp"
 #include "ArchViz/PlantingHudModel.hpp"
 
 #include <algorithm>
@@ -23,6 +24,21 @@ std::string NameList (const std::vector<std::string>& names)
     for (size_t i = 0; i < names.size (); ++i)
         s += (i == 0 ? "" : i + 1 == names.size () ? " and " : ", ") + names[i];
     return s;
+}
+
+bool HasChoice (const PlantTraits& traits, Trait t, const char* key)
+{
+    const TraitField& f = TraitFieldOf (t);
+    const TraitValue& v = traits[t];
+    auto is = [&] (int c) { return c >= 0 && c < f.choiceCount && std::string (f.choices[c]) == key; };
+    return is (v.choice) || std::any_of (v.choices.begin (), v.choices.end (), is);
+}
+
+std::string Number (double v)
+{
+    char text[32];
+    std::snprintf (text, sizeof (text), "%g", v);
+    return text;
 }
 
 // Prim's tree over one species' plants, in plan.
@@ -265,30 +281,96 @@ std::vector<SchemeNote> CheckCommunity (const Catalogue& catalogue, const std::v
                                "No ground type suits every plant listed with one; they need different beds.", who });
     }
 
-    // Competition: aggressive or high-vigour beside slow or low-vigour plants.
+    // The filled traits' site envelope (research note "plant compat"): soil pH,
+    // then Ellenberg moisture and nutrients. Mismatches are zoning problems.
+    {
+        double lo = -1e9, hi = 1e9;
+        std::vector<std::string> ranges;
+        std::vector<int> who;
+        for (size_t i = 0; i < plants.size (); ++i) {
+            if (!plants[i])
+                continue;
+            const auto& a = plants[i]->traits[Trait::PhMin].number;
+            const auto& b = plants[i]->traits[Trait::PhMax].number;
+            if (!a || !b)
+                continue;
+            lo = std::max (lo, *a);
+            hi = std::min (hi, *b);
+            ranges.push_back (name (i) + " " + Number (*a) + "-" + Number (*b));
+            who.push_back (int (i));
+        }
+        if (who.size () > 1 && lo > hi)
+            notes.push_back ({ SchemeSeverity::Warning,
+                               "Soil pH ranges do not overlap (" + NameList (ranges) +
+                                   "): one soil cannot suit them all; give them separate beds.",
+                               who });
+    }
+    auto spread = [&] (Trait t, double wide, SchemeSeverity severity, const char* scale, const char* advice) {
+        int low = -1, high = -1;
+        std::vector<int> who;
+        for (size_t i = 0; i < plants.size (); ++i) {
+            if (!plants[i] || !plants[i]->traits[t].number)
+                continue;
+            const double v = *plants[i]->traits[t].number;
+            if (low < 0 || v < *plants[size_t (low)]->traits[t].number)
+                low = int (i);
+            if (high < 0 || v > *plants[size_t (high)]->traits[t].number)
+                high = int (i);
+            who.push_back (int (i));
+        }
+        if (who.size () < 2)
+            return;
+        const double a = *plants[size_t (low)]->traits[t].number, b = *plants[size_t (high)]->traits[t].number;
+        if (b - a >= wide)
+            notes.push_back ({ severity,
+                               std::string (scale) + " are far apart: " + name (size_t (low)) + " " + Number (a) +
+                                   ", " + name (size_t (high)) + " " + Number (b) + ". " + advice,
+                               who });
+    };
+    spread (Trait::EllenbergMoisture, 4.0, SchemeSeverity::Warning, "Ellenberg moisture values (F)",
+            "Give them separate watering zones; a site mismatch, not plant-to-plant conflict.");
+    spread (Trait::EllenbergNutrients, 5.0, SchemeSeverity::Info, "Ellenberg nutrient values (N)",
+            "A fertile bed favours the hungrier plant; a lean one, the other.");
+
+    // Competition: a strong spreader beside a slow or weak plant. Strong: the
+    // standard's "aggressive", high vigour, high lateral spread, or spreading by
+    // long rhizomes, stolons or root suckers. Weak: the standard's "slow", low
+    // vigour, or slow establishment.
     for (size_t i = 0; i < plants.size (); ++i) {
         if (!plants[i])
             continue;
-        const char* vigour = plants[i]->traits.ChoiceKey (Trait::CompetitiveVigour);
-        const bool strong =
-            plants[i]->growthIntensity == GrowthIntensity::Aggressive || (vigour && std::string (vigour) == "high");
-        if (!strong)
+        const PlantTraits& t = plants[i]->traits;
+        std::string how;
+        if (plants[i]->growthIntensity == GrowthIntensity::Aggressive)
+            how = "grows aggressively (the standard)";
+        else if (HasChoice (t, Trait::CompetitiveVigour, "high"))
+            how = "has high competitive vigour";
+        else if (HasChoice (t, Trait::SpreadMode, "longRhizome"))
+            how = "spreads by long rhizomes";
+        else if (HasChoice (t, Trait::SpreadMode, "stolon"))
+            how = "spreads by stolons";
+        else if (HasChoice (t, Trait::SpreadMode, "rootSucker"))
+            how = "spreads by root suckers";
+        else if (HasChoice (t, Trait::LateralSpread, "high"))
+            how = "spreads widely";
+        if (how.empty ())
             continue;
         std::vector<std::string> weak;
         std::vector<int> who { int (i) };
         for (size_t k = 0; k < plants.size (); ++k) {
             if (k == i || !plants[k])
                 continue;
-            const char* v = plants[k]->traits.ChoiceKey (Trait::CompetitiveVigour);
-            if (plants[k]->growthIntensity == GrowthIntensity::Slow || (v && std::string (v) == "low")) {
+            const PlantTraits& o = plants[k]->traits;
+            if (plants[k]->growthIntensity == GrowthIntensity::Slow || HasChoice (o, Trait::CompetitiveVigour, "low") ||
+                HasChoice (o, Trait::EstablishmentSpeed, "slow")) {
                 weak.push_back (name (k));
                 who.push_back (int (k));
             }
         }
         if (!weak.empty ())
             notes.push_back ({ SchemeSeverity::Warning,
-                               name (i) + " spreads strongly and may suppress " + NameList (weak) +
-                                   "; keep them apart or plan for division.",
+                               name (i) + " " + how + " and may overrun " + NameList (weak) +
+                                   " (slow or weak); keep them apart, contain it, or plan for division.",
                                who });
     }
 
@@ -470,6 +552,31 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
     }
 
     result.notes = CheckCommunity (catalogue, species);
+    // Winter hardiness against the design zone the user chose (Climate).
+    const int zone = hud.climateState.designZone;
+    if (zone >= 0) {
+        std::vector<std::string> unknown;
+        std::vector<int> unknownIds;
+        for (size_t i = 0; i < species.size (); ++i) {
+            if (!plants[i])
+                continue;
+            const std::string& range = plants[i]->traits[Trait::Hardiness].text;
+            const Hardiness h = HardinessAt (range, zone);
+            if (h == Hardiness::TooCold)
+                result.notes.push_back ({ SchemeSeverity::Conflict,
+                                          plants[i]->DisplayName () + " is hardy only to " + range +
+                                              "; the design zone is USDA " + UsdaName (zone) + ".",
+                                          { int (i) } });
+            else if (h == Hardiness::Unknown) {
+                unknown.push_back (plants[i]->DisplayName ());
+                unknownIds.push_back (int (i));
+            }
+        }
+        if (!unknown.empty ())
+            result.notes.push_back (
+                { SchemeSeverity::Info,
+                  "Winter hardiness not checked (no USDA or RHS rating): " + NameList (unknown) + ".", unknownIds });
+    }
     for (size_t i = 0; i < species.size (); ++i) {
         if (!plants[i])
             continue;

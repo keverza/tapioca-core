@@ -4,12 +4,15 @@
 #include "ArchViz/PlantingHudModel.hpp"
 #include "ArchViz/PlantingScheme.hpp"
 #include "ArchViz/PlantingSchemeScene.hpp"
+#include "ArchViz/PlantHardiness.hpp"
 #include "ArchViz/PlantingSizeFit.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <string>
 
 using namespace geomsrv::archviz::planting;
@@ -154,7 +157,7 @@ TEST (PlantingScheme, CommunityNotesAreSiteFirst)
         c, { { "shrub", 1 }, { "spreader", 1 }, { "slow", 1 }, { "banned", 1 }, { "unknown", 1 }, { "gone", 1 } });
     EXPECT_TRUE (Has (notes, "Water needs do not overlap"));
     EXPECT_TRUE (Has (notes, "not plant-to-plant conflict"));
-    EXPECT_TRUE (Has (notes, "Aster spreads strongly and may suppress Asarum"));
+    EXPECT_TRUE (Has (notes, "Aster grows aggressively (the standard) and may overrun Asarum"));
     EXPECT_TRUE (Has (notes, "Invasor is prohibited"));
     EXPECT_TRUE (Has (notes, "Nescio: no light, water and ground type"));
     EXPECT_TRUE (Has (notes, "'gone' is no longer in the catalogue"));
@@ -453,4 +456,186 @@ TEST (PlantingSizeFit, NoGoAndOffAreReasonsAndTheMapHasACellPerSample)
     AppendSizeFitMap (site, fit, geometry);
     EXPECT_EQ (geometry.crowns.translucent.meshVertices.size (), site.Size () * 4);
     EXPECT_EQ (geometry.crowns.translucent.meshIndices.size (), site.Size () * 6);
+}
+
+TEST (PlantHardiness, ZonesFromTemperatureAndRanges)
+{
+    EXPECT_EQ (UsdaName (UsdaHalfZoneOf (-23.0)), "6a") << "the Vilnius typical year's coldest hour";
+    EXPECT_EQ (UsdaName (UsdaHalfZoneOf (-23.0 - 1.0 / 3.0)), "6a") << "-10 F exactly is the edge of 6a";
+    EXPECT_EQ (UsdaName (UsdaHalfZoneOf (-23.4)), "5b");
+    EXPECT_EQ (UsdaName (UsdaHalfZoneOf (-6.1)), "9a");
+    EXPECT_EQ (UsdaName (UsdaHalfZoneOf (-80.0)), "1a") << "clamped";
+    EXPECT_EQ (UsdaName (-1), "");
+    int lo = 0, hi = 0;
+    ASSERT_TRUE (ParseUsdaRange ("USDA 4a-8b", lo, hi));
+    EXPECT_EQ (UsdaName (lo) + UsdaName (hi), "4a8b");
+    ASSERT_TRUE (ParseUsdaRange ("USDA 3a-7a", lo, hi));
+    EXPECT_EQ (UsdaName (hi), "7a");
+    ASSERT_TRUE (ParseUsdaRange ("usda 4-8", lo, hi));
+    EXPECT_EQ (UsdaName (lo) + UsdaName (hi), "4a8b") << "whole zones";
+    ASSERT_TRUE (ParseUsdaRange ("4a\xE2\x80\x93"
+                                 "8b",
+                                 lo, hi))
+        << "an en dash";
+    ASSERT_TRUE (ParseUsdaRange ("USDA 4", lo, hi));
+    EXPECT_EQ (UsdaName (lo) + UsdaName (hi), "4a13b") << "hardy down to 4, no warm end";
+    ASSERT_TRUE (ParseUsdaRange ("RHS H6", lo, hi));
+    EXPECT_EQ (UsdaName (lo), "6b") << "H6's cold end, -20 C";
+    EXPECT_FALSE (ParseUsdaRange ("USDA 8a-4b", lo, hi));
+    EXPECT_FALSE (ParseUsdaRange ("hardy", lo, hi));
+    EXPECT_EQ (lo, -1);
+
+    const int zone6a = UsdaHalfZoneOf (-23.0);
+    EXPECT_EQ (HardinessAt ("USDA 4a-8b", zone6a), Hardiness::Hardy);
+    EXPECT_EQ (HardinessAt ("USDA 7a-10b", zone6a), Hardiness::TooCold);
+    EXPECT_EQ (HardinessAt ("RHS H6", zone6a), Hardiness::TooCold) << "H6 holds to -20 C, 6b";
+    EXPECT_EQ (HardinessAt ("USDA 2a-5b", zone6a), Hardiness::Warmer);
+    EXPECT_EQ (HardinessAt ("", zone6a), Hardiness::Unknown);
+    EXPECT_EQ (HardinessAt ("USDA 4", -1), Hardiness::Unknown) << "no design zone";
+}
+
+namespace {
+
+Catalogue TraitPlants ()
+{
+    Catalogue c;
+    ParseProblems problems;
+    const bool ok = ParseCatalogue (
+        R"({"schemaVersion": 1, "catalogueId": "t", "sources": [{"id": "s1", "title": "S"}], "plants": [
+        {"id": "bog", "scientificName": "Vaccinium", "light": {"acceptedClasses": ["full"]},
+         "ecology": {"ellenbergMoisture": 8, "ellenbergNutrients": 2, "pHMin": 4.0, "pHMax": 5.5,
+                     "hardiness": "USDA 3a-7b"},
+         "competition": {"establishmentSpeed": "slow"}},
+        {"id": "chalk", "scientificName": "Sesleria", "light": {"acceptedClasses": ["full"]},
+         "ecology": {"ellenbergMoisture": 3, "ellenbergNutrients": 8, "pHMin": 7.0, "pHMax": 8.5,
+                     "hardiness": "USDA 7a-9b"},
+         "competition": {"spreadMode": ["clump", "longRhizome"]}},
+        {"id": "plain", "scientificName": "Planta", "light": {"acceptedClasses": ["full"]}}]})",
+        c, problems);
+    EXPECT_TRUE (ok) << (problems.Empty () ? "" : problems.items[0]);
+    return c;
+}
+
+} // namespace
+
+TEST (PlantHardiness, FilterAndSchemeUseTheDesignZone)
+{
+    const Catalogue c = TraitPlants ();
+    PlantFilter f;
+    f.hardyZone = UsdaHalfZoneOf (-23.0); // 6a
+    EXPECT_TRUE (Matches (c.plants[0], f));
+    EXPECT_FALSE (Matches (c.plants[1], f)) << "7a is too warm-limited for 6a";
+    EXPECT_FALSE (Matches (c.plants[2], f)) << "no rating is not hardy";
+    EXPECT_TRUE (f.Any ());
+
+    PlantingHud hud = Hud ();
+    const SchemeSite site = Courtyard ();
+    const std::vector<SchemeSpecies> mix { { "bog", 1 }, { "chalk", 1 }, { "plain", 1 } };
+    EXPECT_FALSE (Has (PlaceScheme (hud, c, mix, site).notes, "hardy only")) << "no design zone, no check";
+    hud.climateState.designZone = f.hardyZone;
+    const SchemeResult r = PlaceScheme (hud, c, mix, site);
+    EXPECT_TRUE (Has (r.notes, "Sesleria is hardy only to USDA 7a-9b; the design zone is USDA 6a."));
+    EXPECT_FALSE (Has (r.notes, "Vaccinium is hardy only"));
+    EXPECT_TRUE (Has (r.notes, "Winter hardiness not checked (no USDA or RHS rating): Planta."));
+}
+
+TEST (PlantingScheme, FilledTraitsAddSiteAndCompetitionNotes)
+{
+    const Catalogue c = TraitPlants ();
+    const std::vector<SchemeNote> notes = CheckCommunity (c, { { "bog", 1 }, { "chalk", 1 }, { "plain", 1 } });
+    EXPECT_TRUE (Has (notes, "Soil pH ranges do not overlap (Vaccinium 4-5.5 and Sesleria 7-8.5)"));
+    EXPECT_TRUE (Has (notes, "Ellenberg moisture values (F) are far apart: Sesleria 3, Vaccinium 8."));
+    EXPECT_TRUE (Has (notes, "Ellenberg nutrient values (N) are far apart: Vaccinium 2, Sesleria 8."));
+    EXPECT_TRUE (Has (notes, "Sesleria spreads by long rhizomes and may overrun Vaccinium (slow or weak)"));
+    // A plant alone raises no envelope note.
+    const std::vector<SchemeNote> one = CheckCommunity (c, { { "bog", 1 }, { "plain", 1 } });
+    EXPECT_FALSE (Has (one, "pH"));
+    EXPECT_FALSE (Has (one, "far apart"));
+}
+
+// Opt-in: TAPIOCA_EPW_DIR names a folder of the reference .epw files
+// (tapioca-ref\EPW, unzipped; never committed). The coldest hour and its zone
+// were read independently from the files' text.
+TEST (PlantHardiness, ReferenceWeatherFilesGiveTheirColdestHourZone)
+{
+    const char* dir = std::getenv ("TAPIOCA_EPW_DIR");
+    if (dir == nullptr || *dir == 0)
+        GTEST_SKIP () << "set TAPIOCA_EPW_DIR to a folder of .epw files";
+    const struct {
+        const char* wmo;
+        double coldestC;
+        const char* zone;
+    } kExpected[] = { { "267300", -23.0, "6a" }, { "266290", -19.1, "6b" }, { "121950", -26.2, "5a" },
+                      { "160760", -6.1, "9a" },  { "725016", -2.5, "9b" },  { "725145", -22.0, "6a" } };
+    size_t checked = 0;
+    for (const auto& entry : std::filesystem::directory_iterator (dir)) {
+        if (entry.path ().extension () != ".epw")
+            continue;
+        evp::sunstudy::WeatherData w;
+        std::string error;
+        ASSERT_TRUE (evp::sunstudy::ReadWeatherFile (entry.path (), w, error)) << error;
+        double coldest = 0;
+        ASSERT_TRUE (ColdestHourC (w, coldest));
+        for (const auto& e : kExpected)
+            if (entry.path ().filename ().string ().find (e.wmo) != std::string::npos) {
+                EXPECT_NEAR (coldest, e.coldestC, 1e-9) << entry.path ();
+                EXPECT_EQ (UsdaName (UsdaHalfZoneOf (coldest)), e.zone) << entry.path ();
+                ++checked;
+            }
+    }
+    EXPECT_GT (checked, 0u);
+}
+
+TEST (PlantingZones, AFitNarrowsToAZoneOnThePlantsOwnLayer)
+{
+    const Catalogue c = TraitPlants (); // "bog" accepts full sun only
+    PlantingHud hud = Hud ();
+    Layer layer;
+    layer.height = 0.5f;
+    layer.studyId = "s";
+    layer.areaEdges = AreaEdges (hud);
+    layer.classAreas = { 10.0, 20.0, 30.0 }; // shade, partial, full
+    layer.evaluatedArea = 60.0;
+    hud.layers.push_back (layer);
+    const PlantFit whole = FitOf (hud, c.plants[0]);
+    ASSERT_EQ (whole.status, PlantFit::Status::Fits);
+    EXPECT_DOUBLE_EQ (whole.compatibleArea, 30.0);
+
+    ZoneClassAreas bed;
+    bed.classAreas = { 1.0, 0.5, 2.5 };
+    bed.measured = 4.0;
+    bed.samples = 16;
+    const PlantFit in = FitInZone (hud, c.plants[0], whole, bed);
+    EXPECT_EQ (in.status, PlantFit::Status::Fits);
+    EXPECT_DOUBLE_EQ (in.compatibleArea, 2.5);
+    EXPECT_DOUBLE_EQ (in.evaluatedArea, 4.0);
+    EXPECT_EQ (in.layer, whole.layer) << "the same layer as the whole-layer fit";
+
+    bed.classAreas = { 4.0, 0.0, 0.0 };
+    EXPECT_EQ (FitInZone (hud, c.plants[0], whole, bed).status, PlantFit::Status::None) << "all shade";
+    bed.samples = 0;
+    bed.measured = 0;
+    EXPECT_EQ (FitInZone (hud, c.plants[0], whole, bed).status, PlantFit::Status::Unknown) << "nothing measured";
+    PlantFit noLayer = whole;
+    noLayer.layer = -1;
+    noLayer.status = PlantFit::Status::Unknown;
+    EXPECT_EQ (FitInZone (hud, c.plants[0], noLayer, bed).status, PlantFit::Status::Unknown)
+        << "no layer stays unknown";
+}
+
+TEST (PlantingSizeFit, EnvelopePreviewDrawsEveryClassAtThePoint)
+{
+    const PlantingHud hud = Hud ();
+    SchemeSite site = Courtyard ();
+    site.clearance = CourtyardRoom (site);
+    const std::vector<SizeClass> classes = DefaultSizeClasses ();
+    const SizeFitResult fit = EvaluateSizeClasses (hud, site, classes, 0.0);
+    PlantingSchemeGeometry geometry;
+    AppendEnvelopePreview (site, 0, classes, fit, geometry);
+    // Per class: a 24-sided wall (2 x 25 vertices) and a top fan (1 + 25).
+    EXPECT_EQ (geometry.crowns.translucent.meshVertices.size (), 3u * 76u);
+    EXPECT_FALSE (geometry.crowns.depthTested.lineVertices.empty ()) << "rims";
+    PlantingSchemeGeometry none;
+    AppendEnvelopePreview (site, site.Size (), classes, fit, none);
+    EXPECT_TRUE (none.crowns.translucent.meshVertices.empty ()) << "no row, nothing drawn";
 }

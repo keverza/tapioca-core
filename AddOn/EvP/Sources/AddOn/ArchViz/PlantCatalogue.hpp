@@ -241,9 +241,10 @@ struct PlantFilter {
     int site = -1;     // Site: recommended there
     int moisture = -1; // MoistureClass: listed among its classes
     bool breeamOnly = false;
+    int hardyZone = -1; // USDA half zone (PlantHardiness): only plants known to be hardy there
     bool Any () const
     {
-        return habit >= 0 || light >= 0 || section >= 0 || site >= 0 || moisture >= 0 || breeamOnly;
+        return habit >= 0 || light >= 0 || section >= 0 || site >= 0 || moisture >= 0 || breeamOnly || hardyZone >= 0;
     }
 };
 bool Matches (const Plant& plant, const PlantFilter& filter);

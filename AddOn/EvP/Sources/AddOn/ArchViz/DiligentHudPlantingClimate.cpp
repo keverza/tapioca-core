@@ -14,6 +14,7 @@
 #include "ArchViz/DiligentHudPlantingParts.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/PlantHardiness.hpp"
 #include "ArchViz/PlantingFiles.hpp"
 
 #include <imgui.h>
@@ -94,8 +95,68 @@ void Load (pl::ClimateState& climate, int index)
         climate.error = error;
         return;
     }
+    // The coldest hour in the file, and the half zone it falls in: a suggestion.
+    climate.fileZone = -1;
+    climate.fileMinimumC = 0.0;
+    if (pl::ColdestHourC (*data, climate.fileMinimumC))
+        climate.fileZone = pl::UsdaHalfZoneOf (climate.fileMinimumC);
+    const std::string name = climate.files[size_t (index)];
+    auto lower = [] (std::string s) {
+        std::transform (s.begin (), s.end (), s.begin (), [] (unsigned char c) { return char (std::tolower (c)); });
+        return s;
+    };
+    climate.fileNormals = lower (name).find ("normals") != std::string::npos ||
+                          lower (data->identity.source).find ("normals") != std::string::npos;
     climate.data = std::move (data);
     ComputeSeason (climate);
+}
+
+// Winter hardiness: the file's coldest hour as a suggestion, and the design
+// zone the Plants filter and the Scheme check against.
+void HardinessRow (pl::ClimateState& climate)
+{
+    ImGui::SeparatorText ("Winter hardiness");
+    if (climate.fileZone >= 0) {
+        ImGui::Text ("Coldest hour in the file: %.1f C, USDA %s by that value.", climate.fileMinimumC,
+                     pl::UsdaName (climate.fileZone).c_str ());
+        hudshell::ItemTip ("A USDA zone is the mean of many winters' lowest temperatures. A typical-year file is "
+                           "built from typical months, so its coldest hour usually runs warmer than the zone, often "
+                           "by one zone. Check a local hardiness map before choosing.");
+        if (climate.fileNormals)
+            ImGui::TextColored (ImVec4 (0.95f, 0.72f, 0.30f, 1.0f),
+                                "A normals file: averaged, so its cold extremes are smoothed away. Do not take the "
+                                "zone from it.");
+        else
+            ImGui::TextDisabled ("A typical year reads warmer than the zone; take it as a warm limit.");
+    }
+    const std::string label =
+        climate.designZone >= 0 ? "USDA " + pl::UsdaName (climate.designZone) : std::string ("not set");
+    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 7.0f);
+    if (ImGui::BeginCombo ("Design zone##hardiness", label.c_str ())) {
+        if (ImGui::Selectable ("not set", climate.designZone < 0))
+            climate.designZone = -1;
+        for (int h = 0; h < pl::kUsdaHalfZones; ++h) {
+            const std::string item = "USDA " + pl::UsdaName (h);
+            if (ImGui::Selectable (item.c_str (), climate.designZone == h))
+                climate.designZone = h;
+        }
+        ImGui::EndCombo ();
+    }
+    hudshell::ItemTip ("The winter the planting must survive. Plants checks it (Hardy here) and the Scheme notes "
+                       "any plant whose catalogue rating is colder-limited than this.");
+    if (climate.fileZone >= 0 && !climate.fileNormals) {
+        ImGui::SameLine ();
+        const std::string use = "Use " + pl::UsdaName (climate.fileZone) + "##hardinessuse";
+        if (ImGui::SmallButton (use.c_str ()))
+            climate.designZone = climate.fileZone;
+        hudshell::ItemTip ("Take the file's reading. It is likely warmer than the real zone.");
+        ImGui::SameLine ();
+        const int colder = std::max (0, climate.fileZone - 2);
+        const std::string safer = "Use " + pl::UsdaName (colder) + " (one zone colder)##hardinesssafer";
+        if (ImGui::SmallButton (safer.c_str ()))
+            climate.designZone = colder;
+        hudshell::ItemTip ("A cautious reading: one whole zone colder than the file's coldest hour.");
+    }
 }
 
 void StationLines (const pl::ClimateState& climate, const DiligentSceneStats& scene)
@@ -284,12 +345,16 @@ void DrawClimateSection (HudState& state, const DiligentSceneStats& scene)
         Rescan (climate);
     if (!climate.error.empty ())
         ImGui::TextColored (ImVec4 (0.95f, 0.45f, 0.40f, 1.0f), "%s", climate.error.c_str ());
-    if (!climate.data)
+    if (!climate.data) {
+        if (climate.designZone >= 0 || !climate.files.empty ())
+            HardinessRow (climate); // a design zone needs no weather file
         return;
+    }
     StationLines (climate, scene);
     QualityLines (*climate.data);
     MonthlyCharts (*climate.data);
     SeasonRow (hud);
+    HardinessRow (climate);
 }
 
 } // namespace geomsrv::archviz::plantinghud

@@ -178,8 +178,9 @@ void AreaTable (const pl::FitState& f)
                          f.site.Size () == 0 ? "Nothing" : "Region", r.measured, areas ? "m2" : "samples");
 }
 
-void Here (const HudState& state, const pl::FitState& f)
+void Here (const HudState& state, pl::FitState& f)
 {
+    f.previewRow = SIZE_MAX;
     const pl::SchemeState& s = state.planting.scheme;
     if (state.sunReadingState != 1 || state.sunReadingStudy != s.siteStudy) {
         ImGui::TextDisabled ("Hover a measured point of this layer to see why each class does or does not fit.");
@@ -195,6 +196,7 @@ void Here (const HudState& state, const pl::FitState& f)
         ImGui::TextDisabled ("The hovered point is outside the region.");
         return;
     }
+    f.previewRow = row;
     std::string text = "Here:";
     for (int c : f.result.order)
         text += " " + f.classes[size_t (c)].name + " " +
@@ -230,6 +232,10 @@ void DrawFitTab (HudState& state)
     ImGui::SeparatorText ("Largest that fits");
     ImGui::Checkbox ("Show in viewer##fit", &f.show);
     hudshell::ItemTip ("Colour every sample of the region by the largest class that fits, while this sub-tab is open.");
+    ImGui::SameLine ();
+    ImGui::Checkbox ("Envelopes at the cursor##fit", &f.preview);
+    hudshell::ItemTip ("At the hovered point, draw each class's mature crown as a cylinder: in its colour where it "
+                       "fits, red-brown where it does not. Shows what an overhang or a wall is in the way of.");
     Legend (f);
     ImGui::NewLine ();
     AreaTable (f);

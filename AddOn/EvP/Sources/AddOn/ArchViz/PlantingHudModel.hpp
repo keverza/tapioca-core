@@ -20,6 +20,7 @@
 #include "SunStudy/SunStudyWeather.hpp"
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -114,6 +115,7 @@ struct CatalogueState {
     std::string status;                // "Read 8 plants and 1 profile."
     PlantFilter filter;
     int selected = -1; // index into plants.plants
+    int zone = -1;     // ZonesState::zones index the Fits column is read in; -1 = the whole layer
     bool highlight = false;
     bool openPlantsTab = false;       // one frame: the inspector's "Find plants here"
     float filterFromPointHeight = -1; // the layer a point's light filter was read at
@@ -130,6 +132,13 @@ struct ClimateState {
     float thresholdC = 5.0f;
     int windowDays = 7;
     evp::sunstudy::GrowingSeason season;
+    // Winter hardiness (PlantHardiness): the file's coldest temperature and its
+    // USDA half zone, a suggestion only; and the design zone the user chose,
+    // which the Plants filter and the Scheme check against. -1 = none.
+    double fileMinimumC = 0.0;
+    int fileZone = -1;
+    int designZone = -1;
+    bool fileNormals = false; // a normals file: averaged, its cold extremes smoothed away
 };
 
 // Zones from polylines (#278): closed Polylines and Fills read from the
@@ -149,6 +158,15 @@ struct ZonesState {
     ZoneClassAreas outside;
     double rowsSum = 0.0, measured = 0.0;
     std::string error;
+    // Per kept layer (by study): each zone's class areas, for the Plants tab's
+    // per-zone fit. Read when the study, the edges or the zones change.
+    struct LayerRows {
+        std::vector<double> edges;
+        uint64_t revision = ~uint64_t (0);
+        std::vector<ZoneClassAreas> rows; // parallel to `zones`
+        std::string error;
+    };
+    std::map<std::string, LayerRows> byStudy;
 };
 
 // The Scheme sub-tab (#278): a mix of catalogue plants placed on one kept
@@ -185,8 +203,10 @@ struct SchemeState {
 struct FitState {
     std::vector<SizeClass> classes = DefaultSizeClasses ();
     bool show = true;
-    bool tabOpen = false; // set by the Fit tab each frame; the map is drawn only then
-    SchemeSite site;      // the region the result was evaluated on
+    bool tabOpen = false;         // set by the Fit tab each frame; the map is drawn only then
+    bool preview = true;          // draw the classes' envelopes at the hovered point
+    size_t previewRow = SIZE_MAX; // row of `site` under the cursor, this frame
+    SchemeSite site;              // the region the result was evaluated on
     SizeFitResult result;
     std::string from;
     uint64_t revision = 0;

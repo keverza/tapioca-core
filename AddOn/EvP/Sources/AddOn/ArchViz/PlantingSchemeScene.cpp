@@ -100,6 +100,27 @@ void BuildPlantingSchemeScene (const SchemeResult& scheme, SchemeMarker marker, 
     out.plants = scheme.plants.size ();
 }
 
+void AppendEnvelopePreview (const SchemeSite& site, size_t row, const std::vector<SizeClass>& classes,
+                            const SizeFitResult& fit, PlantingSchemeGeometry& out)
+{
+    if (row >= site.Size () || fit.reason.size () != site.Size () * classes.size ())
+        return;
+    for (size_t rank = 0; rank < fit.order.size (); ++rank) {
+        const size_t c = size_t (fit.order[rank]);
+        PlacedPlant p;
+        p.x = site.x[row];
+        p.y = site.y[row];
+        p.z = site.groundZ[row];
+        p.radius = classes[c].spread / 2.0;
+        p.height = classes[c].height;
+        const bool fits = fit.ReasonAt (row, c, classes.size ()) == SizeReason::Fits;
+        const uint32_t rgba = fits ? SizeClassRgba (int (rank)) : kSizeNoneRgba;
+        AppendCylinder (p, p.height, Display (rgba, 45), out.crowns.translucent);
+        AppendRim (p, p.z + kLift + p.height, Display (rgba, 255), out.crowns.depthTested);
+        AppendRim (p, p.z + kLift + 0.02, Display (rgba, 255), out.crowns.depthTested);
+    }
+}
+
 void AppendSizeFitMap (const SchemeSite& site, const SizeFitResult& fit, PlantingSchemeGeometry& out)
 {
     GhPreviewBucket& b = out.crowns.translucent;

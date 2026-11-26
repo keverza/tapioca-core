@@ -216,6 +216,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantCatalogueCsv.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantTraits.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingScheme.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantHardiness.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingSizeFit.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingSchemeScene.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingZones.cpp"
@@ -1281,6 +1282,7 @@ set (EVP_TEST_SOURCES
     test_plantcatalogue.cpp
     test_plantcataloguecsv.cpp
     test_plantingscheme.cpp
+    test_plantingfixtures.cpp
     test_layoutreportplanting.cpp
     test_analysisliverun.cpp
     test_analysispath.cpp

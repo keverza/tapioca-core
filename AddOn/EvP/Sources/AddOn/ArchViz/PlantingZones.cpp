@@ -1,5 +1,7 @@
 #include "ArchViz/PlantingZones.hpp"
 
+#include "ArchViz/PlantingHudModel.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -141,6 +143,26 @@ ZoneClassAreas ClassAreasInZone (const std::vector<uint32_t>& masks, uint32_t zo
         ++out.samples;
     }
     return out;
+}
+
+PlantFit FitInZone (const PlantingHud& hud, const Plant& plant, const PlantFit& layerFit, const ZoneClassAreas& zone)
+{
+    PlantFit fit = layerFit;
+    if (fit.layer < 0 || fit.status == PlantFit::Status::Unknown)
+        return fit; // no light classes, or no layer: unknown inside the zone too
+    fit.evaluatedArea = zone.measured;
+    fit.compatibleArea = 0.0;
+    if (zone.samples == 0) {
+        fit.status = PlantFit::Status::Unknown;
+        fit.reason = "the zone has no measured samples on that layer";
+        return fit;
+    }
+    const uint32_t mask = AcceptedClassMask (hud, plant);
+    for (size_t cls = 0; cls < zone.classAreas.size (); ++cls)
+        if (mask & (1u << cls))
+            fit.compatibleArea += zone.classAreas[cls];
+    fit.status = fit.compatibleArea > 0 ? PlantFit::Status::Fits : PlantFit::Status::None;
+    return fit;
 }
 
 } // namespace geomsrv::archviz::planting

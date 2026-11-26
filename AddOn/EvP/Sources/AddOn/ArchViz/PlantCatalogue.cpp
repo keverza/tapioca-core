@@ -1,4 +1,5 @@
 #include "ArchViz/PlantCatalogue.hpp"
+#include "ArchViz/PlantHardiness.hpp"
 
 #include "ArchViz/PlantingHudModel.hpp"
 #include "NodeGraph/Json.hpp"
@@ -775,6 +776,11 @@ bool Matches (const Plant& plant, const PlantFilter& filter)
         return false;
     if (filter.breeamOnly && !plant.breeam)
         return false;
+    if (filter.hardyZone >= 0) {
+        const Hardiness h = HardinessAt (plant.traits[Trait::Hardiness].text, filter.hardyZone);
+        if (h != Hardiness::Hardy && h != Hardiness::Warmer)
+            return false; // unknown is not hardy
+    }
     if (filter.text.empty ())
         return true;
     const std::string needle = Lower (filter.text);
