@@ -4,6 +4,7 @@
 #include "ArchViz/PlantingHudModel.hpp"
 #include "ArchViz/PlantingScheme.hpp"
 #include "ArchViz/PlantingSchemeScene.hpp"
+#include "ArchViz/PlantingSizeFit.hpp"
 
 #include <gtest/gtest.h>
 
@@ -325,4 +326,131 @@ TEST (PlantingScheme, AZoneKeepsTheRoomOfItsOwnSamples)
         EXPECT_EQ (inside.clearance.overhead[s], inside.y[s] > 7.0 ? 3.0f : -1.0f);
         EXPECT_FLOAT_EQ (inside.clearance.FreeAt (s, 0), float (10.0 - inside.x[s]));
     }
+}
+
+TEST (PlantingZones, PlanDistanceAndNoGoDistances)
+{
+    PlantingZone path;
+    path.role = ZoneRole::NoGo;
+    path.rings = { { 0, 0, 4, 0, 4, 4, 0, 4 }, { 1, 1, 3, 1, 3, 3, 1, 3 } }; // a square with a square hole
+    EXPECT_DOUBLE_EQ (path.PlanDistance (0.5, 2.0), 0.0) << "inside";
+    EXPECT_DOUBLE_EQ (path.PlanDistance (7.0, 2.0), 3.0) << "to the outline";
+    EXPECT_DOUBLE_EQ (path.PlanDistance (2.0, 2.0), 1.0) << "in the hole: to the hole's edge";
+    PlantingZone bed;
+    bed.rings = { { 10, 10, 11, 10, 11, 11 } };
+    std::vector<float> distance, allowance;
+    NoGoDistances ({ bed, path }, { 0.5, 7.0 }, { 2.0, 2.0 }, distance, allowance);
+    ASSERT_EQ (allowance.size (), 1u) << "a bed is not a no-go zone";
+    EXPECT_EQ (distance, (std::vector<float> { 0.0f, 3.0f }));
+    NoGoDistances ({ bed }, { 0.5 }, { 2.0 }, distance, allowance);
+    EXPECT_TRUE (distance.empty () && allowance.empty ());
+}
+
+TEST (PlantingScheme, NoGoZonesKeepCrownsOutUnlessLowEnough)
+{
+    const Catalogue c = Plants ();
+    const PlantingHud hud = Hud ();
+    SchemeSite site = Courtyard ();
+    PlantingZone path;
+    path.role = ZoneRole::NoGo;
+    path.rings = { { 6, 0, 7, 0, 7, 10, 6, 10 } }; // a 1 m path, north to south, in the sun
+    NoGoDistances ({ path }, site.x, site.y, site.noGoDistance, site.noGoAllowance);
+    const SchemeResult r = PlaceScheme (hud, c, { { "tree", 0 } }, site);
+    ASSERT_GT (r.placed[0], 0);
+    for (const auto& p : r.plants)
+        EXPECT_TRUE (p.x <= 6.0 - 1.5 + 1e-9 || p.x >= 7.0 + 1.5 - 1e-9) << "crown clear of the path: x " << p.x;
+    ASSERT_EQ (r.room.size (), 1u);
+    EXPECT_GT (r.room[0].noGo, 0u);
+    EXPECT_TRUE (Has (r.notes, "no-go"));
+    EXPECT_TRUE (Has (r.notes, "Walls and overhangs were not checked")) << "no room measured here";
+
+    // A zone that allows 10 m does not stop an 8 m tree.
+    site.noGoAllowance = { 10.0f };
+    const SchemeResult low = PlaceScheme (hud, c, { { "tree", 0 } }, site);
+    EXPECT_EQ (low.room[0].noGo, 0u);
+    EXPECT_FALSE (KeptOut (site, 0, 1.5, 8.0, 0.0));
+    EXPECT_TRUE (KeptOut (site, 0, 1.5, 12.0, 0.0) == (site.noGoDistance[0] < 1.5));
+}
+
+TEST (PlantingSizeFit, EachClassIsCheckedOnItsOwnAndTheLargestWins)
+{
+    const PlantingHud hud = Hud ();
+    SchemeSite site = Courtyard ();
+    site.clearance = CourtyardRoom (site); // east wall at x = 10, a 3 m balcony over y > 7
+    site.area.assign (site.Size (), 0.25);
+    std::vector<SizeClass> classes = DefaultSizeClasses (); // Small 1.5/1.5, Medium 4/6, Large 10/15
+    SizeClass narrow;
+    narrow.name = "Columnar";
+    narrow.spread = 0.5f;
+    narrow.height = 20.0f;
+    classes.push_back (narrow);
+    const SizeFitResult fit = EvaluateSizeClasses (hud, site, classes, 0.0);
+    ASSERT_TRUE (fit.spaceChecked);
+    EXPECT_EQ (fit.order, (std::vector<int> { 2, 1, 0, 3 })) << "by spread, largest first";
+    auto at = [&] (double x, double y) {
+        for (size_t s = 0; s < site.Size (); ++s)
+            if (std::abs (site.x[s] - x) < 1e-9 && std::abs (site.y[s] - y) < 1e-9)
+                return s;
+        return site.Size ();
+    };
+    const size_t k = classes.size ();
+    const size_t open = at (5.25, 5.25); // 4.75 m from the wall
+    EXPECT_EQ (fit.ReasonAt (open, 2, k), SizeReason::Narrow) << "Large needs 5 m";
+    EXPECT_EQ (fit.ReasonAt (open, 1, k), SizeReason::Fits);
+    EXPECT_EQ (fit.largest[open], 1) << "Medium";
+    const size_t under = at (5.25, 8.25);
+    EXPECT_EQ (fit.ReasonAt (under, 1, k), SizeReason::Overhead);
+    EXPECT_EQ (fit.ReasonAt (under, 3, k), SizeReason::Overhead);
+    EXPECT_EQ (fit.largest[under], 0) << "only Small goes under the balcony";
+    const size_t edge = at (9.75, 2.25); // 0.25 m from the wall
+    EXPECT_EQ (fit.ReasonAt (edge, 0, k), SizeReason::Narrow);
+    EXPECT_EQ (fit.largest[edge], 3) << "not nested: the columnar class fits where Small does not";
+
+    // Light is its own reason, and every class's row sums to the evaluated area.
+    classes[0].light = { false, false, true };
+    const SizeFitResult lit = EvaluateSizeClasses (hud, site, classes, 0.0);
+    EXPECT_EQ (lit.ReasonAt (at (1.25, 1.25), 0, k), SizeReason::Light);
+    EXPECT_NEAR (lit.measured, 100.0, 1e-9);
+    for (int c : lit.order) {
+        double sum = 0;
+        for (double v : lit.area[size_t (c)])
+            sum += v;
+        EXPECT_NEAR (sum, 100.0, 1e-9);
+    }
+
+    // Unmeasured room is not a pass.
+    site.clearance = {};
+    const SizeFitResult unknown = EvaluateSizeClasses (hud, site, classes, 0.0);
+    EXPECT_FALSE (unknown.spaceChecked);
+    EXPECT_EQ (unknown.largest[open], -1);
+    EXPECT_EQ (unknown.anyUnknown[open], 1);
+    EXPECT_EQ (unknown.ReasonAt (open, 1, k), SizeReason::Unknown);
+}
+
+TEST (PlantingSizeFit, NoGoAndOffAreReasonsAndTheMapHasACellPerSample)
+{
+    const PlantingHud hud = Hud ();
+    SchemeSite site = Courtyard ();
+    site.clearance = CourtyardRoom (site);
+    PlantingZone path;
+    path.role = ZoneRole::NoGo;
+    path.rings = { { 6, 0, 7, 0, 7, 10, 6, 10 } };
+    NoGoDistances ({ path }, site.x, site.y, site.noGoDistance, site.noGoAllowance);
+    std::vector<SizeClass> classes = DefaultSizeClasses ();
+    classes[2].on = false;
+    const SizeFitResult fit = EvaluateSizeClasses (hud, site, classes, 0.0);
+    EXPECT_EQ (fit.order, (std::vector<int> { 1, 0 }));
+    EXPECT_EQ (fit.ReasonAt (0, 2, 3), SizeReason::Off);
+    size_t onPath = site.Size ();
+    for (size_t s = 0; s < site.Size (); ++s)
+        if (site.x[s] == 6.25 && site.y[s] == 2.25)
+            onPath = s;
+    ASSERT_LT (onPath, site.Size ());
+    EXPECT_EQ (fit.ReasonAt (onPath, 0, 3), SizeReason::NoGo);
+    EXPECT_EQ (fit.largest[onPath], -1);
+
+    PlantingSchemeGeometry geometry;
+    AppendSizeFitMap (site, fit, geometry);
+    EXPECT_EQ (geometry.crowns.translucent.meshVertices.size (), site.Size () * 4);
+    EXPECT_EQ (geometry.crowns.translucent.meshIndices.size (), site.Size () * 6);
 }

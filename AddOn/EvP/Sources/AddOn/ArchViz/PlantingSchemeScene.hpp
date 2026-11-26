@@ -16,6 +16,7 @@
 
 #include "ArchViz/GhPreviewGeometry.hpp"
 #include "ArchViz/PlantingScheme.hpp"
+#include "ArchViz/PlantingSizeFit.hpp"
 
 #include <cstdint>
 
@@ -25,7 +26,7 @@ constexpr double kSchemeDiscHeight = 0.2;
 constexpr float kSchemeLinkPixels = 2.0f;
 
 struct PlantingSchemeGeometry {
-    GhPreviewDrawables crowns; // translucent cylinders and their top rims
+    GhPreviewDrawables crowns; // translucent cylinders and their top rims; the size map's squares
     GhPreviewDrawables links;  // same-species lines and centre ticks
     size_t plants = 0;
 };
@@ -33,6 +34,12 @@ struct PlantingSchemeGeometry {
 // `highlight` >= 0 dims every other species.
 void BuildPlantingSchemeScene (const SchemeResult& scheme, SchemeMarker marker, int highlight,
                                PlantingSchemeGeometry& out);
+
+// The size map (#278 Stage 2): one translucent plan square per sample, the
+// sample's cell (its plan area) just above the host, coloured by the largest
+// class that fits (SizeClassRgba by rank), kSizeNoneRgba where none fits and
+// kSizeUnknownRgba where none is known to. Appended to `out.crowns`.
+void AppendSizeFitMap (const SchemeSite& site, const SizeFitResult& fit, PlantingSchemeGeometry& out);
 
 } // namespace geomsrv::archviz::planting
 

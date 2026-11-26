@@ -92,6 +92,17 @@ SpaceFit FitAt (const evp::sunstudy::CrownClearance& room, size_t sample, double
     return beyond ? SpaceFit::Beyond : SpaceFit::Fits;
 }
 
+bool KeptOut (const SchemeSite& site, size_t sample, double radius, double height, double margin)
+{
+    const size_t zones = site.noGoAllowance.size ();
+    if (zones == 0 || site.noGoDistance.size () != site.Size () * zones)
+        return false;
+    for (size_t z = 0; z < zones; ++z)
+        if (height > double (site.noGoAllowance[z]) && double (site.noGoDistance[sample * zones + z]) < radius + margin)
+            return true;
+    return false;
+}
+
 SchemeSite RestrictToZone (const SchemeSite& site, const PlantingZone& zone)
 {
     SchemeSite out;
@@ -106,9 +117,19 @@ SchemeSite RestrictToZone (const SchemeSite& site, const PlantingZone& zone)
         out.groundZ.push_back (site.groundZ[s]);
         out.cls.push_back (site.cls[s]);
         out.host.push_back (site.host[s]);
+        if (site.area.size () == site.Size ())
+            out.area.push_back (site.area[s]);
+        out.index.push_back (site.SourceOf (s));
     }
     if (site.clearance.Count () == site.Size ())
         out.clearance = site.clearance.Subset (keep);
+    const size_t zones = site.noGoAllowance.size ();
+    if (zones > 0 && site.noGoDistance.size () == site.Size () * zones) {
+        out.noGoAllowance = site.noGoAllowance;
+        for (size_t s : keep)
+            out.noGoDistance.insert (out.noGoDistance.end (), site.noGoDistance.begin () + std::ptrdiff_t (s * zones),
+                                     site.noGoDistance.begin () + std::ptrdiff_t ((s + 1) * zones));
+    }
     return out;
 }
 
@@ -339,7 +360,8 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
     // The room is used only when it was measured for these very samples.
     const bool space = options.checkSpace && !site.clearance.Empty () && site.clearance.Count () == n;
     result.spaceChecked = space;
-    if (space)
+    const bool noGo = !site.noGoAllowance.empty ();
+    if (space || noGo)
         result.room.resize (species.size ());
 
     // gap[s]: distance from sample s to the nearest placed crown's edge.
@@ -359,12 +381,21 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
         for (size_t s = 0; s < n; ++s) {
             if (site.cls[s] < 0 || !((mask >> site.cls[s]) & 1u))
                 continue;
-            if (!space) {
+            if (!space && !noGo) {
                 ok[s] = 1;
                 continue;
             }
             SchemeRoom& room = result.room[i];
             ++room.lightSamples;
+            if (KeptOut (site, s, r, result.sizes[i].height, options.clearanceMargin)) {
+                ++room.noGo;
+                continue;
+            }
+            if (!space) {
+                ++room.fits;
+                ok[s] = 1;
+                continue;
+            }
             switch (FitAt (site.clearance, s, r, result.sizes[i].height, options.clearanceMargin)) {
                 case SpaceFit::Fits:
                     ++room.fits;
@@ -455,6 +486,12 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
         else if (result.wanted[i] == 0 && result.placed[i] == 0)
             result.notes.push_back (
                 { SchemeSeverity::Warning, name + ": no " + roomText + " on a light class it accepts.", { int (i) } });
+        if (i < result.room.size () && result.room[i].noGo > 0) {
+            char text[160];
+            std::snprintf (text, sizeof (text), ": %zu of %zu samples on its light are kept out by no-go zones.",
+                           result.room[i].noGo, result.room[i].lightSamples);
+            result.notes.push_back ({ SchemeSeverity::Info, name + text, { int (i) } });
+        }
         if (space) {
             const SchemeRoom& room = result.room[i];
             if (room.overhead + room.narrow > 0) {

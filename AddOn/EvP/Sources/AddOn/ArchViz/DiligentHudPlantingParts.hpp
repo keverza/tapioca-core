@@ -67,6 +67,14 @@ void DrawCompareTab (HudState& state);
 void DrawSchemeTab (HudState& state);
 // Adds a catalogue plant to the scheme (the Plants tab's "Add to scheme").
 void AddToScheme (planting::PlantingHud& hud, const planting::Plant& plant);
+// The region the Scheme and Fit share: the layer it reads (or -1), read and
+// kept current with its room and no-go distances; the region row with its
+// space controls; and the site limited to the chosen zone.
+int RefreshSchemeRegion (planting::PlantingHud& hud);
+void DrawSchemeRegion (planting::PlantingHud& hud, int layer);
+planting::SchemeSite SchemeRegionSite (const planting::PlantingHud& hud);
+// The Fit sub-tab (DiligentHudPlantingFit.cpp): the largest size class that fits.
+void DrawFitTab (HudState& state);
 // Publishes the scheme's viewer geometry for this frame (add-on only; the
 // playground has no scene and stubs it). Call every frame the Planting tab is open.
 void PublishSchemeScene (HudState& state);

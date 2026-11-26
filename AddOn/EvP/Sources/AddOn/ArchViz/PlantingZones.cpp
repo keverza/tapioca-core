@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace geomsrv::archviz::planting {
 
@@ -32,7 +33,50 @@ bool InRing (const std::vector<double>& ring, double x, double y)
     return inside;
 }
 
+double SegmentDistance (double px, double py, double ax, double ay, double bx, double by)
+{
+    const double dx = bx - ax, dy = by - ay;
+    const double len2 = dx * dx + dy * dy;
+    double t = len2 > 0.0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0.0;
+    t = std::clamp (t, 0.0, 1.0);
+    return std::hypot (px - (ax + t * dx), py - (ay + t * dy));
+}
+
 } // namespace
+
+double PlantingZone::PlanDistance (double x, double y) const
+{
+    if (Contains (x, y))
+        return 0.0;
+    double best = std::numeric_limits<double>::infinity ();
+    for (const auto& ring : rings) {
+        const size_t n = ring.size () / 2;
+        if (n < 2)
+            continue;
+        for (size_t i = 0, j = n - 1; i < n; j = i++)
+            best = std::min (best, SegmentDistance (x, y, ring[2 * j], ring[2 * j + 1], ring[2 * i], ring[2 * i + 1]));
+    }
+    return best;
+}
+
+void NoGoDistances (const std::vector<PlantingZone>& zones, const std::vector<double>& x, const std::vector<double>& y,
+                    std::vector<float>& distance, std::vector<float>& allowance)
+{
+    distance.clear ();
+    allowance.clear ();
+    std::vector<const PlantingZone*> noGo;
+    for (const auto& z : zones)
+        if (z.role == ZoneRole::NoGo && !z.rings.empty () && z.rings[0].size () >= 6) {
+            noGo.push_back (&z);
+            allowance.push_back (z.allowedHeight);
+        }
+    if (noGo.empty ())
+        return;
+    distance.reserve (x.size () * noGo.size ());
+    for (size_t s = 0; s < x.size (); ++s)
+        for (const PlantingZone* z : noGo)
+            distance.push_back (float (z->PlanDistance (x[s], y[s])));
+}
 
 double PlantingZone::PlanArea () const
 {

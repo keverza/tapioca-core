@@ -47,8 +47,13 @@ void TakeImport (pl::ZonesState& z)
     for (const auto& zone : latest.zones) {
         auto same = std::find_if (z.zones.begin (), z.zones.end (),
                                   [&] (const pl::PlantingZone& old) { return old.guid == zone.guid; });
-        if (same != z.zones.end ())
+        if (same != z.zones.end ()) {
+            const pl::ZoneRole role = same->role; // the user's marking outlives a new outline
+            const float allowed = same->allowedHeight;
             *same = zone;
+            same->role = role;
+            same->allowedHeight = allowed;
+        }
         else if (z.zones.size () < pl::kMaxPlantingZones)
             z.zones.push_back (zone);
     }
@@ -86,12 +91,31 @@ void DrawZonesRow (HudState& state)
     int remove = -1;
     for (size_t i = 0; i < z.zones.size (); ++i) {
         ImGui::PushID (int (i));
-        const auto& zone = z.zones[i];
+        auto& zone = z.zones[i];
         ImGui::Text ("%s  %.1f m2%s", zone.name.c_str (), zone.PlanArea (),
                      zone.rings.size () > 1 ? "  (with holes)" : "");
         hudshell::ItemTip ("%s %s\nPlan area of the outline, holes taken out; the measured area is in the area "
                            "table.",
                            zone.fill ? "Fill" : "Polyline", zone.guid.c_str ());
+        ImGui::SameLine ();
+        bool noGo = zone.role == pl::ZoneRole::NoGo;
+        if (ImGui::Checkbox ("No-go", &noGo)) {
+            zone.role = noGo ? pl::ZoneRole::NoGo : pl::ZoneRole::Bed;
+            ++z.revision;
+        }
+        hudshell::ItemTip ("Keep plant crowns out of this zone: a path, an access or fire route, the ground in front "
+                           "of a window. Your rule, never inferred. The Scheme and Fit keep every crown (radius plus "
+                           "margin) clear of it in plan.");
+        if (noGo) {
+            ImGui::SameLine ();
+            ImGui::SetNextItemWidth (ImGui::GetFontSize () * 5.5f);
+            if (ImGui::DragFloat ("##allowed", &zone.allowedHeight, 0.05f, 0.0f, 10.0f,
+                                  zone.allowedHeight > 0.0f ? "up to %.2f m" : "nothing"))
+                ++z.revision;
+            zone.allowedHeight = std::clamp (zone.allowedHeight, 0.0f, 10.0f);
+            hudshell::ItemTip ("Plants up to this mature height may still grow here (a low bed under a window). "
+                               "\"nothing\" keeps every plant out.");
+        }
         ImGui::SameLine ();
         if (ImGui::SmallButton ("x"))
             remove = int (i);

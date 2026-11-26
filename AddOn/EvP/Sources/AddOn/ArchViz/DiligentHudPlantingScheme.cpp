@@ -61,6 +61,7 @@ void RefreshSite (pl::PlantingHud& hud, int layer)
         s.siteHours.clear ();
         s.siteHosts.clear ();
         s.siteError.clear ();
+        s.siteNoGoRevision = ~uint64_t (0);
         if (!sunstudyhud::ReadPlantingSite (l.studyId, l.height, read, error)) {
             s.siteError = error;
             return;
@@ -69,6 +70,7 @@ void RefreshSite (pl::PlantingHud& hud, int layer)
         s.site.y = std::move (read.y);
         s.site.groundZ = std::move (read.groundZ);
         s.site.host = std::move (read.groups);
+        s.site.area = std::move (read.areas);
         s.siteHours = std::move (read.hours);
         s.siteHosts = std::move (read.meshGuids);
         s.site.layerHeight = l.height;
@@ -79,6 +81,11 @@ void RefreshSite (pl::PlantingHud& hud, int layer)
         for (size_t i = 0; i < s.siteHours.size (); ++i)
             s.site.cls[i] = pl::ClassOf (hud, s.siteHours[i]);
         s.siteEdges = edges;
+    }
+    // No-go zones keep crowns out: their plan distances, read when the zones change.
+    if (s.siteNoGoRevision != hud.zones.revision) {
+        pl::NoGoDistances (hud.zones.zones, s.site.x, s.site.y, s.site.noGoDistance, s.site.noGoAllowance);
+        s.siteNoGoRevision = hud.zones.revision;
     }
 }
 
@@ -136,10 +143,7 @@ void RefreshPlacement (pl::PlantingHud& hud)
     options.crownOverlap = s.crownOverlap;
     options.checkSpace = s.checkSpace;
     options.clearanceMargin = s.clearanceMargin;
-    const bool inZone = s.zone >= 0 && size_t (s.zone) < hud.zones.zones.size ();
-    s.result =
-        pl::PlaceScheme (hud, hud.catalogue.plants, s.species,
-                         inZone ? pl::RestrictToZone (s.site, hud.zones.zones[size_t (s.zone)]) : s.site, options);
+    s.result = pl::PlaceScheme (hud, hud.catalogue.plants, s.species, SchemeRegionSite (hud), options);
     s.placedFrom = from;
     ++s.revision;
 }
@@ -152,7 +156,26 @@ void Swatch (uint32_t rgba)
     ImGui::Dummy (ImVec2 (size, size));
 }
 
-void RegionRow (pl::PlantingHud& hud, int layer)
+} // namespace
+
+pl::SchemeSite SchemeRegionSite (const pl::PlantingHud& hud)
+{
+    const pl::SchemeState& s = hud.scheme;
+    const auto& zones = hud.zones.zones;
+    if (s.zone >= 0 && size_t (s.zone) < zones.size () && zones[size_t (s.zone)].role == pl::ZoneRole::Bed)
+        return pl::RestrictToZone (s.site, zones[size_t (s.zone)]);
+    return s.site;
+}
+
+int RefreshSchemeRegion (pl::PlantingHud& hud)
+{
+    const int layer = SiteLayer (hud);
+    RefreshSite (hud, layer);
+    RefreshRoom (hud, layer);
+    return layer;
+}
+
+void DrawSchemeRegion (pl::PlantingHud& hud, int layer)
 {
     pl::SchemeState& s = hud.scheme;
     ImGui::SetNextItemWidth (ImGui::GetFontSize () * 12.0f);
@@ -178,7 +201,7 @@ void RegionRow (pl::PlantingHud& hud, int layer)
                        "may go. Unavailable area (too steep, under a ceiling) is never planted.");
     ImGui::SameLine ();
     const auto& zones = hud.zones.zones;
-    if (s.zone >= int (zones.size ()))
+    if (s.zone >= int (zones.size ()) || (s.zone >= 0 && zones[size_t (s.zone)].role != pl::ZoneRole::Bed))
         s.zone = -1;
     ImGui::SetNextItemWidth (ImGui::GetFontSize () * 9.0f);
     const std::string zoneLabel = s.zone < 0 ? std::string ("whole layer") : zones[size_t (s.zone)].name;
@@ -187,6 +210,8 @@ void RegionRow (pl::PlantingHud& hud, int layer)
         if (ImGui::Selectable ("whole layer", s.zone < 0))
             s.zone = -1;
         for (size_t i = 0; i < zones.size (); ++i) {
+            if (zones[i].role != pl::ZoneRole::Bed)
+                continue; // a no-go zone is never a region
             const std::string item = zones[i].name + "##schemezone" + std::to_string (i);
             if (ImGui::Selectable (item.c_str (), s.zone == int (i)))
                 s.zone = int (i);
@@ -201,7 +226,23 @@ void RegionRow (pl::PlantingHud& hud, int layer)
     else if (layer >= 0)
         ImGui::TextDisabled ("%zu samples on %zu host(s), read at %.2f m.", s.site.Size (), s.siteHosts.size (),
                              s.site.layerHeight);
+    ImGui::Checkbox ("Clear of walls and overhangs##scheme", &s.checkSpace);
+    hudshell::ItemTip ("Keep each mature crown, as a cylinder of its spread and height, clear of the study's own "
+                       "geometry: balconies and eaves above, walls beside. Measured once per layer with horizontal "
+                       "rays at levels up to 25 m; a slender post between rays can be missed. Roots are not "
+                       "assessed.");
+    ImGui::SameLine ();
+    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 6.0f);
+    ImGui::SliderFloat ("Margin##schemeclearance", &s.clearanceMargin, 0.0f, 2.0f, "%.2f m");
+    hudshell::ItemTip ("Kept clear around and above each mature crown, beyond its own size: from walls and "
+                       "overhangs, and from no-go zones.");
+    if (!s.roomStatus.empty ())
+        ImGui::TextDisabled ("%s", s.roomStatus.c_str ());
+    if (!s.site.noGoAllowance.empty ())
+        ImGui::TextDisabled ("%zu no-go zone(s) keep crowns out.", s.site.noGoAllowance.size ());
 }
+
+namespace {
 
 void SpeciesTable (pl::PlantingHud& hud)
 {
@@ -249,10 +290,11 @@ void SpeciesTable (pl::PlantingHud& hud)
                 const pl::SchemeRoom& room = s.result.room[i];
                 hudshell::ItemTip ("Crown radius %.2f m (from %s), height %.2f m (from %s).\n"
                                    "Samples on its light: %zu. Room for the crown: %zu; under an overhang: %zu; "
-                                   "too close to a wall: %zu; wider than measured: %zu.",
+                                   "too close to a wall: %zu; wider than measured: %zu; in a no-go zone: %zu.%s",
                                    s.result.sizes[i].radius, s.result.sizes[i].radiusFrom.c_str (),
                                    s.result.sizes[i].height, s.result.sizes[i].heightFrom.c_str (), room.lightSamples,
-                                   room.fits, room.overhead, room.narrow, room.beyond);
+                                   room.fits, room.overhead, room.narrow, room.beyond, room.noGo,
+                                   s.result.spaceChecked ? "" : "\nWalls and overhangs not checked.");
             }
             else if (i < s.result.sizes.size ())
                 hudshell::ItemTip ("Crown radius %.2f m (from %s), marker height %.2f m (from %s).\n"
@@ -311,12 +353,10 @@ void DrawSchemeTab (HudState& state)
     hud.highlightMask = 0;
     EnsureCatalogue (state);
     pl::SchemeState& s = hud.scheme;
-    const int layer = SiteLayer (hud);
-    RefreshSite (hud, layer);
-    RefreshRoom (hud, layer);
+    const int layer = RefreshSchemeRegion (hud);
     RefreshPlacement (hud);
 
-    RegionRow (hud, layer);
+    DrawSchemeRegion (hud, layer);
     ImGui::Separator ();
     SpeciesTable (hud);
     if (hud.catalogue.selected >= 0 && size_t (hud.catalogue.selected) < hud.catalogue.plants.plants.size ()) {
@@ -333,19 +373,6 @@ void DrawSchemeTab (HudState& state)
         s.crownOverlap = overlap / 100.0f;
     hudshell::ItemTip ("How far neighbouring mature crowns may overlap, as a share of the smaller crown's radius. "
                        "0 keeps them touching at most.");
-    ImGui::Checkbox ("Clear of walls and overhangs##scheme", &s.checkSpace);
-    hudshell::ItemTip ("Place a plant only where its mature crown, as a cylinder of its spread and height, clears "
-                       "the study's own geometry: balconies and eaves above, walls beside. Measured once per layer "
-                       "with horizontal rays at levels up to 25 m; a slender post between rays can be missed. "
-                       "Roots are not assessed.");
-    ImGui::SameLine ();
-    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 6.0f);
-    ImGui::BeginDisabled (!s.checkSpace);
-    ImGui::SliderFloat ("Margin##schemeclearance", &s.clearanceMargin, 0.0f, 2.0f, "%.2f m");
-    ImGui::EndDisabled ();
-    hudshell::ItemTip ("Kept clear around and above each mature crown, beyond its own size.");
-    if (!s.roomStatus.empty ())
-        ImGui::TextDisabled ("%s", s.roomStatus.c_str ());
     ImGui::RadioButton ("Disc##schememarker", &s.marker, int (pl::SchemeMarker::Disc));
     hudshell::ItemTip ("A low cylinder at each plant's mature crown radius: the plan reads.");
     ImGui::SameLine ();

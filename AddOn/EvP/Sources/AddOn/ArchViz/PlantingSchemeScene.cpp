@@ -100,4 +100,29 @@ void BuildPlantingSchemeScene (const SchemeResult& scheme, SchemeMarker marker, 
     out.plants = scheme.plants.size ();
 }
 
+void AppendSizeFitMap (const SchemeSite& site, const SizeFitResult& fit, PlantingSchemeGeometry& out)
+{
+    GhPreviewBucket& b = out.crowns.translucent;
+    const size_t n = std::min (site.Size (), fit.largest.size ());
+    for (size_t s = 0; s < n; ++s) {
+        uint32_t rgba = kSizeNoneRgba;
+        if (fit.largest[s] >= 0) {
+            const auto at = std::find (fit.order.begin (), fit.order.end (), int (fit.largest[s]));
+            rgba = SizeClassRgba (int (at - fit.order.begin ()));
+        }
+        else if (fit.anyUnknown[s])
+            rgba = kSizeUnknownRgba;
+        const uint32_t ink = Display (rgba, 170);
+        const double half = (site.area.size () == site.Size () && site.area[s] > 0 ? std::sqrt (site.area[s]) : 0.5) *
+                            0.5 * 0.92; // a hair gap, so the cells read
+        const double z = site.groundZ[s] + 0.03;
+        const uint32_t base = uint32_t (b.meshVertices.size ());
+        Vertex (b, site.x[s] - half, site.y[s] - half, z, 0, 0, 1, ink);
+        Vertex (b, site.x[s] + half, site.y[s] - half, z, 0, 0, 1, ink);
+        Vertex (b, site.x[s] + half, site.y[s] + half, z, 0, 0, 1, ink);
+        Vertex (b, site.x[s] - half, site.y[s] + half, z, 0, 0, 1, ink);
+        b.meshIndices.insert (b.meshIndices.end (), { base, base + 1, base + 2, base, base + 2, base + 3 });
+    }
+}
+
 } // namespace geomsrv::archviz::planting

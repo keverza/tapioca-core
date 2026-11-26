@@ -14,6 +14,7 @@
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/PlantCatalogue.hpp"
 #include "ArchViz/PlantingScheme.hpp"
+#include "ArchViz/PlantingSizeFit.hpp"
 #include "ArchViz/PlantingZones.hpp"
 #include "SunStudy/SunStudyPlantingAreas.hpp"
 #include "SunStudy/SunStudyWeather.hpp"
@@ -172,9 +173,22 @@ struct SchemeState {
     SchemeSite site;
     std::vector<std::string> siteHosts;
     std::string siteError;
+    uint64_t siteNoGoRevision = ~uint64_t (0); // the zones revision the no-go distances were read at
     // The last placement and what it was placed from; `revision` bumps on change.
     SchemeResult result;
     std::string placedFrom;
+    uint64_t revision = 0;
+};
+
+// The Fit sub-tab (#278 Stage 2): which size class fits where, on the Scheme's
+// region. Session only.
+struct FitState {
+    std::vector<SizeClass> classes = DefaultSizeClasses ();
+    bool show = true;
+    bool tabOpen = false; // set by the Fit tab each frame; the map is drawn only then
+    SchemeSite site;      // the region the result was evaluated on
+    SizeFitResult result;
+    std::string from;
     uint64_t revision = 0;
 };
 
@@ -201,6 +215,7 @@ struct PlantingHud {
     ClimateState climateState;
     CatalogueState catalogue;
     SchemeState scheme;
+    FitState fit;
     ZonesState zones;
     std::string profileId = "vilnius-2024";
 

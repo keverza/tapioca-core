@@ -662,6 +662,10 @@ void DrawPlantingHudSection (HudState& state, const DiligentSceneStats& scene)
         plantinghud::DrawPlantsTab (state);
         ImGui::EndTabItem ();
     }
+    if (ImGui::BeginTabItem ("Fit")) {
+        plantinghud::DrawFitTab (state);
+        ImGui::EndTabItem ();
+    }
     if (ImGui::BeginTabItem ("Scheme")) {
         plantinghud::DrawSchemeTab (state);
         ImGui::EndTabItem ();

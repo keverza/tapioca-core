@@ -58,8 +58,18 @@ struct SchemeSite {
     std::vector<int> cls;        // the tab's class (ClassOf), -1 unavailable
     std::vector<uint32_t> host;  // host index, for the notes
     float layerHeight = 0;
+    std::vector<double> area;  // plan m² per sample; empty when not read
+    std::vector<size_t> index; // the layer's sample each row came from; empty = the same order
     // The room above each sample; empty when not measured (space not checked).
     evp::sunstudy::CrownClearance clearance;
+    // No-go zones (PlantingZones NoGoDistances): plan distance per sample and
+    // no-go zone, sample-major, and each zone's allowed height. Empty: none.
+    std::vector<float> noGoDistance, noGoAllowance;
+    // The layer's sample a row came from.
+    size_t SourceOf (size_t row) const
+    {
+        return index.empty () ? row : index[row];
+    }
     size_t Size () const
     {
         return x.size ();
@@ -107,10 +117,15 @@ const char* SpaceFitName (SpaceFit fit);
 // are checked, and always the lowest.
 SpaceFit FitAt (const evp::sunstudy::CrownClearance& room, size_t sample, double radius, double height, double margin);
 
+// True when a crown `radius` wide and `height` tall at `sample` would reach
+// into a no-go zone that does not allow its height, with `margin` kept clear.
+bool KeptOut (const SchemeSite& site, size_t sample, double radius, double height, double margin);
+
 // Per species, how the samples on its accepted light classes fared.
 struct SchemeRoom {
     size_t lightSamples = 0; // on an accepted light class
     size_t fits = 0, overhead = 0, narrow = 0, beyond = 0;
+    size_t noGo = 0; // its crown would reach into a no-go zone
 };
 
 struct SchemeResult {
