@@ -89,9 +89,45 @@ std::string RangeText (const std::optional<pl::Range>& r)
 {
     if (!r)
         return "not given";
-    char text[48];
-    std::snprintf (text, sizeof (text), "%.2f to %.2f m", r->min, r->max);
+    char text[64];
+    if (r->openMin && r->openMax)
+        return "not given";
+    if (r->openMin)
+        std::snprintf (text, sizeof (text), "up to %.2f m", r->max);
+    else if (r->openMax)
+        std::snprintf (text, sizeof (text), "%.2f m and more", r->min);
+    else
+        std::snprintf (text, sizeof (text), "%.2f to %.2f m", r->min, r->max);
     return text;
+}
+
+std::string MoistureText (const pl::Plant& p)
+{
+    std::string s;
+    for (pl::MoistureClass m : p.moistureClasses)
+        s += (s.empty () ? "" : ", ") + std::string (pl::MoistureClassName (m));
+    return s;
+}
+
+std::string LayerText (const pl::Plant& p)
+{
+    std::string s;
+    for (pl::PlantingLayer l : p.plantingLayers)
+        s += (s.empty () ? "" : ", ") + std::string (pl::PlantingLayerName (l));
+    return s;
+}
+
+std::string SitesText (const pl::Plant& p)
+{
+    std::string s;
+    for (int i = 0; i < pl::kSiteCount; ++i) {
+        if (!p.siteSuitable[size_t (i)])
+            continue;
+        s += (s.empty () ? "" : ", ") + std::string (pl::SiteName (pl::Site (i)));
+        if (!p.siteSoil[size_t (i)].empty ())
+            s += " (" + p.siteSoil[size_t (i)] + ")";
+    }
+    return s;
 }
 
 void CatalogueRow (HudState& state)
@@ -107,11 +143,12 @@ void CatalogueRow (HudState& state)
     hudshell::ItemTip ("%s", cat.folder.c_str ());
     ImGui::SameLine ();
     if (ImGui::Button ("Restore defaults...##plantcat"))
-        ImGui::OpenPopup ("Restore the example catalogue?##plantcat");
-    hudshell::ItemTip ("Replace both files with the shipped example, after copying them to a dated backup.");
-    if (ImGui::BeginPopup ("Restore the example catalogue?##plantcat")) {
+        ImGui::OpenPopup ("Restore the shipped catalogue?##plantcat");
+    hudshell::ItemTip ("Replace both files with the shipped Vilnius 2024 catalogue, after copying them to a dated "
+                       "backup.");
+    if (ImGui::BeginPopup ("Restore the shipped catalogue?##plantcat")) {
         ImGui::TextUnformatted ("plants.json and profiles.json are copied to a dated backup,\nthen replaced with the "
-                                "shipped example.");
+                                "shipped catalogue.");
         if (ImGui::Button ("Back up and restore")) {
             std::string backup, error;
             if (pl::RestoreCatalogueDefaults (pl::TapiocaDataFolder (L"Planting"), backup, error)) {
@@ -201,6 +238,47 @@ void Filters (pl::CatalogueState& cat)
         ImGui::EndCombo ();
     }
     hudshell::ItemTip ("Plants that accept this class.");
+
+    // The standard's own columns. A blank cell never matches a filter.
+    auto combo = [] (const char* id, const char* any, int& value, int first, int count, const char* (*name) (int),
+                     float widthEm) {
+        ImGui::SetNextItemWidth (ImGui::GetFontSize () * widthEm);
+        if (ImGui::BeginCombo (id, value < 0 ? any : name (value))) {
+            if (ImGui::Selectable (any, value < 0))
+                value = -1;
+            for (int i = first; i < count; ++i)
+                if (ImGui::Selectable (name (i), value == i))
+                    value = i;
+            ImGui::EndCombo ();
+        }
+    };
+    combo (
+        "##plantsection", "any section", cat.filter.section, 1, pl::kSectionCount,
+        [] (int i) { return pl::SectionName (pl::PlantSection (i)); }, 6.5f);
+    hudshell::ItemTip ("The catalogue's table: trees, shrubs, or perennials and subshrubs.");
+    ImGui::SameLine ();
+    combo (
+        "##plantsite", "any site", cat.filter.site, 0, pl::kSiteCount,
+        [] (int i) { return pl::SiteName (pl::Site (i)); }, 7.5f);
+    hudshell::ItemTip ("Plants the catalogue recommends for this kind of site. The perennials table gives no sites.");
+    ImGui::SameLine ();
+    combo (
+        "##plantwater", "any water", cat.filter.moisture, 0, pl::kMoistureClassCount,
+        [] (int i) { return pl::MoistureClassName (pl::MoistureClass (i)); }, 7.5f);
+    hudshell::ItemTip ("Plants listed with this water need. The trees table gives none.");
+    ImGui::SameLine ();
+    ImGui::Checkbox ("BREEAM##plantbreeam", &cat.filter.breeamOnly);
+    hudshell::ItemTip ("Only plants the catalogue marks for BREEAM.");
+    if (cat.filter.Any () || !cat.filter.text.empty ()) {
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("Clear##plantfilters"))
+            cat.filter = {};
+    }
+    if (cat.filter.light < 0)
+        cat.filterFromPointHeight = -1;
+    if (cat.filterFromPointHeight >= 0)
+        ImGui::TextDisabled ("Light from a point at the %.2f m layer: %s.", cat.filterFromPointHeight,
+                             pl::LightName (pl::LightClass (cat.filter.light)));
 }
 
 std::string FitText (const pl::PlantFit& fit)
@@ -289,15 +367,43 @@ void SelectedPlant (HudState& state)
     const pl::Plant& p = cat.plants.plants[size_t (cat.selected)];
     const pl::PlantFit fit = pl::FitOf (hud, p);
     ImGui::SeparatorText (p.DisplayName ().c_str ());
-    ImGui::Text ("Habit: %s   Light: %s", pl::HabitName (p.habit), LightLetters (p).c_str ());
+    ImGui::Text ("Section: %s   Habit: %s", pl::SectionName (p.section), pl::HabitName (p.habit));
+    ImGui::Text ("Light: %s", LightLetters (p).c_str ());
     ImGui::Text ("Mature height: %s   spread: %s", RangeText (p.matureHeightM).c_str (),
                  RangeText (p.matureSpreadM).c_str ());
+    if (p.saltTolerance != pl::SaltTolerance::Unknown)
+        ImGui::Text ("Salt tolerance: %s", pl::SaltToleranceName (p.saltTolerance));
+    if (p.growthIntensity != pl::GrowthIntensity::Unknown)
+        ImGui::Text ("Growth: %s", pl::GrowthIntensityName (p.growthIntensity));
+    if (!p.moistureClasses.empty ())
+        ImGui::Text ("Water: %s", MoistureText (p).c_str ());
+    if (!p.plantingLayers.empty ())
+        ImGui::Text ("Layer in a bed: %s", LayerText (p).c_str ());
+    std::string marks;
+    if (p.breeam)
+        marks += "BREEAM";
+    if (p.ornamentalFlowering)
+        marks += std::string (marks.empty () ? "" : ", ") + "ornamental flowering";
+    if (p.ornithological)
+        marks += std::string (marks.empty () ? "" : ", ") + "for birds";
+    if (!marks.empty ())
+        ImGui::Text ("Marks: %s", marks.c_str ());
+    if (!p.soilTypes.empty ()) {
+        std::string soils;
+        for (const auto& s : p.soilTypes)
+            soils += (soils.empty () ? "" : ", ") + s;
+        ImGui::Text ("Ground types: %s", soils.c_str ());
+    }
+    if (!SitesText (p).empty ())
+        ImGui::TextWrapped ("Sites: %s", SitesText (p).c_str ());
     if (!p.floweringMonths.empty ()) {
         std::string months;
         for (int m : p.floweringMonths)
             months += (months.empty () ? "" : ", ") + std::to_string (m);
         ImGui::Text ("Flowering months: %s", months.c_str ());
     }
+    if (!p.sourceNumber.empty ())
+        ImGui::TextDisabled ("The standard's row %s", p.sourceNumber.c_str ());
     for (const auto& ref : p.sources)
         ImGui::TextDisabled ("Source: %s%s", ref.sourceId.c_str (),
                              ref.page ? (", p. " + std::to_string (ref.page)).c_str () : "");

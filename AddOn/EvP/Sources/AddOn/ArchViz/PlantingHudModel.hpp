@@ -112,6 +112,8 @@ struct CatalogueState {
     PlantFilter filter;
     int selected = -1; // index into plants.plants
     bool highlight = false;
+    bool openPlantsTab = false;       // one frame: the inspector's "Find plants here"
+    float filterFromPointHeight = -1; // the layer a point's light filter was read at
 };
 
 // The weather file the Climate section shows (#155 P1). Not a light input yet.

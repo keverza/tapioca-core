@@ -20,6 +20,22 @@ constexpr const char* kHabitKeys[kHabitCount] = { "",     "groundcover", "perenn
                                                   "bulb", "annual",      "climber",   "shrub", "tree" };
 constexpr const char* kHabitNames[kHabitCount] = { "Unknown", "Ground cover", "Perennial", "Grass", "Fern",
                                                    "Bulb",    "Annual",       "Climber",   "Shrub", "Tree" };
+constexpr const char* kSectionKeys[kSectionCount] = { "", "trees", "shrubs", "perennials" };
+constexpr const char* kSectionNames[kSectionCount] = { "Unknown", "Trees", "Shrubs", "Perennials" };
+constexpr const char* kSaltKeys[] = { "", "none", "low", "high" };
+constexpr const char* kSaltNames[] = { "Unknown", "Not tolerant", "Low", "High" };
+constexpr const char* kGrowthKeys[] = { "", "slow", "fast", "aggressive" };
+constexpr const char* kGrowthNames[] = { "Unknown", "Slow", "Fast", "Aggressive" };
+constexpr const char* kMoistureKeys[kMoistureClassCount] = { "dry", "moist", "wet" };
+constexpr const char* kMoistureNames[kMoistureClassCount] = { "No extra watering", "Water as needed",
+                                                              "Wet or irrigated" };
+constexpr const char* kLayerKeys[kPlantingLayerCount] = { "D", "S", "Str" };
+constexpr const char* kLayerNames[kPlantingLayerCount] = { "Cover", "Seasonal", "Structural" };
+constexpr const char* kSiteKeys[kSiteCount] = { "greenStrip",  "roadside",    "streets",   "alleys",  "squaresParks",
+                                                "roundabouts", "urbanForest", "riverside", "onSlabs", "containers" };
+constexpr const char* kSiteNames[kSiteCount] = { "Green strip",       "Roadside",    "Streets",      "Alleys",
+                                                 "Squares and parks", "Roundabouts", "Urban forest", "Riverside",
+                                                 "On slabs",          "Containers" };
 
 // Collects problems under a record's path.
 struct Reader {
@@ -60,7 +76,8 @@ struct Reader {
         return true;
     }
 
-    // null, absent, or {min, max} with 0 <= min <= max.
+    // null, absent, or {min, max} with 0 <= min <= max. A null end is open:
+    // {"min": 16, "max": null} is "16+" and {"min": null, "max": 8} is "up to 8".
     void OptionalRange (const json::JsonValue& obj, const char* key, std::optional<Range>& out) const
     {
         const json::JsonValue* v = obj.Find (key);
@@ -73,13 +90,68 @@ struct Reader {
             return;
         }
         Range r;
-        if (!Number (*lo, std::string (key) + ".min", r.min) || !Number (*hi, std::string (key) + ".max", r.max))
+        const bool hasLo = !lo->IsNull ();
+        const bool hasHi = !hi->IsNull ();
+        if (!hasLo && !hasHi) {
+            Fail (key, "needs a min, a max, or both");
             return;
-        if (r.min < 0 || r.max < r.min) {
-            Fail (key, "needs 0 <= min <= max");
+        }
+        if (hasLo && !Number (*lo, std::string (key) + ".min", r.min))
+            return;
+        if (hasHi && !Number (*hi, std::string (key) + ".max", r.max))
+            return;
+        r.openMin = !hasLo;
+        r.openMax = !hasHi;
+        if (!r.openMin && r.min < 0) {
+            Fail (key, "needs min >= 0");
+            return;
+        }
+        if (!r.openMax && r.max < 0) {
+            Fail (key, "needs max >= 0");
+            return;
+        }
+        if (!r.openMin && !r.openMax && r.max < r.min) {
+            Fail (key, "needs min <= max");
             return;
         }
         out = r;
+    }
+
+    // A text list checked against known keys; unknown keys are problems.
+    void KeyList (const json::JsonValue& obj, const char* key, const char* const* keys, int count,
+                  const std::string& what, std::vector<int>& out) const
+    {
+        const json::JsonValue* v = obj.Find (key);
+        if (!v || v->IsNull ())
+            return;
+        const json::JsonArray* items = v->AsArray ();
+        if (!items) {
+            Fail (key, "must be a list");
+            return;
+        }
+        for (size_t i = 0; i < items->size (); ++i) {
+            std::string s;
+            if (!(*items)[i].AsString (s)) {
+                Fail (std::string (key) + "[" + std::to_string (i) + "]", "must be text");
+                continue;
+            }
+            const auto* end = keys + count;
+            const auto* found = std::find (keys, end, s);
+            if (found == end)
+                Fail (std::string (key) + "[" + std::to_string (i) + "]", "'" + s + "' is not " + what);
+            else
+                out.push_back (int (found - keys));
+        }
+    }
+
+    bool Bool (const json::JsonValue& obj, const char* key, bool& out) const
+    {
+        const json::JsonValue* v = obj.Find (key);
+        if (!v || v->IsNull ())
+            return false;
+        if (!v->AsBool (out))
+            Fail (key, "must be true, false or null");
+        return true;
     }
 
     void StringList (const json::JsonValue& obj, const char* key, std::vector<std::string>& out) const
@@ -162,6 +234,18 @@ void ParsePlant (const json::JsonValue& item, const Reader& r, const std::set<st
 {
     r.String (item, "scientificName", p.scientificName, true);
     r.String (item, "cultivar", p.cultivar, false);
+    r.String (item, "sourceNumber", p.sourceNumber, false);
+    std::string section;
+    if (r.String (item, "section", section, false) && !section.empty ()) {
+        const auto* found = std::find (std::begin (kSectionKeys) + 1, std::end (kSectionKeys), section);
+        if (found == std::end (kSectionKeys))
+            r.Fail ("section", "'" + section + "' is not trees, shrubs or perennials");
+        else
+            p.section = PlantSection (found - std::begin (kSectionKeys));
+    }
+    r.Bool (item, "breeam", p.breeam);
+    r.Bool (item, "ornamentalFlowering", p.ornamentalFlowering);
+    r.Bool (item, "ornithological", p.ornithological);
     if (const json::JsonValue* names = item.Find ("localNames"); names && !names->IsNull ()) {
         if (const json::JsonObject* obj = names->AsObject ()) {
             for (const auto& [lang, value] : *obj) {
@@ -203,6 +287,8 @@ void ParsePlant (const json::JsonValue& item, const Reader& r, const std::set<st
     r.OptionalRange (item, "matureHeightM", p.matureHeightM);
     r.OptionalRange (item, "matureSpreadM", p.matureSpreadM);
     r.OptionalRange (item, "plantingDensityPerM2", p.densityPerM2);
+    if (p.densityPerM2 && (p.densityPerM2->openMin || p.densityPerM2->openMax))
+        r.Fail ("plantingDensityPerM2", "needs both min and max; a density has no open end");
     if (const json::JsonValue* h = item.Find ("preferredReceiverHeightM"); h && !h->IsNull ()) {
         double v = 0;
         if (r.Number (*h, "preferredReceiverHeightM", v)) {
@@ -212,8 +298,71 @@ void ParsePlant (const json::JsonValue& item, const Reader& r, const std::set<st
                 p.receiverHeightM = v;
         }
     }
-    r.StringList (item, "moistureClasses", p.moistureClasses);
-    r.StringList (item, "plantingLayers", p.plantingLayers);
+    std::string salt;
+    if (r.String (item, "saltTolerance", salt, false) && !salt.empty ()) {
+        const auto* found = std::find (std::begin (kSaltKeys) + 1, std::end (kSaltKeys), salt);
+        if (found == std::end (kSaltKeys))
+            r.Fail ("saltTolerance", "'" + salt + "' is not none, low or high");
+        else
+            p.saltTolerance = SaltTolerance (found - std::begin (kSaltKeys));
+    }
+    std::string growth;
+    if (r.String (item, "growthIntensity", growth, false) && !growth.empty ()) {
+        const auto* found = std::find (std::begin (kGrowthKeys) + 1, std::end (kGrowthKeys), growth);
+        if (found == std::end (kGrowthKeys))
+            r.Fail ("growthIntensity", "'" + growth + "' is not slow, fast or aggressive");
+        else
+            p.growthIntensity = GrowthIntensity (found - std::begin (kGrowthKeys));
+    }
+    std::vector<int> moisture, layers;
+    r.KeyList (item, "moistureClasses", kMoistureKeys, kMoistureClassCount, "dry, moist or wet", moisture);
+    r.KeyList (item, "plantingLayers", kLayerKeys, kPlantingLayerCount, "D, S or Str", layers);
+    for (int m : moisture)
+        p.moistureClasses.push_back (MoistureClass (m));
+    for (int l : layers)
+        p.plantingLayers.push_back (PlantingLayer (l));
+    r.StringList (item, "soilTypes", p.soilTypes);
+    if (const json::JsonValue* sites = item.Find ("sites"); sites && !sites->IsNull ()) {
+        const json::JsonArray* list = sites->AsArray ();
+        if (!list)
+            r.Fail ("sites", "must be a list");
+        for (size_t i = 0; list && i < list->size (); ++i) {
+            std::string s;
+            if (!(*list)[i].AsString (s)) {
+                r.Fail ("sites[" + std::to_string (i) + "]", "must be text");
+                continue;
+            }
+            const auto* found = std::find (std::begin (kSiteKeys), std::end (kSiteKeys), s);
+            if (found == std::end (kSiteKeys))
+                r.Fail ("sites[" + std::to_string (i) + "]", "'" + s + "' is not a known planting site");
+            else
+                p.siteSuitable[size_t (found - std::begin (kSiteKeys))] = true;
+        }
+    }
+    if (const json::JsonValue* soils = item.Find ("siteSoils"); soils && !soils->IsNull ()) {
+        const json::JsonObject* obj = soils->AsObject ();
+        if (!obj) {
+            r.Fail ("siteSoils", "must be an object of site: soil type");
+        }
+        else {
+            for (const auto& [key, value] : *obj) {
+                const auto* found = std::find (std::begin (kSiteKeys), std::end (kSiteKeys), key);
+                if (found == std::end (kSiteKeys)) {
+                    r.Fail ("siteSoils." + key, "is not a known planting site");
+                    continue;
+                }
+                std::string s;
+                if (!value.AsString (s))
+                    r.Fail ("siteSoils." + key, "must be text");
+                else if (!s.empty ()) {
+                    // A soil type implies the site is recommended; the standard
+                    // never prints one in a cell without its plus mark.
+                    p.siteSuitable[size_t (found - std::begin (kSiteKeys))] = true;
+                    p.siteSoil[size_t (found - std::begin (kSiteKeys))] = s;
+                }
+            }
+        }
+    }
     if (const json::JsonValue* months = item.Find ("floweringMonths"); months && !months->IsNull ()) {
         const json::JsonArray* list = months->AsArray ();
         for (size_t i = 0; list && i < list->size (); ++i) {
@@ -271,6 +420,54 @@ const char* HabitKey (Habit h)
 const char* HabitName (Habit h)
 {
     return kHabitNames[size_t (h)];
+}
+const char* SectionKey (PlantSection s)
+{
+    return kSectionKeys[size_t (s)];
+}
+const char* SectionName (PlantSection s)
+{
+    return kSectionNames[size_t (s)];
+}
+const char* SaltToleranceKey (SaltTolerance s)
+{
+    return kSaltKeys[size_t (s)];
+}
+const char* SaltToleranceName (SaltTolerance s)
+{
+    return kSaltNames[size_t (s)];
+}
+const char* GrowthIntensityKey (GrowthIntensity g)
+{
+    return kGrowthKeys[size_t (g)];
+}
+const char* GrowthIntensityName (GrowthIntensity g)
+{
+    return kGrowthNames[size_t (g)];
+}
+const char* MoistureClassKey (MoistureClass m)
+{
+    return kMoistureKeys[size_t (m)];
+}
+const char* MoistureClassName (MoistureClass m)
+{
+    return kMoistureNames[size_t (m)];
+}
+const char* PlantingLayerKey (PlantingLayer l)
+{
+    return kLayerKeys[size_t (l)];
+}
+const char* PlantingLayerName (PlantingLayer l)
+{
+    return kLayerNames[size_t (l)];
+}
+const char* SiteKey (Site s)
+{
+    return kSiteKeys[size_t (s)];
+}
+const char* SiteName (Site s)
+{
+    return kSiteNames[size_t (s)];
 }
 
 std::string Plant::DisplayName () const
@@ -433,8 +630,12 @@ float ReceiverHeightOf (const Plant& plant)
         case Habit::Tree:
             return kDefaultHeights[3];
         default:
-            return kDefaultHeights[1];
+            break;
     }
+    const bool coverOnly =
+        !plant.plantingLayers.empty () && std::all_of (plant.plantingLayers.begin (), plant.plantingLayers.end (),
+                                                       [] (PlantingLayer l) { return l == PlantingLayer::Cover; });
+    return coverOnly ? kDefaultHeights[0] : kDefaultHeights[1];
 }
 
 void ApplyProfile (PlantingHud& hud, const Profile& profile)
@@ -460,16 +661,12 @@ void ApplyProfile (PlantingHud& hud, const Profile& profile)
     hud.profileId = profile.id;
 }
 
-namespace {
-
 LightClass LightOfClass (const PlantingHud& hud, int cls)
 {
     const int shift = hud.deepShade ? 1 : 0; // deep shade counts as shade
     const int c = std::max (0, cls - shift);
     return c == 0 ? LightClass::Shade : c == 1 ? LightClass::Partial : LightClass::Full;
 }
-
-} // namespace
 
 uint32_t AcceptedClassMask (const PlantingHud& hud, const Plant& plant)
 {
@@ -525,11 +722,38 @@ std::optional<Range> PlantQuantity (const Plant& plant, const PlantFit& fit)
 
 namespace {
 
-std::string Lower (std::string s)
+// Lower case for search: ASCII, Latin-1 capitals (U+00C0-U+00DE but not the
+// multiplication sign) and Latin Extended-A pairs (U+0100-U+017E), which is
+// every Lithuanian letter. Other UTF-8 passes through unchanged.
+std::string Lower (const std::string& s)
 {
-    for (char& c : s)
-        c = char (std::tolower (static_cast<unsigned char> (c)));
-    return s;
+    std::string out;
+    out.reserve (s.size ());
+    for (size_t i = 0; i < s.size (); ++i) {
+        const auto c = static_cast<unsigned char> (s[i]);
+        const bool pair = i + 1 < s.size () && (static_cast<unsigned char> (s[i + 1]) & 0xC0) == 0x80;
+        if (c < 0x80) {
+            out += char (std::tolower (c));
+            continue;
+        }
+        if (!pair || c < 0xC3 || c > 0xC5) {
+            out += char (c);
+            continue;
+        }
+        int cp = ((c & 0x1F) << 6) | (static_cast<unsigned char> (s[i + 1]) & 0x3F);
+        if (cp >= 0xC0 && cp <= 0xDE && cp != 0xD7)
+            cp += 0x20;
+        else if ((cp >= 0x100 && cp <= 0x137) || (cp >= 0x14A && cp <= 0x177))
+            cp |= 1; // upper case is even
+        else if ((cp >= 0x139 && cp <= 0x148) || (cp >= 0x179 && cp <= 0x17E))
+            cp += cp & 1; // upper case is odd
+        else if (cp == 0x178)
+            cp = 0xFF; // Ÿ
+        out += char (0xC0 | (cp >> 6));
+        out += char (0x80 | (cp & 0x3F));
+        ++i;
+    }
+    return out;
 }
 
 } // namespace
@@ -539,6 +763,15 @@ bool Matches (const Plant& plant, const PlantFilter& filter)
     if (filter.habit >= 0 && int (plant.habit) != filter.habit)
         return false;
     if (filter.light >= 0 && (filter.light >= kLightClassCount || !plant.light[size_t (filter.light)]))
+        return false;
+    if (filter.section >= 0 && int (plant.section) != filter.section)
+        return false;
+    if (filter.site >= 0 && (filter.site >= kSiteCount || !plant.siteSuitable[size_t (filter.site)]))
+        return false;
+    if (filter.moisture >= 0 && std::find (plant.moistureClasses.begin (), plant.moistureClasses.end (),
+                                           MoistureClass (filter.moisture)) == plant.moistureClasses.end ())
+        return false;
+    if (filter.breeamOnly && !plant.breeam)
         return false;
     if (filter.text.empty ())
         return true;

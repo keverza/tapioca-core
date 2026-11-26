@@ -30,13 +30,14 @@ def test_the_compiled_seed_is_current():
     assert _generator().main(["--check"]) == 0, "run tools/generate_plant_catalogue_seed.py"
 
 
-def test_the_seed_is_an_example_without_invented_heights():
+def test_the_seed_is_the_vilnius_transcription():
     plants = json.loads((ARCHVIZ / "PlantCatalogueSeed.plants.json").read_text(encoding="utf-8"))
-    assert plants["catalogueId"] == "tapioca-example"
-    assert "Illustrative only" in plants["sources"][0]["note"]
+    assert plants["catalogueId"] == "vilnius-2024"
+    assert plants["sources"][0]["year"] == 2024
+    assert len(plants["plants"]) == 269
     for plant in plants["plants"]:
-        assert plant.get("matureHeightM") is None, plant["id"]
-        assert plant["light"]["acceptedClasses"], plant["id"]
+        assert plant["section"] in {"trees", "shrubs", "perennials"}, plant["id"]
+        assert plant["sourceRefs"][0]["page"] in range(7, 35), plant["id"]
 
 
 def test_pieces_stay_below_the_compiler_limit():

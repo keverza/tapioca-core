@@ -71,8 +71,8 @@ json::JsonValue RangeJson (const std::optional<Range>& r)
 {
     if (!r)
         return {};
-    return json::JsonValue::Object (
-        { { "min", json::JsonValue::Double (r->min) }, { "max", json::JsonValue::Double (r->max) } });
+    return json::JsonValue::Object ({ { "min", r->openMin ? json::JsonValue () : json::JsonValue::Double (r->min) },
+                                      { "max", r->openMax ? json::JsonValue () : json::JsonValue::Double (r->max) } });
 }
 
 json::JsonValue StringsJson (const std::vector<std::string>& items)
@@ -93,8 +93,17 @@ const std::vector<std::string>& CatalogueCsvColumns ()
         "cultivar",
         "name_lt",
         "name_en",
+        "section",
+        "sourceNumber",
         "habit",
+        "breeam",
+        "ornamentalFlowering",
+        "ornithological",
         "light",
+        "saltTolerance",
+        "growthIntensity",
+        "moistureClasses",
+        "plantingLayers",
         "matureHeightMinM",
         "matureHeightMaxM",
         "matureSpreadMinM",
@@ -104,8 +113,9 @@ const std::vector<std::string>& CatalogueCsvColumns ()
         "densityMaxPerM2",
         "floweringMonths",
         "deciduous",
-        "moistureClasses",
-        "plantingLayers",
+        "soilTypes",
+        "sites",
+        "siteSoils",
         "source",
         "page",
     };
@@ -126,20 +136,42 @@ std::string CatalogueToCsv (const Catalogue& catalogue)
         std::vector<std::string> months;
         for (int m : p.floweringMonths)
             months.push_back (std::to_string (m));
+        std::vector<std::string> moisture, layers, sites, soils;
+        for (MoistureClass m : p.moistureClasses)
+            moisture.push_back (MoistureClassKey (m));
+        for (PlantingLayer l : p.plantingLayers)
+            layers.push_back (PlantingLayerKey (l));
+        for (int s = 0; s < kSiteCount; ++s) {
+            if (!p.siteSuitable[size_t (s)])
+                continue;
+            sites.push_back (SiteKey (Site (s)));
+            if (!p.siteSoil[size_t (s)].empty ())
+                soils.push_back (std::string (SiteKey (Site (s))) + ":" + p.siteSoil[size_t (s)]);
+        }
         auto name = [&] (const char* lang) {
             const auto it = p.localNames.find (lang);
             return it == p.localNames.end () ? std::string () : it->second;
         };
-        auto lo = [] (const std::optional<Range>& r) { return r ? Number (r->min) : std::string (); };
-        auto hi = [] (const std::optional<Range>& r) { return r ? Number (r->max) : std::string (); };
+        auto lo = [] (const std::optional<Range>& r) { return r && !r->openMin ? Number (r->min) : std::string (); };
+        auto hi = [] (const std::optional<Range>& r) { return r && !r->openMax ? Number (r->max) : std::string (); };
+        auto knob = [] (bool on) { return on ? std::string ("true") : std::string (); };
         const std::vector<std::string> fields = {
             p.id,
             p.scientificName,
             p.cultivar,
             name ("lt"),
             name ("en"),
+            SectionKey (p.section),
+            p.sourceNumber,
             HabitKey (p.habit),
+            knob (p.breeam),
+            knob (p.ornamentalFlowering),
+            knob (p.ornithological),
             Join (light),
+            p.saltTolerance == SaltTolerance::Unknown ? std::string () : SaltToleranceKey (p.saltTolerance),
+            p.growthIntensity == GrowthIntensity::Unknown ? std::string () : GrowthIntensityKey (p.growthIntensity),
+            Join (moisture),
+            Join (layers),
             lo (p.matureHeightM),
             hi (p.matureHeightM),
             lo (p.matureSpreadM),
@@ -149,8 +181,9 @@ std::string CatalogueToCsv (const Catalogue& catalogue)
             hi (p.densityPerM2),
             Join (months),
             p.deciduous ? (*p.deciduous ? "true" : "false") : "",
-            Join (p.moistureClasses),
-            Join (p.plantingLayers),
+            Join (p.soilTypes),
+            Join (sites),
+            Join (soils),
             p.sources.empty () ? "" : p.sources[0].sourceId,
             p.sources.empty () || !p.sources[0].page ? "" : std::to_string (p.sources[0].page),
         };
@@ -252,11 +285,37 @@ std::string CatalogueToJson (const Catalogue& catalogue)
             names[lang] = json::JsonValue::String (name);
         o["localNames"] = json::JsonValue::Object (std::move (names));
         o["habit"] = p.habit == Habit::Unknown ? json::JsonValue () : json::JsonValue::String (HabitKey (p.habit));
+        const char* sectionKey = p.section == PlantSection::Unknown ? nullptr : SectionKey (p.section);
+        o["section"] = sectionKey ? json::JsonValue::String (sectionKey) : json::JsonValue ();
+        o["sourceNumber"] = p.sourceNumber.empty () ? json::JsonValue () : json::JsonValue::String (p.sourceNumber);
+        o["breeam"] = p.breeam ? json::JsonValue::Bool (true) : json::JsonValue ();
+        o["ornamentalFlowering"] = p.ornamentalFlowering ? json::JsonValue::Bool (true) : json::JsonValue ();
+        o["ornithological"] = p.ornithological ? json::JsonValue::Bool (true) : json::JsonValue ();
         std::vector<std::string> light;
         for (int c = 0; c < kLightClassCount; ++c)
             if (p.light[size_t (c)])
                 light.push_back (LightKey (LightClass (c)));
         o["light"] = json::JsonValue::Object ({ { "acceptedClasses", StringsJson (light) } });
+        const char* saltKey = p.saltTolerance == SaltTolerance::Unknown ? nullptr : SaltToleranceKey (p.saltTolerance);
+        const char* growthKey =
+            p.growthIntensity == GrowthIntensity::Unknown ? nullptr : GrowthIntensityKey (p.growthIntensity);
+        o["saltTolerance"] = saltKey ? json::JsonValue::String (saltKey) : json::JsonValue ();
+        o["growthIntensity"] = growthKey ? json::JsonValue::String (growthKey) : json::JsonValue ();
+        std::vector<std::string> moisture, layers, sites, soils;
+        for (MoistureClass m : p.moistureClasses)
+            moisture.push_back (MoistureClassKey (m));
+        for (PlantingLayer l : p.plantingLayers)
+            layers.push_back (PlantingLayerKey (l));
+        json::JsonObject soilObject;
+        for (int s = 0; s < kSiteCount; ++s) {
+            if (!p.siteSuitable[size_t (s)])
+                continue;
+            sites.push_back (SiteKey (Site (s)));
+            if (!p.siteSoil[size_t (s)].empty ())
+                soilObject[SiteKey (Site (s))] = json::JsonValue::String (p.siteSoil[size_t (s)]);
+        }
+        o["moistureClasses"] = StringsJson (moisture);
+        o["plantingLayers"] = StringsJson (layers);
         o["matureHeightM"] = RangeJson (p.matureHeightM);
         o["matureSpreadM"] = RangeJson (p.matureSpreadM);
         o["plantingDensityPerM2"] = RangeJson (p.densityPerM2);
@@ -267,8 +326,9 @@ std::string CatalogueToJson (const Catalogue& catalogue)
             months.push_back (json::JsonValue::Integer (m));
         o["floweringMonths"] = json::JsonValue::Array (std::move (months));
         o["deciduous"] = p.deciduous ? json::JsonValue::Bool (*p.deciduous) : json::JsonValue ();
-        o["moistureClasses"] = StringsJson (p.moistureClasses);
-        o["plantingLayers"] = StringsJson (p.plantingLayers);
+        o["soilTypes"] = StringsJson (p.soilTypes);
+        o["sites"] = StringsJson (sites);
+        o["siteSoils"] = json::JsonValue::Object (std::move (soilObject));
         json::JsonArray refs;
         for (const auto& r : p.sources) {
             json::JsonObject ref { { "sourceId", json::JsonValue::String (r.sourceId) } };
@@ -349,10 +409,16 @@ bool CatalogueFromCsv (const std::string& text, const Catalogue& base, Catalogue
             std::optional<double> a, b;
             number (lo, a);
             number (hi, b);
-            if (a && b)
-                out = Range { *a, *b };
-            else if (a || b)
-                problems.items.push_back (where + lo + " and " + hi + " are given together or not at all");
+            if (a || b)
+                out = Range { a.value_or (0), b.value_or (0), !a.has_value (), !b.has_value () };
+        };
+        auto flag = [&] (const char* name) {
+            const std::string s = cell (name);
+            if (s == "true" || s == "yes")
+                return true;
+            if (!s.empty () && s != "false" && s != "no")
+                problems.items.push_back (where + name + ": '" + s + "' is not true or false");
+            return false;
         };
         Plant p;
         p.id = cell ("id");
@@ -360,10 +426,22 @@ bool CatalogueFromCsv (const std::string& text, const Catalogue& base, Catalogue
         if (p.id.empty () && p.scientificName.empty ())
             continue; // a blank row
         p.cultivar = cell ("cultivar");
+        p.sourceNumber = cell ("sourceNumber");
         if (!cell ("name_lt").empty ())
             p.localNames["lt"] = cell ("name_lt");
         if (!cell ("name_en").empty ())
             p.localNames["en"] = cell ("name_en");
+        const std::string section = cell ("section");
+        if (!section.empty ()) {
+            bool found = false;
+            for (int s = 1; s < kSectionCount; ++s)
+                if (section == SectionKey (PlantSection (s))) {
+                    p.section = PlantSection (s);
+                    found = true;
+                }
+            if (!found)
+                problems.items.push_back (where + "section: '" + section + "' is not trees, shrubs or perennials");
+        }
         const std::string habit = cell ("habit");
         p.habit = Habit::Unknown;
         for (int h = 1; h < kHabitCount; ++h)
@@ -371,6 +449,9 @@ bool CatalogueFromCsv (const std::string& text, const Catalogue& base, Catalogue
                 p.habit = Habit (h);
         if (!habit.empty () && p.habit == Habit::Unknown)
             problems.items.push_back (where + "habit: '" + habit + "' is not a known habit");
+        p.breeam = flag ("breeam");
+        p.ornamentalFlowering = flag ("ornamentalFlowering");
+        p.ornithological = flag ("ornithological");
         for (const auto& key : Split (cell ("light"))) {
             bool found = false;
             for (int c = 0; c < kLightClassCount; ++c)
@@ -380,6 +461,48 @@ bool CatalogueFromCsv (const std::string& text, const Catalogue& base, Catalogue
                 }
             if (!found)
                 problems.items.push_back (where + "light: '" + key + "' is not shade, partial or full");
+        }
+        const std::string salt = cell ("saltTolerance");
+        if (!salt.empty ()) {
+            bool found = false;
+            for (int s = 1; s <= int (SaltTolerance::High); ++s)
+                if (salt == SaltToleranceKey (SaltTolerance (s))) {
+                    p.saltTolerance = SaltTolerance (s);
+                    found = true;
+                }
+            if (!found)
+                problems.items.push_back (where + "saltTolerance: '" + salt + "' is not none, low or high");
+        }
+        const std::string growth = cell ("growthIntensity");
+        if (!growth.empty ()) {
+            bool found = false;
+            for (int g = 1; g <= int (GrowthIntensity::Aggressive); ++g)
+                if (growth == GrowthIntensityKey (GrowthIntensity (g))) {
+                    p.growthIntensity = GrowthIntensity (g);
+                    found = true;
+                }
+            if (!found)
+                problems.items.push_back (where + "growthIntensity: '" + growth + "' is not slow, fast or aggressive");
+        }
+        for (const auto& key : Split (cell ("moistureClasses"))) {
+            bool found = false;
+            for (int m = 0; m < kMoistureClassCount; ++m)
+                if (key == MoistureClassKey (MoistureClass (m))) {
+                    p.moistureClasses.push_back (MoistureClass (m));
+                    found = true;
+                }
+            if (!found)
+                problems.items.push_back (where + "moistureClasses: '" + key + "' is not dry, moist or wet");
+        }
+        for (const auto& key : Split (cell ("plantingLayers"))) {
+            bool found = false;
+            for (int l = 0; l < kPlantingLayerCount; ++l)
+                if (key == PlantingLayerKey (PlantingLayer (l))) {
+                    p.plantingLayers.push_back (PlantingLayer (l));
+                    found = true;
+                }
+            if (!found)
+                problems.items.push_back (where + "plantingLayers: '" + key + "' is not D, S or Str");
         }
         range ("matureHeightMinM", "matureHeightMaxM", p.matureHeightM);
         range ("matureSpreadMinM", "matureSpreadMaxM", p.matureSpreadM);
@@ -400,8 +523,34 @@ bool CatalogueFromCsv (const std::string& text, const Catalogue& base, Catalogue
             p.deciduous = false;
         else if (!deciduous.empty ())
             problems.items.push_back (where + "deciduous: '" + deciduous + "' is not true or false");
-        p.moistureClasses = Split (cell ("moistureClasses"));
-        p.plantingLayers = Split (cell ("plantingLayers"));
+        p.soilTypes = Split (cell ("soilTypes"));
+        for (const auto& key : Split (cell ("sites"))) {
+            bool found = false;
+            for (int s = 0; s < kSiteCount; ++s)
+                if (key == SiteKey (Site (s))) {
+                    p.siteSuitable[size_t (s)] = true;
+                    found = true;
+                }
+            if (!found)
+                problems.items.push_back (where + "sites: '" + key + "' is not a known planting site");
+        }
+        for (const auto& item : Split (cell ("siteSoils"))) {
+            const size_t colon = item.find (':');
+            const std::string key = Trim (item.substr (0, colon));
+            bool found = false;
+            for (int s = 0; s < kSiteCount; ++s)
+                if (key == SiteKey (Site (s))) {
+                    const std::string soil =
+                        colon == std::string::npos ? std::string () : Trim (item.substr (colon + 1));
+                    if (!soil.empty ()) {
+                        p.siteSuitable[size_t (s)] = true;
+                        p.siteSoil[size_t (s)] = soil;
+                    }
+                    found = true;
+                }
+            if (!found)
+                problems.items.push_back (where + "siteSoils: '" + key + "' is not a known planting site");
+        }
         const std::string source = cell ("source");
         if (!source.empty ()) {
             PlantSourceRef ref { source, 0 };

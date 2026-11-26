@@ -239,12 +239,34 @@ void AreaTable (HudState& state, const SunStudyOverlayStatus& study)
         ImGui::TextDisabled ("%zu sample(s) without a value left out.", areas.table.total.unclassified);
 }
 
+// The plants whose light needs a point meets: the catalogue's plants that
+// accept its class. Read at the shown layer; a plant's own height may differ.
+void FindPlantsHere (pl::PlantingHud& hud, int cls, float layerHeight)
+{
+    const pl::LightClass light = pl::LightOfClass (hud, cls);
+    pl::PlantFilter probe;
+    probe.light = int (light);
+    const auto& plants = hud.catalogue.plants.plants;
+    const auto count =
+        std::count_if (plants.begin (), plants.end (), [&] (const pl::Plant& p) { return pl::Matches (p, probe); });
+    if (ImGui::Button ("Find plants here##plantingfind")) {
+        hud.catalogue.filter = {};
+        hud.catalogue.filter.light = int (light);
+        hud.catalogue.filterFromPointHeight = layerHeight;
+        hud.catalogue.openPlantsTab = true;
+    }
+    hudshell::ItemTip ("Open Plants, filtered to the %d catalogue plant(s) that accept %s. The point is read at the "
+                       "%.2f m layer; a plant whose own height differs may read differently there.",
+                       int (count), pl::LightName (light), layerHeight);
+}
+
 void InspectSection (HudState& state)
 {
-    const pl::PlantingHud& hud = state.planting;
+    pl::PlantingHud& hud = state.planting;
     char first[96] = {}, second[96] = {};
+    int cls = -1;
     if (state.sunReadingState == 1) {
-        const int cls = pl::ClassOf (hud, state.sunReadingHours);
+        cls = pl::ClassOf (hud, state.sunReadingHours);
         std::snprintf (first, sizeof (first), "%s%.2f h direct sun a day", state.sunReadingNearest ? "~ " : "",
                        state.sunReadingHours);
         std::snprintf (second, sizeof (second), "%s (%s)", pl::ClassName (hud, cls), ClassRangeOf (hud, cls).c_str ());
@@ -254,7 +276,11 @@ void InspectSection (HudState& state)
     DrawSunStudyInspectControl (state.sunInspect, first, second);
     LaterButton ("Monthly profile", "Later: this point's hours month by month, at every layer.");
     ImGui::SameLine ();
-    LaterButton ("Find plants here", "Later: catalogue plants whose light needs this point meets.");
+    const bool layerShown = hud.shownLayer >= 0 && size_t (hud.shownLayer) < hud.layers.size ();
+    if (cls >= 0 && layerShown)
+        FindPlantsHere (hud, cls, hud.layers[size_t (hud.shownLayer)].height);
+    else
+        LaterButton ("Find plants here", "Hover a measured point of a shown layer first.");
 }
 
 void ReportRow (HudState& state, const DiligentSceneStats& scene)

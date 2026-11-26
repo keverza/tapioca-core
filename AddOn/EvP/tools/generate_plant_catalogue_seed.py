@@ -6,8 +6,10 @@ use is two tracked files beside the catalogue code:
 - Sources/AddOn/ArchViz/PlantCatalogueSeed.plants.json
 - Sources/AddOn/ArchViz/PlantCatalogueSeed.profiles.json
 
-They are edited by hand and reviewed in git. The add-on carries them as text in
-`ArchViz/PlantCatalogueSeed.inc`, generated here and never edited by hand.
+The plants are the Vilnius 2024 planting standard's tables (pp. 6-34); the
+profiles are its sunlight thresholds. They are edited by hand and reviewed in
+git. The add-on carries them as text in `ArchViz/PlantCatalogueSeed.inc`,
+generated here and never edited by hand.
 
     python tools/generate_plant_catalogue_seed.py          # write
     python tools/generate_plant_catalogue_seed.py --check  # fail if the .inc is stale
@@ -33,6 +35,21 @@ TARGET = ARCHVIZ / "PlantCatalogueSeed.inc"
 
 LIGHT = {"shade", "partial", "full"}
 HABITS = {"groundcover", "perennial", "grass", "fern", "bulb", "annual", "climber", "shrub", "tree"}
+SECTIONS = {"trees", "shrubs", "perennials"}
+MOISTURE = {"dry", "moist", "wet"}
+LAYERS = {"D", "S", "Str"}
+SITES = {
+    "greenStrip",
+    "roadside",
+    "streets",
+    "alleys",
+    "squaresParks",
+    "roundabouts",
+    "urbanForest",
+    "riverside",
+    "onSlabs",
+    "containers",
+}
 # MSVC refuses a string literal piece over 16 380 bytes (C2026); stay well below.
 PIECE_BYTES = 8000
 DELIMITER = "seed"
@@ -53,6 +70,21 @@ def _check_plants(document: dict) -> None:
         habit = plant.get("habit")
         if habit is not None and habit not in HABITS:
             raise SystemExit(f"{PLANTS.name}: {ident}: unknown habit {habit}")
+        section = plant.get("section")
+        if section is not None and section not in SECTIONS:
+            raise SystemExit(f"{PLANTS.name}: {ident}: unknown section {section}")
+        for moisture in plant.get("moistureClasses", []):
+            if moisture not in MOISTURE:
+                raise SystemExit(f"{PLANTS.name}: {ident}: unknown moisture class {moisture}")
+        for layer in plant.get("plantingLayers", []):
+            if layer not in LAYERS:
+                raise SystemExit(f"{PLANTS.name}: {ident}: unknown planting layer {layer}")
+        for site in plant.get("sites", []):
+            if site not in SITES:
+                raise SystemExit(f"{PLANTS.name}: {ident}: unknown site {site}")
+        for site in plant.get("siteSoils", {}):
+            if site not in SITES:
+                raise SystemExit(f"{PLANTS.name}: {ident}: unknown site {site}")
         for light in plant.get("light", {}).get("acceptedClasses", []):
             if light not in LIGHT:
                 raise SystemExit(f"{PLANTS.name}: {ident}: unknown light class {light}")
@@ -70,8 +102,8 @@ def _check_profiles(document: dict) -> None:
 
 
 def _pieces(text: str) -> list[str]:
-    if f"){DELIMITER}\"" in text:
-        raise SystemExit(f"the seed may not contain ){DELIMITER}\"")
+    if f'){DELIMITER}"' in text:
+        raise SystemExit(f'the seed may not contain ){DELIMITER}"')
     pieces, current = [], ""
     for line in text.splitlines(keepends=True):
         if current and len((current + line).encode("utf-8")) > PIECE_BYTES:

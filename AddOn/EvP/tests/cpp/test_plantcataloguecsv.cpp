@@ -58,17 +58,36 @@ TEST (PlantCatalogueCsv, TheSeedRoundTripsThroughCsvAndJson)
     const Catalogue seed = Seed ();
     const std::string csv = CatalogueToCsv (seed);
     EXPECT_EQ (csv.substr (0, 3), "\xEF\xBB\xBF") << "a byte-order mark, for spreadsheets";
-    EXPECT_NE (csv.find ("Siboldo melsvė"), std::string::npos);
+    EXPECT_NE (csv.find ("Korėjinis kėnis"), std::string::npos);
     Catalogue back;
     ParseProblems problems;
     ASSERT_TRUE (CatalogueFromCsv (csv, seed, back, problems)) << (problems.Empty () ? "" : problems.items[0]);
     ASSERT_EQ (back.plants.size (), seed.plants.size ());
     for (size_t i = 0; i < seed.plants.size (); ++i) {
-        EXPECT_EQ (back.plants[i].id, seed.plants[i].id);
-        EXPECT_EQ (back.plants[i].light, seed.plants[i].light);
-        EXPECT_EQ (back.plants[i].localNames, seed.plants[i].localNames);
-        EXPECT_EQ (back.plants[i].habit, seed.plants[i].habit);
-        EXPECT_EQ (back.plants[i].deciduous, seed.plants[i].deciduous);
+        const Plant& a = seed.plants[i];
+        const Plant& b = back.plants[i];
+        EXPECT_EQ (b.id, a.id);
+        EXPECT_EQ (b.light, a.light);
+        EXPECT_EQ (b.localNames, a.localNames);
+        EXPECT_EQ (b.habit, a.habit);
+        EXPECT_EQ (b.deciduous, a.deciduous);
+        EXPECT_EQ (b.section, a.section) << a.id;
+        EXPECT_EQ (b.sourceNumber, a.sourceNumber) << a.id;
+        EXPECT_EQ (b.breeam, a.breeam) << a.id;
+        EXPECT_EQ (b.ornamentalFlowering, a.ornamentalFlowering) << a.id;
+        EXPECT_EQ (b.ornithological, a.ornithological) << a.id;
+        EXPECT_EQ (b.saltTolerance, a.saltTolerance) << a.id;
+        EXPECT_EQ (b.growthIntensity, a.growthIntensity) << a.id;
+        EXPECT_EQ (b.moistureClasses, a.moistureClasses) << a.id;
+        EXPECT_EQ (b.plantingLayers, a.plantingLayers) << a.id;
+        EXPECT_EQ (b.soilTypes, a.soilTypes) << a.id;
+        EXPECT_EQ (b.siteSuitable, a.siteSuitable) << a.id;
+        EXPECT_EQ (b.siteSoil, a.siteSoil) << a.id;
+        ASSERT_EQ (a.matureHeightM.has_value (), b.matureHeightM.has_value ()) << a.id;
+        if (a.matureHeightM) {
+            EXPECT_EQ (b.matureHeightM->openMax, a.matureHeightM->openMax) << a.id;
+            EXPECT_EQ (b.matureHeightM->openMin, a.matureHeightM->openMin) << a.id;
+        }
     }
     EXPECT_EQ (back.sources[0].note, seed.sources[0].note) << "a known source keeps its title and note";
     Catalogue again;
@@ -78,19 +97,46 @@ TEST (PlantCatalogueCsv, TheSeedRoundTripsThroughCsvAndJson)
 
 TEST (PlantCatalogueCsv, RangesDensityAndMonthsImport)
 {
-    const std::string csv = Header () + "astilbe-x,Astilbe x arendsii,Fanal,Astilbė,,perennial,shade|partial,0.4,0.6,"
-                                        "0.3,0.5,,7,9,7|8,true,moist,Str,vilnius,24\n";
+    const std::string csv =
+        Header () + "astilbe-x,Astilbe x arendsii,Fanal,Astilbė,,perennials,7,perennial,true,,,shade|partial,low,slow,"
+                    "dry|moist,D|Str,0.4,0.6,0.3,0.5,,7,9,7|8,true,A|B,greenStrip|onSlabs,greenStrip:B|onSlabs:D,"
+                    "vilnius,24\n";
     Catalogue c;
     ParseProblems problems;
     ASSERT_TRUE (CatalogueFromCsv (csv, Catalogue {}, c, problems)) << (problems.Empty () ? "" : problems.items[0]);
     const Plant& p = c.plants[0];
     EXPECT_EQ (p.DisplayName (), "Astilbe x arendsii 'Fanal'");
+    EXPECT_EQ (p.section, PlantSection::Perennials);
+    EXPECT_EQ (p.sourceNumber, "7");
+    EXPECT_TRUE (p.breeam);
+    EXPECT_EQ (p.saltTolerance, SaltTolerance::Low);
+    EXPECT_EQ (p.growthIntensity, GrowthIntensity::Slow);
+    EXPECT_EQ (p.moistureClasses, (std::vector<MoistureClass> { MoistureClass::Dry, MoistureClass::Moist }));
     EXPECT_DOUBLE_EQ (p.matureHeightM->max, 0.6);
     EXPECT_DOUBLE_EQ (p.densityPerM2->min, 7.0);
     EXPECT_EQ (p.floweringMonths, (std::vector<int> { 7, 8 }));
-    EXPECT_EQ (p.plantingLayers, (std::vector<std::string> { "Str" }));
+    EXPECT_EQ (p.plantingLayers, (std::vector<PlantingLayer> { PlantingLayer::Cover, PlantingLayer::Structural }));
+    EXPECT_EQ (p.soilTypes, (std::vector<std::string> { "A", "B" }));
+    EXPECT_TRUE (p.siteSuitable[size_t (Site::GreenStrip)]);
+    EXPECT_EQ (p.siteSoil[size_t (Site::OnSlabs)], "D");
     EXPECT_EQ (p.sources[0].page, 24);
     EXPECT_EQ (c.sources[0].id, "vilnius") << "a source named only in the CSV is added";
+}
+
+TEST (PlantCatalogueCsv, OneSidedRangesAreOpen)
+{
+    Catalogue c;
+    ParseProblems problems;
+    ASSERT_TRUE (CatalogueFromCsv ("id,scientificName,matureHeightMinM,matureHeightMaxM\n"
+                                   "a,Tall,16,\n"
+                                   "b,Low,,8\n",
+                                   Catalogue {}, c, problems))
+        << (problems.Empty () ? "" : problems.items[0]);
+    ASSERT_EQ (c.plants.size (), 2u);
+    EXPECT_TRUE (c.plants[0].matureHeightM->openMax);
+    EXPECT_DOUBLE_EQ (c.plants[0].matureHeightM->min, 16.0);
+    EXPECT_TRUE (c.plants[1].matureHeightM->openMin);
+    EXPECT_DOUBLE_EQ (c.plants[1].matureHeightM->max, 8.0);
 }
 
 TEST (PlantCatalogueCsv, ProblemsNameTheRowAndNothingIsImported)
@@ -101,14 +147,19 @@ TEST (PlantCatalogueCsv, ProblemsNameTheRowAndNothingIsImported)
     EXPECT_TRUE (Has (problems, "unknown column 'Light'")) << "a misspelt header is not dropped silently";
     EXPECT_FALSE (CatalogueFromCsv ("id,light\nx,full\n", Catalogue {}, c, problems));
     EXPECT_TRUE (Has (problems, "column 'scientificName' is required"));
-    EXPECT_FALSE (CatalogueFromCsv (Header () + "a,A,,,,bush,sunny,1,,,,,,,13,maybe,,,,\n", Catalogue {}, c, problems));
+    EXPECT_FALSE (CatalogueFromCsv ("id,scientificName,habit,light,section,moistureClasses,plantingLayers,sites\n"
+                                    "a,A,bush,sunny,vines,damp,X,moon\n",
+                                    Catalogue {}, c, problems));
     EXPECT_TRUE (Has (problems, "CSV row 2: habit: 'bush'"));
     EXPECT_TRUE (Has (problems, "CSV row 2: light: 'sunny'"));
-    EXPECT_TRUE (Has (problems, "matureHeightMinM and matureHeightMaxM are given together"));
-    EXPECT_TRUE (Has (problems, "deciduous: 'maybe'"));
+    EXPECT_TRUE (Has (problems, "CSV row 2: section: 'vines'"));
+    EXPECT_TRUE (Has (problems, "CSV row 2: moistureClasses: 'damp'"));
+    EXPECT_TRUE (Has (problems, "CSV row 2: plantingLayers: 'X'"));
+    EXPECT_TRUE (Has (problems, "CSV row 2: sites: 'moon'"));
     // Rules only the JSON reader knows still apply: a month 13 passes the CSV
     // step and is refused by ParseCatalogue.
-    EXPECT_FALSE (CatalogueFromCsv (Header () + "a,A,,,,,full,,,,,,,,13,,,,,\n", Catalogue {}, c, problems));
+    EXPECT_FALSE (
+        CatalogueFromCsv ("id,scientificName,light,floweringMonths\na,A,full,13\n", Catalogue {}, c, problems));
     EXPECT_TRUE (Has (problems, "floweringMonths[0]: must be a month 1-12"));
     EXPECT_TRUE (c.plants.empty ());
 }
@@ -139,7 +190,7 @@ TEST (PlantingFiles, ImportBacksUpAndARefusedCsvChangesNothing)
     ASSERT_TRUE (SeedCatalogueFolder (folder, created, error)) << error;
     CatalogueState state;
     ReadCatalogueFolder (folder, state);
-    ASSERT_EQ (state.plants.plants.size (), 8u);
+    ASSERT_EQ (state.plants.plants.size (), 269u);
     std::string backup;
     EXPECT_FALSE (ImportCatalogueCsv (folder, state, backup)) << "no plants.csv yet";
     ASSERT_TRUE (ExportCatalogueCsv (folder, state.plants, error)) << error;
@@ -147,7 +198,7 @@ TEST (PlantingFiles, ImportBacksUpAndARefusedCsvChangesNothing)
 
     std::ofstream (folder / kCsvImportFile, std::ios::binary) << "id,scientificName,light\nx,X,sunny\n";
     EXPECT_FALSE (ImportCatalogueCsv (folder, state, backup));
-    EXPECT_EQ (state.plants.plants.size (), 8u);
+    EXPECT_EQ (state.plants.plants.size (), 269u);
     EXPECT_FALSE (state.problems.empty ());
 
     std::ofstream (folder / kCsvImportFile, std::ios::binary) << "id,scientificName,light\nx,Xus yus,full\n";

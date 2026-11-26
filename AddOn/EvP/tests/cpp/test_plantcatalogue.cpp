@@ -65,10 +65,28 @@ TEST (PlantCatalogue, TheSeedParsesWithItsLithuanianNames)
     Catalogue c;
     ParseProblems problems;
     ASSERT_TRUE (ParseCatalogue (SeedPlantsJson (), c, problems)) << (problems.Empty () ? "" : problems.items[0]);
-    ASSERT_EQ (c.plants.size (), 8u);
-    EXPECT_EQ (c.plants[0].localNames.at ("lt"), "Siboldo melsvė");
-    EXPECT_EQ (c.plants[5].localNames.at ("lt"), "Aitrusis šilokas");
-    EXPECT_FALSE (c.plants[0].matureHeightM.has_value ()) << "the example invents no heights";
+    ASSERT_EQ (c.plants.size (), 269u);
+    const Plant& koreana = c.plants[0];
+    ASSERT_EQ (koreana.scientificName, "Abies koreana");
+    EXPECT_EQ (koreana.section, PlantSection::Trees);
+    EXPECT_EQ (koreana.habit, Habit::Tree);
+    EXPECT_EQ (koreana.localNames.at ("lt"), "Korėjinis kėnis");
+    ASSERT_TRUE (koreana.matureHeightM.has_value ());
+    EXPECT_DOUBLE_EQ (koreana.matureHeightM->min, 8.0);
+    EXPECT_DOUBLE_EQ (koreana.matureHeightM->max, 15.0);
+    EXPECT_TRUE (koreana.siteSuitable[size_t (Site::SquaresParks)]);
+    EXPECT_EQ (koreana.siteSoil[size_t (Site::SquaresParks)], "B");
+    EXPECT_FALSE (koreana.breeam);
+    const auto achillea = std::find_if (c.plants.begin (), c.plants.end (), [] (const Plant& p) {
+        return p.scientificName == "Achillea filipendulina Coronation Gold";
+    });
+    ASSERT_NE (achillea, c.plants.end ());
+    EXPECT_EQ (achillea->localNames.at ("lt"), "Vingiorykštinė kraujažolė");
+    ASSERT_TRUE (achillea->densityPerM2.has_value ());
+    EXPECT_DOUBLE_EQ (achillea->densityPerM2->min, 7.0);
+    EXPECT_EQ (achillea->plantingLayers, (std::vector<PlantingLayer> { PlantingLayer::Seasonal }));
+    EXPECT_EQ (achillea->moistureClasses, (std::vector<MoistureClass> { MoistureClass::Dry }));
+    EXPECT_EQ (achillea->floweringMonths, (std::vector<int> { 6 }));
     std::vector<Profile> profiles;
     ASSERT_TRUE (ParseProfiles (SeedProfilesJson (), profiles, problems));
     ASSERT_EQ (profiles.size (), 1u);
@@ -82,20 +100,39 @@ TEST (PlantCatalogue, AFieldByFieldRecord)
     Catalogue c;
     ParseProblems problems;
     ASSERT_TRUE (ParseCatalogue (WithPlants (R"({"id": "a", "scientificName": "Aa bb", "cultivar": "Gold",
-        "habit": "shrub", "light": {"acceptedClasses": ["partial", "full"]},
-        "matureHeightM": {"min": 1, "max": 1.5}, "matureSpreadM": null, "preferredReceiverHeightM": 0.8,
-        "floweringMonths": [6, 7], "deciduous": true, "sourceRefs": [{"sourceId": "s1", "page": 20}],
-        "somethingNew": 3})"),
+        "section": "shrubs", "sourceNumber": "7", "habit": "shrub",
+        "breeam": true, "ornamentalFlowering": true, "ornithological": true,
+        "light": {"acceptedClasses": ["partial", "full"]}, "saltTolerance": "high",
+        "growthIntensity": "slow", "moistureClasses": ["dry", "moist"], "plantingLayers": ["D", "Str"],
+        "matureHeightM": {"min": 1, "max": 1.5}, "matureSpreadM": {"min": null, "max": 0.8},
+        "preferredReceiverHeightM": 0.8, "plantingDensityPerM2": {"min": 5, "max": 7},
+        "floweringMonths": [6, 7], "deciduous": true, "soilTypes": ["A", "B"],
+        "sites": ["greenStrip", "onSlabs"], "siteSoils": {"greenStrip": "B", "onSlabs": "D"},
+        "sourceRefs": [{"sourceId": "s1", "page": 20}], "somethingNew": 3})"),
                                  c, problems))
         << (problems.Empty () ? "" : problems.items[0]);
     const Plant& p = c.plants[0];
     EXPECT_EQ (p.DisplayName (), "Aa bb 'Gold'");
+    EXPECT_EQ (p.section, PlantSection::Shrubs);
+    EXPECT_EQ (p.sourceNumber, "7");
     EXPECT_EQ (p.habit, Habit::Shrub);
+    EXPECT_TRUE (p.breeam && p.ornamentalFlowering && p.ornithological);
     EXPECT_FALSE (p.light[0]);
     EXPECT_TRUE (p.light[1] && p.light[2]);
+    EXPECT_EQ (p.saltTolerance, SaltTolerance::High);
+    EXPECT_EQ (p.growthIntensity, GrowthIntensity::Slow);
+    EXPECT_EQ (p.moistureClasses, (std::vector<MoistureClass> { MoistureClass::Dry, MoistureClass::Moist }));
+    EXPECT_EQ (p.plantingLayers, (std::vector<PlantingLayer> { PlantingLayer::Cover, PlantingLayer::Structural }));
     EXPECT_DOUBLE_EQ (p.matureHeightM->max, 1.5);
-    EXPECT_FALSE (p.matureSpreadM.has_value ());
+    EXPECT_TRUE (p.matureSpreadM->openMin);
+    EXPECT_DOUBLE_EQ (p.matureSpreadM->max, 0.8);
+    EXPECT_DOUBLE_EQ (p.densityPerM2->min, 5.0);
+    EXPECT_DOUBLE_EQ (p.densityPerM2->max, 7.0);
     EXPECT_FLOAT_EQ (ReceiverHeightOf (p), 0.8f);
+    EXPECT_EQ (p.soilTypes, (std::vector<std::string> { "A", "B" }));
+    EXPECT_TRUE (p.siteSuitable[size_t (Site::GreenStrip)]);
+    EXPECT_FALSE (p.siteSuitable[size_t (Site::Roadside)]);
+    EXPECT_EQ (p.siteSoil[size_t (Site::OnSlabs)], "D");
     EXPECT_EQ (p.sources[0].page, 20);
     EXPECT_EQ (p.deciduous, true);
 }
@@ -109,17 +146,28 @@ TEST (PlantCatalogue, EveryProblemIsListedAndNothingLoads)
         ParseCatalogue (WithPlants (R"({"id": "a", "scientificName": "A", "light": {"acceptedClasses": ["sunny"]}},
         {"id": "a", "scientificName": "B", "habit": "bush"},
         {"id": "c", "scientificName": "C", "matureHeightM": {"min": 2, "max": 1}, "floweringMonths": [13],
-         "sourceRefs": [{"sourceId": "nowhere"}]},
-        {"scientificName": "D"})"),
+         "plantingDensityPerM2": {"min": 5, "max": null}, "sourceRefs": [{"sourceId": "nowhere"}]},
+        {"id": "d", "scientificName": "D", "section": "vines", "saltTolerance": "salty",
+         "growthIntensity": "quick", "moistureClasses": ["damp"], "plantingLayers": ["X"],
+         "sites": ["moon"], "siteSoils": {"moon": "B"}, "matureSpreadM": {"min": null, "max": null}},
+        {"scientificName": "E"})"),
                         c, problems));
     EXPECT_EQ (c.catalogueId, "previous") << "a refused file changes nothing";
     EXPECT_TRUE (Has (problems, "plants[0] 'a': light.acceptedClasses[0]: 'sunny' is not shade, partial or full"));
     EXPECT_TRUE (Has (problems, "plants[1] 'a': id: is used twice"));
     EXPECT_TRUE (Has (problems, "'bush' is not one of"));
-    EXPECT_TRUE (Has (problems, "plants[2] 'c': matureHeightM: needs 0 <= min <= max"));
+    EXPECT_TRUE (Has (problems, "plants[2] 'c': matureHeightM: needs min <= max"));
+    EXPECT_TRUE (Has (problems, "plantingDensityPerM2: needs both min and max"));
     EXPECT_TRUE (Has (problems, "floweringMonths[0]: must be a month 1-12"));
     EXPECT_TRUE (Has (problems, "sourceId must name an entry of sources"));
-    EXPECT_TRUE (Has (problems, "plants[3] id: is required"));
+    EXPECT_TRUE (Has (problems, "'vines' is not trees, shrubs or perennials"));
+    EXPECT_TRUE (Has (problems, "'salty' is not none, low or high"));
+    EXPECT_TRUE (Has (problems, "'quick' is not slow, fast or aggressive"));
+    EXPECT_TRUE (Has (problems, "'damp' is not dry, moist or wet"));
+    EXPECT_TRUE (Has (problems, "'X' is not D, S or Str"));
+    EXPECT_TRUE (Has (problems, "'moon' is not a known planting site"));
+    EXPECT_TRUE (Has (problems, "matureSpreadM: needs a min, a max, or both"));
+    EXPECT_TRUE (Has (problems, "plants[4] id: is required"));
 }
 
 TEST (PlantCatalogue, SyntaxErrorsAndVersionsAreActionable)
@@ -208,11 +256,65 @@ TEST (PlantCatalogue, SearchAndFilters)
     auto count = [&] (const PlantFilter& f) {
         return std::count_if (c.plants.begin (), c.plants.end (), [&] (const Plant& p) { return Matches (p, f); });
     };
-    EXPECT_EQ (count ({}), 8);
-    EXPECT_EQ (count ({ "levanda", -1, -1 }), 1) << "a local name";
-    EXPECT_EQ (count ({ "HOSTA", -1, -1 }), 1);
-    EXPECT_EQ (count ({ "", int (Habit::Shrub), -1 }), 3);
-    EXPECT_EQ (count ({ "", -1, int (LightClass::Shade) }), 4);
+    EXPECT_EQ (count ({}), 269);
+    EXPECT_EQ (count ({ "klevas", -1, -1 }), 7) << "a local name";
+    EXPECT_EQ (count ({ "HOSTA", -1, -1 }), 3);
+    EXPECT_EQ (count ({ "", int (Habit::Shrub), -1 }), 46);
+    EXPECT_EQ (count ({ "", -1, int (LightClass::Shade) }), 19);
+
+    // Lithuanian capitals fold: the names start with Š, the search is lower case.
+    EXPECT_EQ (count ({ "švedinis", -1, -1 }), 2);
+    EXPECT_EQ (count ({ "ŠVEDINIS", -1, -1 }), 2);
+    EXPECT_EQ (count ({ "žilasis česnakas", -1, -1 }), 1);
+
+    // The standard's columns; a blank cell is not a match.
+    PlantFilter f;
+    f.section = int (PlantSection::Trees);
+    EXPECT_EQ (count (f), 114);
+    f = {};
+    f.site = int (Site::OnSlabs);
+    EXPECT_EQ (count (f), 91);
+    f = {};
+    f.moisture = int (MoistureClass::Wet);
+    EXPECT_EQ (count (f), 3);
+    f = {};
+    f.breeamOnly = true;
+    EXPECT_EQ (count (f), 70);
+    f.section = int (PlantSection::Shrubs);
+    f.site = int (Site::Streets);
+    EXPECT_EQ (count (f), 3) << "BREEAM shrubs recommended for streets: filters combine";
+    EXPECT_TRUE (f.Any ());
+    EXPECT_FALSE (PlantFilter {}.Any ());
+}
+
+TEST (PlantCatalogue, APointsClassIsTheCataloguesLightClass)
+{
+    PlantingHud hud;
+    hud.deepShade = false;
+    EXPECT_EQ (LightOfClass (hud, 0), LightClass::Shade);
+    EXPECT_EQ (LightOfClass (hud, 1), LightClass::Partial);
+    EXPECT_EQ (LightOfClass (hud, 2), LightClass::Full);
+    hud.deepShade = true;
+    EXPECT_EQ (LightOfClass (hud, 0), LightClass::Shade) << "deep shade counts as shade";
+    EXPECT_EQ (LightOfClass (hud, 1), LightClass::Shade);
+    EXPECT_EQ (LightOfClass (hud, 2), LightClass::Partial);
+    EXPECT_EQ (LightOfClass (hud, 3), LightClass::Full);
+}
+
+TEST (PlantCatalogue, ACoverLayerPerennialReadsAtGroundCover)
+{
+    Plant p;
+    p.habit = Habit::Perennial;
+    EXPECT_FLOAT_EQ (ReceiverHeightOf (p), 0.5f) << "no layer: the perennial tier";
+    p.plantingLayers = { PlantingLayer::Cover };
+    EXPECT_FLOAT_EQ (ReceiverHeightOf (p), 0.15f);
+    p.plantingLayers = { PlantingLayer::Cover, PlantingLayer::Seasonal };
+    EXPECT_FLOAT_EQ (ReceiverHeightOf (p), 0.5f) << "also seasonal: the perennial tier";
+    p.habit = Habit::Shrub;
+    p.plantingLayers = { PlantingLayer::Cover };
+    EXPECT_FLOAT_EQ (ReceiverHeightOf (p), 1.5f) << "the habit tier wins for shrubs";
+    p.receiverHeightM = 0.3;
+    EXPECT_FLOAT_EQ (ReceiverHeightOf (p), 0.3f) << "a stated height wins";
 }
 
 TEST (PlantingFiles, SeedingNeverOverwritesAndRestoreBacksUp)

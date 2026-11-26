@@ -34,6 +34,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace geomsrv::archviz {
@@ -659,7 +660,8 @@ void DrawPlantingHudSection (HudState& state, const DiligentSceneStats& scene)
         plantinghud::DrawResults (state, scene);
         ImGui::EndTabItem ();
     }
-    if (ImGui::BeginTabItem ("Plants")) {
+    const bool openPlants = std::exchange (state.planting.catalogue.openPlantsTab, false);
+    if (ImGui::BeginTabItem ("Plants", nullptr, openPlants ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) {
         plantinghud::DrawPlantsTab (state);
         ImGui::EndTabItem ();
     }
