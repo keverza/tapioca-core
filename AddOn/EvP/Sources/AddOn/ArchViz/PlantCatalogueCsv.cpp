@@ -344,7 +344,8 @@ std::string CatalogueToJson (const Catalogue& catalogue)
                 ref["page"] = json::JsonValue::Integer (r.page);
             refs.push_back (json::JsonValue::Object (std::move (ref)));
         }
-        o["sourceRefs"] = json::JsonValue::Array (std::move (refs));
+        if (!refs.empty ())
+            o["sourceRefs"] = json::JsonValue::Array (std::move (refs));
         TraitsToJson (p.traits, o);
         plants.push_back (json::JsonValue::Object (std::move (o)));
     }
@@ -353,7 +354,8 @@ std::string CatalogueToJson (const Catalogue& catalogue)
     root["catalogueId"] = json::JsonValue::String (catalogue.catalogueId);
     if (!catalogue.locale.empty ())
         root["locale"] = json::JsonValue::String (catalogue.locale);
-    root["sources"] = json::JsonValue::Array (std::move (sources));
+    if (!sources.empty ())
+        root["sources"] = json::JsonValue::Array (std::move (sources));
     root["plants"] = json::JsonValue::Array (std::move (plants));
     return json::Write (json::JsonValue::Object (std::move (root)), 2) + "\n";
 }

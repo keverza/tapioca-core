@@ -33,11 +33,14 @@ def test_the_compiled_seed_is_current():
 def test_the_seed_is_the_vilnius_transcription():
     plants = json.loads((ARCHVIZ / "PlantCatalogueSeed.plants.json").read_text(encoding="utf-8"))
     assert plants["catalogueId"] == "vilnius-2024"
-    assert plants["sources"][0]["year"] == 2024
+    assert "sources" not in plants
     assert len(plants["plants"]) == 269
     for plant in plants["plants"]:
         assert plant["section"] in {"trees", "shrubs", "perennials"}, plant["id"]
-        assert plant["sourceRefs"][0]["page"] in range(7, 35), plant["id"]
+        assert "sourceRefs" not in plant, plant["id"]
+        assert "evidence" not in plant, plant["id"]
+    # The provenance is kept outside the public seed, in the private workspace's
+    # PlantCatalogueSeed.sources.txt.
 
 
 def test_pieces_stay_below_the_compiler_limit():

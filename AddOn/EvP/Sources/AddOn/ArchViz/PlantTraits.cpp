@@ -343,7 +343,8 @@ void TraitsToJson (const PlantTraits& traits, json::JsonObject& plant)
         o["method"] = e.method.empty () ? json::JsonValue () : json::JsonValue::String (e.method);
         evidence.push_back (json::JsonValue::Object (std::move (o)));
     }
-    plant["evidence"] = json::JsonValue::Array (std::move (evidence));
+    if (!evidence.empty ())
+        plant["evidence"] = json::JsonValue::Array (std::move (evidence));
 }
 
 std::vector<std::string> TraitCsvColumns ()

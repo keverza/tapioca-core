@@ -170,14 +170,40 @@ TEST (PlantCatalogue, EveryProblemIsListedAndNothingLoads)
     EXPECT_TRUE (Has (problems, "plants[4] id: is required"));
 }
 
-TEST (PlantTraits, TheSeedShipsEveryTraitEmpty)
+TEST (PlantTraits, TheSeedCarriesTraits)
 {
     Catalogue c;
     ParseProblems problems;
     ASSERT_TRUE (ParseCatalogue (SeedPlantsJson (), c, problems)) << (problems.Empty () ? "" : problems.items[0]);
+    int given = 0;
     for (const Plant& p : c.plants)
-        EXPECT_FALSE (p.traits.AnyGiven ()) << p.id << ": the standard has no traits; nothing is invented";
-    // The seed carries every block, so the lines to fill are visible.
+        for (int t = 0; t < kTraitCount; ++t)
+            given += p.traits[Trait (t)].Given ();
+    EXPECT_GT (given, 500) << "the seed carries the joined trait data";
+
+    // The provenance is in PlantCatalogueSeed.sources.txt, not in the JSON.
+    EXPECT_TRUE (c.sources.empty ());
+    EXPECT_EQ (SeedPlantsJson ().find ("\"sources\""), std::string::npos);
+    EXPECT_EQ (SeedPlantsJson ().find ("\"sourceRefs\""), std::string::npos);
+    EXPECT_EQ (SeedPlantsJson ().find ("\"evidence\""), std::string::npos);
+
+    const auto acer =
+        std::find_if (c.plants.begin (), c.plants.end (), [] (const Plant& p) { return p.id == "acer-campestre"; });
+    ASSERT_NE (acer, c.plants.end ());
+    EXPECT_NEAR (acer->traits[Trait::EllenbergLight].number.value_or (0), 5.7, 1e-9);
+    EXPECT_NEAR (acer->traits[Trait::PhMin].number.value_or (0), 3.0, 1e-9);
+    EXPECT_NEAR (acer->traits[Trait::PhMax].number.value_or (0), 6.0, 1e-9);
+    EXPECT_EQ (acer->traits[Trait::Hardiness].text, "USDA 5a-8b");
+    EXPECT_TRUE (acer->deciduous.value_or (false));
+    EXPECT_TRUE (acer->light[2]);
+
+    // Unknown stays unknown: a plant no source matched keeps its null traits.
+    const auto agastache = std::find_if (c.plants.begin (), c.plants.end (),
+                                         [] (const Plant& p) { return p.id == "agastache-aurantiaca"; });
+    ASSERT_NE (agastache, c.plants.end ());
+    EXPECT_FALSE (agastache->traits.AnyGiven ()) << "no source match leaves the record empty";
+
+    // The seed carries every block, so the lines still to fill are visible.
     for (int t = 0; t < kTraitCount; ++t) {
         const TraitField& f = TraitFieldOf (Trait (t));
         const std::string key = std::string ("\"") + f.key + "\":";
@@ -334,7 +360,7 @@ TEST (PlantCatalogue, SearchAndFilters)
     EXPECT_EQ (count ({ "klevas", -1, -1 }), 7) << "a local name";
     EXPECT_EQ (count ({ "HOSTA", -1, -1 }), 3);
     EXPECT_EQ (count ({ "", int (Habit::Shrub), -1 }), 46);
-    EXPECT_EQ (count ({ "", -1, int (LightClass::Shade) }), 19);
+    EXPECT_EQ (count ({ "", -1, int (LightClass::Shade) }), 21);
 
     // Lithuanian capitals fold: the names start with Š, the search is lower case.
     EXPECT_EQ (count ({ "švedinis", -1, -1 }), 2);

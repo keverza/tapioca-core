@@ -89,9 +89,13 @@ TEST (PlantCatalogueCsv, TheSeedRoundTripsThroughCsvAndJson)
             EXPECT_EQ (b.matureHeightM->openMin, a.matureHeightM->openMin) << a.id;
         }
     }
-    EXPECT_EQ (back.sources[0].note, seed.sources[0].note) << "a known source keeps its title and note";
+    EXPECT_TRUE (back.sources.empty ()) << "the lean seed names no source";
     Catalogue again;
-    ASSERT_TRUE (ParseCatalogue (CatalogueToJson (back), again, problems));
+    const std::string lean = CatalogueToJson (back);
+    EXPECT_EQ (lean.find ("\"sources\""), std::string::npos);
+    EXPECT_EQ (lean.find ("\"sourceRefs\""), std::string::npos);
+    EXPECT_EQ (lean.find ("\"evidence\""), std::string::npos);
+    ASSERT_TRUE (ParseCatalogue (lean, again, problems));
     EXPECT_EQ (again.plants.size (), seed.plants.size ());
 }
 

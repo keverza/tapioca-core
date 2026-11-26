@@ -6,27 +6,12 @@ constexpr const char* kSeedPlantsPieces[] = {
   "schemaVersion": 1,
   "catalogueId": "vilnius-2024",
   "locale": "lt-LT",
-  "sources": [
-    {
-      "id": "vilnius-2024",
-      "title": "Miesto želdinimo ir želdinių priežiūros standartas",
-      "edition": "2024",
-      "year": 2024,
-      "note": "Vilnius, 2024. Tables 1.1 (trees, pp. 7-15), 1.2 (shrubs, pp. 16-19) and 1.3 (perennials and subshrubs, pp. 21-34), with the legend on pp. 6 and 20. Transcribed as printed, including the standard's spelling. The tree table gives no light or water classes; shrubs and perennials do. An official municipal document, not subject to copyright (the project owner's determination, 2026-11-26), so it ships in full."
-    }
-  ],
   "plants": [
     {
       "id": "abies-koreana",
       "scientificName": "Abies koreana",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "localNames": {
         "lt": "Korėjinis kėnis"
       },
@@ -53,14 +38,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -72,7 +60,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -82,26 +70,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": false
     },
     {
       "id": "acer-campestre",
       "scientificName": "Acer campestre",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "localNames": {
         "lt": "Trakinis klevas"
       },
@@ -115,21 +103,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 8.0
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 5.7,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 5.4,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -139,7 +132,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -149,26 +142,28 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "acer-campestre-elsrijk",
       "scientificName": "Acer campestre",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "cultivar": "Elsrijk",
       "sourceNumber": "2",
       "matureHeightM": {
@@ -200,21 +195,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 5.7,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 5.4,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -224,7 +224,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -234,26 +234,28 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "acer-miyabei",
       "scientificName": "Acer miyabei",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "sourceNumber": "3",
       "saltTolerance": "high",
       "ecology": {
@@ -262,11 +264,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "RHS H6"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -298,19 +303,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "matureHeightM": {
+        "min": 12.0,
+        "max": null
+      },
+      "matureSpreadM": {
+        "min": 8.0,
+        "max": null
+      },
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "acer-campestre-nanum",
       "scientificName": "Acer campestre",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "cultivar": "Nanum",
       "sourceNumber": "3",
       "saltTolerance": "low",
@@ -336,29 +349,34 @@ constexpr const char* kSeedPlantsPieces[] = {
         "greenStrip": "B",
         "roadside": "B",
         "alleys": "B",
-)seed",
-    R"seed(        "squaresParks": "B",
+        "squaresParks": "B",
         "urbanForest": "B",
         "riverside": "B",
         "onSlabs": "B",
         "containers": "B"
       },
       "ecology": {
-        "ellenbergLight": null,
+)seed",
+    R"seed(        "ellenbergLight": 5.7,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 5.4,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -368,7 +386,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -378,26 +396,28 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "acer-ginnala",
       "scientificName": "Acer ginnala",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "localNames": {
         "lt": "Ginalinis klevas"
       },
@@ -473,19 +493,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        6
+      ]
     },
     {
       "id": "acer-platanoides",
       "scientificName": "Acer platanoides",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis klevas"
       },
@@ -519,19 +535,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 4.7,
+        "ellenbergMoisture": 5.6,
+        "ellenbergReaction": 6.5,
+        "ellenbergNutrients": 6.3,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -543,7 +562,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -553,26 +572,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "acer-platanoides-columnare",
       "scientificName": "Acer platanoides",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "cultivar": "Columnare",
       "sourceNumber": "6",
       "saltTolerance": "none",
@@ -601,19 +624,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "onSlabs": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 4.7,
+        "ellenbergMoisture": 5.6,
+        "ellenbergReaction": 6.5,
+        "ellenbergNutrients": 6.3,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -625,7 +651,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -635,26 +661,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "acer-pseudoplatanum",
       "scientificName": "Acer pseudoplatanum",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "localNames": {
         "lt": "Platanalapis klevas"
       },
@@ -679,26 +709,31 @@ constexpr const char* kSeedPlantsPieces[] = {
         "greenStrip": "B",
         "alleys": "B",
         "squaresParks": "B",
-        "urbanForest": "B",
+)seed",
+    R"seed(        "urbanForest": "B",
         "riverside": "B"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 4.7,
         "ellenbergMoisture": null,
-)seed",
-    R"seed(        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 5.8,
+        "ellenbergNutrients": 6.6,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -708,7 +743,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -718,26 +753,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "acer-rubrum",
       "scientificName": "Acer rubrum",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "localNames": {
         "lt": "Raudonasis klevas"
       },
@@ -775,14 +813,18 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained",
+          "poorlyDrained"
+        ],
+        "hardiness": "USDA 2a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -794,7 +836,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -804,26 +846,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "acer-saccharinum",
       "scientificName": "Acer saccharinum",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "localNames": {
         "lt": "Sidabrinis klevas"
       },
@@ -859,14 +901,18 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained",
+          "poorlyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -878,7 +924,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -888,26 +934,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        2,
+        3
+      ]
     },
     {
       "id": "acer-tataricum-embers",
       "scientificName": "Acer tataricum",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "cultivar": "Embers",
       "localNames": {
         "lt": "Totorinis klevas"
@@ -939,19 +989,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 5.0,
+        "ellenbergMoisture": 5.1,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 4.0,
+        "ellenbergSalinity": 1.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -973,26 +1026,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "acer-tataricum-flame",
       "scientificName": "Acer tataricum",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "cultivar": "Flame",
       "sourceNumber": "11",
       "matureHeightM": {
@@ -1005,7 +1062,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "sites": [
         "squaresParks",
-        "roundabouts",
+)seed",
+    R"seed(        "roundabouts",
         "urbanForest",
         "riverside",
         "onSlabs",
@@ -1020,20 +1078,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 5.0,
+        "ellenbergMoisture": 5.1,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 4.0,
+        "ellenbergSalinity": 1.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
-)seed",
-    R"seed(        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -1055,26 +1115,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "aesculus-flava",
       "scientificName": "Aesculus flava",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 7
-        }
-      ],
       "localNames": {
         "lt": "Geltonžiedis kaštonas"
       },
@@ -1105,14 +1169,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -1124,7 +1191,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -1134,26 +1201,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "aesculus-pavia",
       "scientificName": "Aesculus pavia",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "localNames": {
         "lt": "Raudonžiedis kaštonas"
       },
@@ -1182,14 +1249,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 6.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -1201,7 +1271,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -1211,26 +1281,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "alnus-glutinosa",
       "scientificName": "Alnus glutinosa",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "localNames": {
         "lt": "Juodalksnis"
       },
@@ -1253,21 +1326,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 5.7,
+        "ellenbergMoisture": 9.2,
+        "ellenbergReaction": 5.9,
+        "ellenbergNutrients": 6.3,
+        "ellenbergSalinity": 0.6,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -1277,7 +1355,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -1287,26 +1365,31 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        2,
+        3,
+        4
+      ]
     },
     {
       "id": "alnus-glutinosa-laciniata",
       "scientificName": "Alnus glutinosa Laciniata",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "sourceNumber": "15",
       "matureHeightM": {
         "min": 16.0,
@@ -1325,21 +1408,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 5.7,
+        "ellenbergMoisture": 9.2,
+        "ellenbergReaction": 5.9,
+        "ellenbergNutrients": 6.3,
+        "ellenbergSalinity": 0.6,
+        "pHMin": 3.0,
+)seed",
+    R"seed(        "pHMax": 8.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -1349,7 +1438,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -1359,48 +1448,54 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        2,
+        3,
+        4
+      ]
     },
     {
       "id": "alnus-incana",
       "scientificName": "Alnus incana",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "localNames": {
         "lt": "Baltalksnis"
       },
       "breeam": true,
-)seed",
-    R"seed(      "saltTolerance": "none",
+      "saltTolerance": "none",
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.1,
+        "ellenbergMoisture": 7.1,
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 5.8,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 3"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -1410,7 +1505,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -1427,19 +1522,24 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "matureHeightM": {
+        "min": 12.0,
+        "max": 18.0
+      },
+      "matureSpreadM": {
+        "min": 6.0,
+        "max": 10.0
+      },
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "alnus-x-spaethii",
       "scientificName": "Alnus x spaethii",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "sourceNumber": "16",
       "matureHeightM": {
         "min": 8.0,
@@ -1500,20 +1600,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "amelanchier-laevis-snowflakes",
       "scientificName": "Amelanchier laevis",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "cultivar": "Snowflakes",
       "localNames": {
         "lt": "Glotnioji medlieva"
@@ -1550,14 +1643,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "moderatelyDrained",
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -1579,26 +1675,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "amelanchier-x-grandiflora-autumn-brilliance",
       "scientificName": "Amelanchier x grandiflora",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "cultivar": "Autumn Brilliance",
       "sourceNumber": "18",
       "ornamentalFlowering": true,
@@ -1661,26 +1757,20 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+)seed",
+    R"seed(        "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "amelanchier-cumulus",
       "scientificName": "Amelanchier",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "cultivar": "Cumulus",
       "sourceNumber": "19",
       "ornamentalFlowering": true,
@@ -1723,8 +1813,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "hardiness": null
       },
       "competition": {
-)seed",
-    R"seed(        "establishmentSpeed": null,
+        "establishmentSpeed": null,
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -1752,20 +1841,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "amelanchier-robin-hill",
       "scientificName": "Amelanchier",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "cultivar": "Robin Hill",
       "sourceNumber": "20",
       "ornamentalFlowering": true,
@@ -1834,20 +1916,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "amelanchier-arborea-tradition-trazam",
       "scientificName": "Amelanchier arborea",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "cultivar": "Tradition Trazam",
       "sourceNumber": "21",
       "ornamentalFlowering": true,
@@ -1881,14 +1956,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -1910,26 +1988,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "betula-nigra",
       "scientificName": "Betula nigra",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "localNames": {
         "lt": "Juodasis beržas"
       },
@@ -1965,14 +2043,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -1984,7 +2065,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -1994,31 +2075,32 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "betula-nigra-dura-heat",
       "scientificName": "Betula nigra",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "cultivar": "Dura heat",
       "sourceNumber": "23",
       "saltTolerance": "low",
       "matureHeightM": {
-        "min": 8.0,
+)seed",
+    R"seed(        "min": 8.0,
         "max": 15.0
       },
       "matureSpreadM": {
@@ -2047,14 +2129,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -2066,10 +2151,9 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
-)seed",
-    R"seed(      },
+      },
       "phenology": {
         "emergenceMonths": [],
         "senescenceMonths": [],
@@ -2077,26 +2161,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "betula-pendula",
       "scientificName": "Betula pendula",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "localNames": {
         "lt": "Karpotasis beržas"
       },
@@ -2111,7 +2195,6 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "sites": [
         "greenStrip",
-        "roadside",
         "alleys",
         "squaresParks",
         "urbanForest",
@@ -2127,21 +2210,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.2,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 3.8,
+        "ellenbergNutrients": 3.4,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -2151,7 +2239,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -2161,26 +2249,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "betula-pendula-vietinis-sodinukas",
       "scientificName": "Betula pendula (vietinis sodinukas)",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "sourceNumber": "25",
       "breeam": true,
       "matureHeightM": {
@@ -2208,21 +2300,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.2,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 3.8,
+        "ellenbergNutrients": 3.4,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -2232,7 +2329,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -2242,26 +2339,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "betula-pendula-zwisters-glory",
       "scientificName": "Betula pendula",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 8
-        }
-      ],
       "cultivar": "Zwisters Glory",
       "sourceNumber": "26",
       "matureHeightM": {
@@ -2289,21 +2390,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.2,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 3.8,
+        "ellenbergNutrients": 3.4,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -2313,7 +2419,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -2323,27 +2429,32 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "betula-pubescens",
       "scientificName": "Betula pubescens",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
-      "localNames": {
+)seed",
+    R"seed(      "localNames": {
         "lt": "Plaukuotasis beržas"
       },
       "breeam": true,
@@ -2360,21 +2471,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.3,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 3.0,
+        "ellenbergNutrients": 2.9,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 1"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -2384,7 +2497,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -2401,25 +2514,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "matureHeightM": {
+        "min": 15.0,
+        "max": 20.0
+      },
+      "matureSpreadM": {
+        "min": 8.0,
+        "max": 12.0
+      }
     },
     {
       "id": "carpinus-betulus",
       "scientificName": "Carpinus betulus",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis skroblas"
       },
       "sourceNumber": "27",
-)seed",
-    R"seed(      "breeam": true,
+      "breeam": true,
       "saltTolerance": "none",
       "matureHeightM": {
         "min": 16.0,
@@ -2448,21 +2561,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "B"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 4.4,
+        "ellenbergMoisture": 5.4,
+        "ellenbergReaction": 5.5,
+        "ellenbergNutrients": 5.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -2472,7 +2590,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -2482,26 +2600,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "carpinus-betulus-frans-fontaine",
       "scientificName": "Carpinus betulus",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "cultivar": "Frans Fontaine",
       "sourceNumber": "28",
       "saltTolerance": "none",
@@ -2532,21 +2654,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 4.4,
+        "ellenbergMoisture": 5.4,
+        "ellenbergReaction": 5.5,
+        "ellenbergNutrients": 5.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -2556,7 +2683,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -2566,26 +2693,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "carpinus-betulus-fastigiata",
       "scientificName": "Carpinus betulus",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "cultivar": "Fastigiata",
       "sourceNumber": "29",
       "saltTolerance": "none",
@@ -2616,21 +2747,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 4.4,
+        "ellenbergMoisture": 5.4,
+        "ellenbergReaction": 5.5,
+        "ellenbergNutrients": 5.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -2640,7 +2776,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -2650,26 +2786,31 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
-      "id": "cercidiphyllum-japonicum",
+)seed",
+    R"seed(      "id": "cercidiphyllum-japonicum",
       "scientificName": "Cercidiphyllum japonicum",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Japoninis puošmedis"
       },
@@ -2705,14 +2846,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -2724,7 +2868,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -2734,26 +2878,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "corylus-colurna",
       "scientificName": "Corylus colurna",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Turkinis lazdynas"
       },
@@ -2765,8 +2909,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "matureSpreadM": {
         "min": 4.0,
-)seed",
-    R"seed(        "max": 8.0
+        "max": 8.0
       },
       "sites": [
         "greenStrip",
@@ -2781,19 +2924,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 5.3,
+        "ellenbergMoisture": 4.6,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -2805,7 +2951,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -2815,26 +2961,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "crataegus-laevigiata",
       "scientificName": "Crataegus laevigiata",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Grauželinė gudobelė"
       },
@@ -2866,16 +3016,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 5.7,
+        "ellenbergMoisture": 5.2,
+        "ellenbergReaction": 6.2,
+        "ellenbergNutrients": 4.8,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5a"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -2890,7 +3040,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -2907,19 +3057,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "crataegus-monogyna",
       "scientificName": "Crataegus monogyna",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Vienapiestė gudobelė"
       },
@@ -2951,16 +3098,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.0,
+        "ellenbergMoisture": 4.4,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5a"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -2975,7 +3122,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -2992,22 +3139,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "crataegus-rhipidophylla",
       "scientificName": "Crataegus rhipidophylla",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Miškinė gudobelė"
-      },
+)seed",
+    R"seed(      },
       "breeam": true,
       "ornamentalFlowering": true,
       "saltTolerance": "high",
@@ -3038,19 +3183,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.8,
+        "ellenbergMoisture": 5.6,
+        "ellenbergReaction": 6.3,
+        "ellenbergNutrients": 5.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -3072,26 +3220,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "fagus-sylvatica",
       "scientificName": "Fagus sylvatica",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis bukas"
       },
@@ -3112,26 +3264,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "siteSoils": {
         "alleys": "B-C",
-)seed",
-    R"seed(        "squaresParks": "B-C",
+        "squaresParks": "B-C",
         "urbanForest": "B-C"
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergMoisture": 5.5,
+        "ellenbergReaction": 5.7,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -3141,7 +3297,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -3151,26 +3307,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "fraxinus-americana",
       "scientificName": "Fraxinus americana",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Amerikinis uosis"
       },
@@ -3200,14 +3360,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -3219,7 +3382,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3229,26 +3392,27 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial",
+          "shade"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "fraxinus-excelsior",
       "scientificName": "Fraxinus excelsior",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis uosis"
       },
@@ -3277,20 +3441,22 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergMoisture": 6.7,
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 6.6,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 4"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -3300,7 +3466,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3317,19 +3483,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4
+      ]
     },
     {
       "id": "fraxinus-pennsylvanica",
       "scientificName": "Fraxinus pennsylvanica",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Plaukuotasis uosis"
       },
@@ -3341,7 +3503,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "matureSpreadM": {
         "min": 10.0,
-        "max": 15.0
+)seed",
+    R"seed(        "max": 15.0
       },
       "sites": [
         "greenStrip",
@@ -3361,14 +3524,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -3380,7 +3546,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3390,26 +3556,28 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4
+      ]
     },
     {
       "id": "ginkgo-biloba",
       "scientificName": "Ginkgo biloba",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "localNames": {
         "lt": "Dviskiautis ginkmedis"
       },
@@ -3445,19 +3613,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
-)seed",
-    R"seed(        "selfSeeding": null
+        "selfSeeding": null
       },
       "roots": {
         "depthClass": null,
@@ -3465,7 +3635,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3475,26 +3645,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "ginkgo-biloba-princeton-sentry",
       "scientificName": "Ginkgo biloba",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 9
-        }
-      ],
       "cultivar": "Princeton Sentry",
       "sourceNumber": "38",
       "saltTolerance": "low",
@@ -3528,14 +3701,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -3547,7 +3723,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3557,26 +3733,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "ginkgo-biloba-tremonia",
       "scientificName": "Ginkgo biloba Tremonia",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "sourceNumber": "39",
       "saltTolerance": "low",
       "matureHeightM": {
@@ -3609,14 +3788,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -3628,7 +3810,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3638,26 +3820,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "gleditsia-triacanthos-skyline",
       "scientificName": "Gleditsia triacanthos",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "cultivar": "Skyline",
       "sourceNumber": "40",
       "saltTolerance": "high",
@@ -3667,7 +3852,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "matureSpreadM": {
         "min": 8.0,
-        "max": 10.0
+)seed",
+    R"seed(        "max": 10.0
       },
       "sites": [
         "greenStrip",
@@ -3682,19 +3868,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-B"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 7.5,
+        "ellenbergMoisture": 5.1,
+        "ellenbergReaction": 5.0,
+        "ellenbergNutrients": 5.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -3706,7 +3895,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3716,26 +3905,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        6
+      ]
     },
     {
       "id": "juglans-regia",
       "scientificName": "Juglans regia",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "localNames": {
         "lt": "Graikinis riešutmedis"
       },
@@ -3757,21 +3949,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "B-D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.1,
+        "ellenbergMoisture": 5.3,
+        "ellenbergReaction": 7.1,
+        "ellenbergNutrients": 6.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -3781,7 +3978,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3791,27 +3988,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "larix-decidua",
       "scientificName": "Larix decidua",
-)seed",
-    R"seed(      "section": "trees",
+      "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "localNames": {
         "lt": "Europinis maumedis"
       },
@@ -3839,19 +4038,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 7.7,
+        "ellenbergMoisture": 4.3,
+        "ellenbergReaction": 5.0,
+        "ellenbergNutrients": 3.4,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-6b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -3863,7 +4065,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3873,26 +4075,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "liriodendron-tulipifera",
       "scientificName": "Liriodendron tulipifera",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "localNames": {
         "lt": "Gelsvažiedis tulpmedis"
       },
@@ -3918,14 +4123,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -3937,7 +4145,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -3947,26 +4155,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "malus-evereste",
       "scientificName": "Malus",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "cultivar": "Evereste",
       "localNames": {
         "lt": "Obelis"
@@ -3997,7 +4208,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B",
         "onSlabs": "D",
         "containers": "D"
-      },
+)seed",
+    R"seed(      },
       "ecology": {
         "ellenbergLight": null,
         "ellenbergMoisture": null,
@@ -4039,20 +4251,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "malus-professor-sprenger",
       "scientificName": "Malus",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "cultivar": "Professor Sprenger",
       "localNames": {
         "lt": "Obelis"
@@ -4125,20 +4330,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "malus-baccata-street-parade",
       "scientificName": "Malus baccata",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "cultivar": "Street Parade",
       "localNames": {
         "lt": "Uoginė obelis"
@@ -4152,8 +4350,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "matureSpreadM": {
         "min": 5.0,
-)seed",
-    R"seed(        "max": 8.0
+        "max": 8.0
       },
       "sites": [
         "greenStrip",
@@ -4215,19 +4412,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "malus-hybrids",
       "scientificName": "Malus hybrids",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "sourceNumber": "47",
       "ornamentalFlowering": true,
       "ornithological": true,
@@ -4300,20 +4494,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "malus-rudolph",
       "scientificName": "Malus",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "cultivar": "Rudolph",
       "sourceNumber": "48",
       "ornamentalFlowering": true,
@@ -4361,7 +4548,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
-        "selfSeeding": null
+)seed",
+    R"seed(        "selfSeeding": null
       },
       "roots": {
         "depthClass": null,
@@ -4385,20 +4573,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "malus-sargentii",
       "scientificName": "Malus sargentii",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "localNames": {
         "lt": "Saržento obelis"
       },
@@ -4470,20 +4651,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "malus-sylvestris",
       "scientificName": "Malus sylvestris",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "localNames": {
         "lt": "Miškinė obelis"
       },
@@ -4502,8 +4676,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "alleys",
         "squaresParks",
-)seed",
-    R"seed(        "roundabouts",
+        "roundabouts",
         "urbanForest",
         "riverside",
         "onSlabs",
@@ -4519,19 +4692,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 6.9,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergReaction": 6.4,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -4543,7 +4719,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -4553,26 +4729,28 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "malus-toringo-var-sargentii",
       "scientificName": "Malus toringo var. Sargentii",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "sourceNumber": "51",
       "ornamentalFlowering": true,
       "ornithological": true,
@@ -4609,11 +4787,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -4625,7 +4805,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -4635,26 +4815,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "malus-x-robusta-red-sentinel",
       "scientificName": "Malus x robusta",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "cultivar": "Red Sentinel",
       "sourceNumber": "52",
       "ornamentalFlowering": true,
@@ -4713,7 +4892,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "phenology": {
         "emergenceMonths": [],
-        "senescenceMonths": [],
+)seed",
+    R"seed(        "senescenceMonths": [],
         "leafOnMonths": []
       },
       "lifecycle": {
@@ -4724,20 +4904,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "padus-maackii",
       "scientificName": "Padus maackii",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 10
-        }
-      ],
       "localNames": {
         "lt": "Makio ieva"
       },
@@ -4814,20 +4987,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "picea-abies",
       "scientificName": "Picea abies",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji eglė"
       },
@@ -4849,23 +5015,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       "siteSoils": {
         "squaresParks": "A-B",
         "urbanForest": "A-B",
-)seed",
-    R"seed(        "onSlabs": "D"
+        "onSlabs": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 5.6,
+        "ellenbergMoisture": 5.8,
+        "ellenbergReaction": 3.8,
+        "ellenbergNutrients": 4.2,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -4877,7 +5045,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -4887,26 +5055,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": false,
+      "floweringMonths": [
+        4,
+        5,
+        6
+      ]
     },
     {
       "id": "picea-omorika",
       "scientificName": "Picea omorika",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Serbinė eglė"
       },
@@ -4931,19 +5103,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "onSlabs": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 6.4,
+        "ellenbergMoisture": 5.4,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -4955,7 +5130,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -4965,26 +5140,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": false,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "pinus-heldreichii",
       "scientificName": "Pinus heldreichii",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Baltažiedė pušis"
       },
@@ -5008,19 +5187,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 9.0,
+        "ellenbergMoisture": 2.0,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 2.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 6a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -5032,7 +5213,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -5042,30 +5223,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": false
     },
     {
       "id": "pinus-mugo",
       "scientificName": "Pinus mugo",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Kalninė pušis"
       },
-      "sourceNumber": "57",
+)seed",
+    R"seed(      "sourceNumber": "57",
       "ornithological": true,
       "saltTolerance": "high",
       "matureHeightM": {
@@ -5089,19 +5270,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.6,
+        "ellenbergMoisture": 6.6,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.6,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -5113,7 +5297,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -5123,26 +5307,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": false,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "pinus-mugo-mughus",
       "scientificName": "Pinus mugo mughus",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "sourceNumber": "58",
       "ornithological": true,
       "saltTolerance": "high",
@@ -5165,19 +5352,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.6,
+        "ellenbergMoisture": 6.6,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.6,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -5189,37 +5379,39 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
         "emergenceMonths": [],
         "senescenceMonths": [],
-)seed",
-    R"seed(        "leafOnMonths": []
+        "leafOnMonths": []
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": false,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "pinus-nigra",
       "scientificName": "Pinus nigra",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Juodoji pušis"
       },
@@ -5247,19 +5439,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.1,
+        "ellenbergMoisture": 3.5,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -5281,26 +5476,28 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": false,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "pinus-peuce",
       "scientificName": "Pinus peuce",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Balkaninė pušis"
       },
@@ -5325,18 +5522,20 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergMoisture": 5.0,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -5348,7 +5547,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -5365,19 +5564,18 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": false
     },
     {
       "id": "pinus-sylvestris",
       "scientificName": "Pinus sylvestris",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji pušis"
       },
@@ -5402,7 +5600,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "siteSoils": {
-        "greenStrip": "A-B",
+)seed",
+    R"seed(        "greenStrip": "A-B",
         "alleys": "A-B",
         "squaresParks": "A-B",
         "urbanForest": "A-B",
@@ -5410,19 +5609,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 7.2,
+        "ellenbergMoisture": 5.2,
+        "ellenbergReaction": 3.8,
+        "ellenbergNutrients": 2.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -5434,7 +5636,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -5444,26 +5646,28 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": false,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "pyrus-pyraster",
       "scientificName": "Pyrus pyraster",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Miškinė kriaušė"
       },
@@ -5490,11 +5694,11 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 6.1,
+        "ellenbergMoisture": 5.0,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
@@ -5504,7 +5708,9 @@ constexpr const char* kSeedPlantsPieces[] = {
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -5531,23 +5737,19 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "pyrus-calleryana-aristocrat",
       "scientificName": "Pyrus calleryana",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "cultivar": "Aristocrat",
       "localNames": {
-)seed",
-    R"seed(        "lt": "Plačialapė kriaušė"
+        "lt": "Plačialapė kriaušė"
       },
       "sourceNumber": "62",
       "ornamentalFlowering": true,
@@ -5587,14 +5789,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -5616,26 +5821,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "pyrus-calleryana-chanticleer",
       "scientificName": "Pyrus calleryana",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "cultivar": "Chanticleer",
       "localNames": {
         "lt": "Plačialapė kriaušė"
@@ -5670,14 +5875,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -5699,26 +5907,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "pyrus-communis",
       "scientificName": "Pyrus communis",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji kriaušė"
       },
@@ -5737,7 +5945,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       "sites": [
         "greenStrip",
         "alleys",
-        "squaresParks",
+)seed",
+    R"seed(        "squaresParks",
         "urbanForest",
         "riverside"
       ],
@@ -5749,16 +5958,18 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 6.1,
+        "ellenbergMoisture": 5.0,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -5783,26 +5994,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "populus-nigra",
       "scientificName": "Populus nigra",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Juodoji tuopa"
       },
@@ -5827,21 +6041,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.1,
+        "ellenbergMoisture": 7.9,
+        "ellenbergReaction": 7.1,
+        "ellenbergNutrients": 6.9,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "nutrientPreference": "high",
+        "drainage": [
+          "waterlogged"
+        ],
+        "hardiness": "USDA 2a-10b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -5851,7 +6069,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -5861,26 +6079,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "populus-tremula",
       "scientificName": "Populus tremula",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 11
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji Drebulė"
       },
@@ -5892,8 +6113,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 15.0
       },
       "matureSpreadM": {
-)seed",
-    R"seed(        "min": 8.0,
+        "min": 8.0,
         "max": 10.0
       },
       "sites": [
@@ -5907,21 +6127,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "squaresParks": "A-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.7,
+        "ellenbergMoisture": 5.3,
+        "ellenbergReaction": 5.0,
+        "ellenbergNutrients": 4.8,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 2"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -5931,7 +6153,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -5948,19 +6170,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "prunus-avium",
       "scientificName": "Prunus avium",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "localNames": {
         "lt": "Trešnė"
       },
@@ -5994,15 +6213,15 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergMoisture": 5.3,
+        "ellenbergReaction": 6.6,
+        "ellenbergNutrients": 5.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -6017,7 +6236,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6027,26 +6246,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "prunus-avium-plena",
       "scientificName": "Prunus avium",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "cultivar": "Plena",
       "sourceNumber": "67",
       "ornamentalFlowering": true,
@@ -6077,15 +6299,16 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergMoisture": 5.3,
+)seed",
+    R"seed(        "ellenbergReaction": 6.6,
+        "ellenbergNutrients": 5.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -6100,7 +6323,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6110,26 +6333,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "prunus-padus",
       "scientificName": "Prunus padus",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji ieva"
       },
@@ -6163,16 +6389,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 5.7,
+        "ellenbergMoisture": 7.3,
+        "ellenbergReaction": 6.8,
+        "ellenbergNutrients": 5.8,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 3"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -6187,7 +6413,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6203,20 +6429,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "prunus-sargentii",
       "scientificName": "Prunus sargentii",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "localNames": {
         "lt": "Saržento vyšnia"
       },
@@ -6242,8 +6461,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "siteSoils": {
-)seed",
-    R"seed(        "greenStrip": "B-C",
+        "greenStrip": "B-C",
         "alleys": "B-C",
         "squaresParks": "B-C",
         "roundabouts": "B-C",
@@ -6260,11 +6478,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -6276,7 +6497,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6286,26 +6507,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "prunus-spinosa",
       "scientificName": "Prunus spinosa",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "localNames": {
         "lt": "Dygioji slyva"
       },
@@ -6340,21 +6561,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergLight": 7.2,
+        "ellenbergMoisture": 4.0,
+        "ellenbergReaction": 6.4,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergSalinity": 0.1,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5a"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -6364,7 +6587,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6381,19 +6604,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        3,
+        4,
+        5
+      ]
     },
     {
       "id": "quercus-bicolor",
       "scientificName": "Quercus bicolor",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "localNames": {
         "lt": "Dvispalvis ąžuolas"
       },
@@ -6425,17 +6646,21 @@ constexpr const char* kSeedPlantsPieces[] = {
       "ecology": {
         "ellenbergLight": null,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+)seed",
+    R"seed(        "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -6447,7 +6672,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6457,26 +6682,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "quercus-palustris",
       "scientificName": "Quercus palustris",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "localNames": {
         "lt": "Pelkinis ąžuolas"
       },
@@ -6511,14 +6735,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -6530,7 +6757,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6540,26 +6767,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "quercus-petraea",
       "scientificName": "Quercus petraea",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "localNames": {
         "lt": "Bekotis ąžuolas"
       },
@@ -6589,20 +6819,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "onSlabs": "D"
       },
       "ecology": {
-)seed",
-    R"seed(        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 6.7,
+        "ellenbergMoisture": 5.1,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -6614,7 +6845,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6624,26 +6855,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "quercus-robur",
       "scientificName": "Quercus robur",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis ąžuolas"
       },
@@ -6674,19 +6909,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergLight": 6.9,
+        "ellenbergMoisture": 5.7,
+        "ellenbergReaction": 5.0,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -6698,7 +6936,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6708,26 +6946,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "quercus-robur-f-pyramidalis",
       "scientificName": "Quercus robur f.",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 12
-        }
-      ],
       "cultivar": "Pyramidalis",
       "sourceNumber": "76",
       "ornithological": true,
@@ -6751,19 +6992,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "alleys": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergLight": 6.9,
+        "ellenbergMoisture": 5.7,
+        "ellenbergReaction": 5.0,
+)seed",
+    R"seed(        "ellenbergNutrients": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -6775,7 +7020,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6785,26 +7030,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-alba",
       "scientificName": "Salix alba",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "localNames": {
         "lt": "Baltasis gluosnis"
       },
@@ -6830,19 +7078,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.0,
+        "ellenbergMoisture": 8.0,
+        "ellenbergReaction": 7.8,
+        "ellenbergNutrients": 6.9,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained",
+          "poorlyDrained"
+        ],
+        "hardiness": "USDA 2a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -6854,7 +7106,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -6864,26 +7116,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-alba-tristis",
       "scientificName": "Salix alba",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "cultivar": "Tristis",
       "sourceNumber": "83",
       "saltTolerance": "high",
@@ -6904,19 +7160,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.0,
+        "ellenbergMoisture": 8.0,
+        "ellenbergReaction": 7.8,
+        "ellenbergNutrients": 6.9,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained",
+          "poorlyDrained"
+        ],
+        "hardiness": "USDA 2a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -6928,37 +7188,40 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
         "emergenceMonths": [],
-)seed",
-    R"seed(        "senescenceMonths": [],
+        "senescenceMonths": [],
         "leafOnMonths": []
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-alba-vitelina",
       "scientificName": "Salix alba",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "cultivar": "Vitelina",
       "sourceNumber": "84",
       "saltTolerance": "high",
@@ -6981,19 +7244,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.0,
+        "ellenbergMoisture": 8.0,
+        "ellenbergReaction": 7.8,
+        "ellenbergNutrients": 6.9,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained",
+          "poorlyDrained"
+        ],
+        "hardiness": "USDA 2a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -7005,7 +7272,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -7015,26 +7282,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-caprea",
       "scientificName": "Salix caprea",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "localNames": {
         "lt": "Blindė"
       },
@@ -7063,20 +7334,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.2,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 6.4,
+        "ellenbergNutrients": 5.6,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
-        "competitiveVigour": null,
+        "establishmentSpeed": "fast",
+)seed",
+    R"seed(        "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
         "selfSeeding": null
@@ -7087,7 +7359,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -7104,19 +7376,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "salix-fragilis-bullata",
       "scientificName": "Salix fragilis",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "cultivar": "Bullata",
       "localNames": {
         "lt": "Trapusis gluosnis"
@@ -7152,16 +7428,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 5.9,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 6.3,
+        "ellenbergNutrients": 6.4,
+        "ellenbergSalinity": 0.1,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -7176,7 +7452,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -7192,20 +7468,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "salix-myrtilloides",
       "scientificName": "Salix myrtilloides",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "localNames": {
         "lt": "Mėlynialapis karklas"
       },
@@ -7230,14 +7499,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.0,
+        "ellenbergMoisture": 8.8,
+        "ellenbergReaction": 3.5,
+        "ellenbergNutrients": 2.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
@@ -7271,20 +7540,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "syringa-prestoniae-miss-canada",
       "scientificName": "Syringa prestoniae",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-)seed",
-    R"seed(        }
-      ],
       "cultivar": "Miss Canada",
       "localNames": {
         "lt": "Prestono alyva"
@@ -7360,20 +7624,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "syringa-reticulata-ivory-silk",
       "scientificName": "Syringa reticulata",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "cultivar": "IVORY SILK",
       "localNames": {
         "lt": "Japoninė alyva"
@@ -7416,21 +7673,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
         "selfSeeding": null
       },
       "roots": {
-        "depthClass": null,
+)seed",
+    R"seed(        "depthClass": null,
         "architecture": null,
         "competitiveIntensity": null
       },
@@ -7445,26 +7706,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "syringa-s-hyacinthiflora-anabel",
       "scientificName": "Syringa: S. Hyacinthiflora",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "cultivar": "Anabel",
       "sourceNumber": "89",
       "ornamentalFlowering": true,
@@ -7539,20 +7799,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "sorbus-aucuparia",
       "scientificName": "Sorbus aucuparia",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 13
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis šermukšnis"
       },
@@ -7570,21 +7823,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "B-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 6.4,
+        "ellenbergMoisture": 5.8,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 3.6,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -7594,7 +7852,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -7604,29 +7862,35 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "matureHeightM": {
+        "min": 10.0,
+        "max": 15.0
+      },
+      "matureSpreadM": {
+        "min": 6.0,
+        "max": 8.0
+      }
     },
     {
       "id": "sorbus-aria-lutescens",
       "scientificName": "Sorbus aria",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "cultivar": "Lutescens",
-)seed",
-    R"seed(      "localNames": {
+      "localNames": {
         "lt": "Miltingasis šermukšnis"
       },
       "sourceNumber": "90",
@@ -7659,16 +7923,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.8,
+        "ellenbergMoisture": 3.9,
+        "ellenbergReaction": 7.2,
+        "ellenbergNutrients": 2.9,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5a"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -7683,7 +7947,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -7700,19 +7964,19 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "matureSpreadM": {
+        "min": 4.0,
+        "max": 6.0
+      },
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "sorbus-commixta-dodong",
       "scientificName": "Sorbus commixta",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "cultivar": "Dodong",
       "localNames": {
         "lt": "Japoninis šermukšnis"
@@ -7756,16 +8020,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+)seed",
+    R"seed(        "spreadMode": [],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -7775,7 +8043,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -7785,26 +8053,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true
     },
     {
       "id": "sorbus-intermedia-incana-e",
       "scientificName": "Sorbus intermedia incana E.",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "localNames": {
         "lt": "Švedinis šermukšnis"
       },
@@ -7842,16 +8109,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.5,
+        "ellenbergMoisture": 5.0,
+        "ellenbergReaction": 7.5,
+        "ellenbergNutrients": 5.5,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5a"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -7866,7 +8133,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -7883,19 +8150,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "sorbus-intermedia",
       "scientificName": "Sorbus intermedia",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "localNames": {
         "lt": "Švedinis šermukšnis"
       },
@@ -7933,16 +8196,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.5,
+        "ellenbergMoisture": 5.0,
+        "ellenbergReaction": 7.5,
+        "ellenbergNutrients": 5.5,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5a"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -7957,7 +8220,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -7967,27 +8230,22 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-)seed",
-    R"seed(        "maintenanceSensitivity": null
+        "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "sorbus-latifolia-henk-wink",
       "scientificName": "Sorbus latifolia",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "cultivar": "Henk Wink",
       "localNames": {
         "lt": "Plačialapis šermukšnis"
@@ -8025,16 +8283,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 8.0,
+        "ellenbergMoisture": 4.0,
+        "ellenbergReaction": 6.0,
+        "ellenbergNutrients": 4.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5a"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -8049,7 +8307,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8066,19 +8324,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "taxus-baccata",
       "scientificName": "Taxus baccata",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "localNames": {
         "lt": "Europinis kukmedis"
       },
@@ -8109,16 +8363,20 @@ constexpr const char* kSeedPlantsPieces[] = {
       "ecology": {
         "ellenbergLight": null,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 7.1,
+        "ellenbergNutrients": 4.7,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 6a-7b"
       },
-      "competition": {
+)seed",
+    R"seed(      "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
         "spreadMode": [],
@@ -8131,7 +8389,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -8141,26 +8399,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": false,
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "tilia-xeuropaea-euchlora",
       "scientificName": "Tilia ×europaea",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "cultivar": "Euchlora",
       "localNames": {
         "lt": "Europinė liepa"
@@ -8201,7 +8463,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMax": null,
         "nutrientPreference": null,
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 4"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -8216,7 +8478,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8232,20 +8494,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "tilia-xeuropaea-greenspire",
       "scientificName": "Tilia ×europaea",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "cultivar": "Greenspire",
       "localNames": {
         "lt": "Europinė liepa"
@@ -8280,7 +8535,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMax": null,
         "nutrientPreference": null,
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 4"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -8295,7 +8550,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8311,21 +8566,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
-)seed",
-    R"seed(      "id": "tilia-cordata",
+      "id": "tilia-cordata",
       "scientificName": "Tilia cordata",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "localNames": {
         "lt": "Mažalapė liepa"
       },
@@ -8351,19 +8598,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest": "A-B"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 4.9,
+        "ellenbergMoisture": 5.1,
+        "ellenbergReaction": 6.3,
+        "ellenbergNutrients": 4.9,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3b-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -8375,7 +8625,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8385,26 +8635,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "tilia-cordata-rancho",
       "scientificName": "Tilia cordata",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "cultivar": "Rancho",
       "localNames": {
         "lt": "Mažalapė liepa"
@@ -8433,19 +8687,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 4.9,
+        "ellenbergMoisture": 5.1,
+        "ellenbergReaction": 6.3,
+        "ellenbergNutrients": 4.9,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3b-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -8457,36 +8714,41 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
         "emergenceMonths": [],
         "senescenceMonths": [],
-        "leafOnMonths": []
+)seed",
+    R"seed(        "leafOnMonths": []
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "tilia-europaea-pallida",
       "scientificName": "Tilia europaea",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 14
-        }
-      ],
       "cultivar": "Pallida",
       "localNames": {
         "lt": "Europinė liepa"
@@ -8523,7 +8785,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMax": null,
         "nutrientPreference": null,
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 4"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -8538,7 +8800,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8554,20 +8816,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "tilia-platyphyllos-scop",
       "scientificName": "Tilia platyphyllos Scop",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "localNames": {
         "lt": "Didžialapė liepa"
       },
@@ -8594,15 +8849,18 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergMoisture": 5.1,
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 6.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -8617,7 +8875,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8627,26 +8885,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        6
+      ]
     },
     {
       "id": "tilia-platyphyllos",
       "scientificName": "Tilia platyphyllos",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "localNames": {
         "lt": "Didžialapė liepa"
       },
@@ -8663,8 +8924,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "sites": [
         "alleys",
-)seed",
-    R"seed(        "squaresParks",
+        "squaresParks",
         "urbanForest"
       ],
       "siteSoils": {
@@ -8674,15 +8934,18 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergMoisture": 5.1,
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 6.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -8697,7 +8960,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8707,26 +8970,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        6
+      ]
     },
     {
       "id": "tilia-tomentosa",
       "scientificName": "Tilia tomentosa",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "localNames": {
         "lt": "Sidabrinė liepa"
       },
@@ -8757,18 +9023,21 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergMoisture": 5.2,
+        "ellenbergReaction": 6.0,
+        "ellenbergNutrients": 5.5,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -8780,7 +9049,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8790,26 +9059,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+)seed",
+    R"seed(        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        7
+      ]
     },
     {
       "id": "tilia-tomentosa-brabant",
       "scientificName": "Tilia tomentosa",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "cultivar": "Brabant",
       "localNames": {
         "lt": "Sidabrinė liepa"
@@ -8841,18 +9114,21 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergMoisture": 5.2,
+        "ellenbergReaction": 6.0,
+        "ellenbergNutrients": 5.5,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -8864,7 +9140,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -8874,26 +9150,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        7
+      ]
     },
     {
       "id": "tilia-x-euchlora",
       "scientificName": "Tilia x euchlora",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "localNames": {
         "lt": "Grakščioji liepa"
       },
@@ -8927,11 +9206,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -8956,26 +9238,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        7
+      ]
     },
     {
       "id": "ulmus-laevis",
       "scientificName": "Ulmus laevis",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji vinkšna"
       },
@@ -9002,22 +9287,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside": "A-C"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 4.5,
+        "ellenbergMoisture": 7.6,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 7.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-)seed",
-    R"seed(        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
-        "hardiness": null
+        "hardiness": "USDA 5"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -9027,7 +9313,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -9044,19 +9330,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "ulmus-glabra",
       "scientificName": "Ulmus glabra",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "localNames": {
         "lt": "Kalninė guoba"
       },
@@ -9084,21 +9367,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers": "D"
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 4.7,
+        "ellenbergMoisture": 6.4,
+        "ellenbergReaction": 6.7,
+        "ellenbergNutrients": 6.6,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-6b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -9108,7 +9395,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "dense",
         "transmittance": null
       },
       "phenology": {
@@ -9118,26 +9405,30 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "ulmus-x-new-horizon",
       "scientificName": "Ulmus x",
-      "section": "trees",
+)seed",
+    R"seed(      "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "cultivar": "New Horizon",
       "sourceNumber": "100",
       "saltTolerance": "none",
@@ -9202,20 +9493,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "ulmus-x-homestead",
       "scientificName": "Ulmus x",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "cultivar": "Homestead",
       "sourceNumber": "101",
       "saltTolerance": "none",
@@ -9280,20 +9564,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "ulmus-minor",
       "scientificName": "Ulmus minor",
       "section": "trees",
       "habit": "tree",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 15
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis skirpstas"
       },
@@ -9320,19 +9597,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       "ecology": {
         "ellenbergLight": null,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 7.5,
+        "ellenbergNutrients": 6.6,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -9342,7 +9624,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+        "density": "medium",
         "transmittance": null
       },
       "phenology": {
@@ -9357,22 +9639,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       "regulatory": {
         "status": null,
         "scope": null,
-)seed",
-    R"seed(        "note": null
+        "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": true,
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "aronia-melanocarpa",
       "scientificName": "Aronia melanocarpa",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "Aronija"
       },
@@ -9411,11 +9695,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -9440,26 +9727,20 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true
     },
     {
       "id": "berberis-vulgaris",
       "scientificName": "Berberis vulgaris",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis raugerškis"
       },
@@ -9491,19 +9772,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "onSlabs"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 7.1,
+        "ellenbergMoisture": 3.9,
+        "ellenbergReaction": 8.1,
+        "ellenbergNutrients": 3.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+)seed",
+    R"seed(        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -9525,26 +9810,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "euonymus-europaeus",
       "scientificName": "Euonymus europaeus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "Europinis ožekšnis"
       },
@@ -9574,18 +9857,21 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergMoisture": 5.0,
+        "ellenbergReaction": 7.6,
+        "ellenbergNutrients": 5.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -9607,26 +9893,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6,
+        7
+      ]
     },
     {
       "id": "euonymus-verrucosus",
       "scientificName": "Euonymus verrucosus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "Karpotasis ožekšnis"
       },
@@ -9655,14 +9940,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "onSlabs"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 5.1,
+        "ellenbergMoisture": 4.5,
+        "ellenbergReaction": 7.4,
+        "ellenbergNutrients": 3.8,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -9696,19 +9981,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "euonymus-alatus",
       "scientificName": "Euonymus alatus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "Sparnuotasis ožekšnis"
       },
@@ -9722,8 +10004,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "min": 2.0,
         "max": 2.0
       },
-)seed",
-    R"seed(      "matureSpreadM": {
+      "matureSpreadM": {
         "min": 2.5,
         "max": 2.5
       },
@@ -9745,14 +10026,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -9774,26 +10058,20 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true
     },
     {
       "id": "frangula-alnus",
       "scientificName": "Frangula alnus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis šaltekšnis"
       },
@@ -9820,21 +10098,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.3,
+        "ellenbergMoisture": 7.6,
+        "ellenbergReaction": 4.4,
+        "ellenbergNutrients": 3.5,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -9852,28 +10135,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "senescenceMonths": [],
         "leafOnMonths": []
       },
-      "lifecycle": {
+)seed",
+    R"seed(      "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "pinus-mugo-var-pumila",
       "scientificName": "Pinus mugo var. pumila",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "Kalninė pušis"
       },
@@ -9898,19 +10179,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.6,
+        "ellenbergMoisture": 6.6,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.6,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -9932,26 +10216,29 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "deciduous": false,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "pinus-mugo-zundert",
       "scientificName": "Pinus mugo",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "cultivar": "Zundert",
       "saltTolerance": "high",
       "light": {
@@ -9978,19 +10265,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.6,
+        "ellenbergMoisture": 6.6,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.6,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -10012,26 +10302,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": false,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "pinus-mugo-mughus-shrubs",
       "scientificName": "Pinus mugo Mughus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "kalninė pušis"
       },
@@ -10061,24 +10349,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.6,
+        "ellenbergMoisture": 6.6,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.6,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
-)seed",
-    R"seed(        "selfSeeding": null
+        "selfSeeding": null
       },
       "roots": {
         "depthClass": null,
@@ -10096,26 +10386,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": false,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "philadelphus-coronarius-plenus",
       "scientificName": "Philadelphus coronarius",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "cultivar": "plenus",
       "localNames": {
         "lt": "Darželinis jazminas"
@@ -10143,21 +10431,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "onSlabs"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 8.0,
+        "ellenbergMoisture": 4.0,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 4.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -10177,26 +10470,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "cornus-sanguinea",
       "scientificName": "Cornus sanguinea",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 16
-        }
-      ],
       "localNames": {
         "lt": "Raudonoji sedula"
       },
@@ -10205,7 +10496,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "acceptedClasses": [
           "full"
         ]
-      },
+)seed",
+    R"seed(      },
       "matureHeightM": {
         "min": 3.0,
         "max": 3.0
@@ -10229,21 +10521,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.0,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergReaction": 7.5,
+        "ellenbergNutrients": 4.8,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -10263,26 +10560,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "cotoneaster-lucidus",
       "scientificName": "Cotoneaster lucidus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Žvilgusis kaulenis"
       },
@@ -10353,20 +10648,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "corylus-avellana",
       "scientificName": "Corylus avellana",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis lazdynas"
       },
@@ -10396,20 +10684,26 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergMoisture": 5.6,
+        "ellenbergReaction": 5.9,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -10429,27 +10723,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
-)seed",
-    R"seed(    },
+      "deciduous": true,
+      "floweringMonths": [
+        2,
+        3,
+        4
+      ]
+    },
     {
       "id": "forsythia-x-intermedia",
       "scientificName": "Forsythia x intermedia",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Tarpinė forsitija"
       },
@@ -10485,14 +10777,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 5a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -10514,26 +10808,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "hydrangea-macrophylla",
       "scientificName": "Hydrangea macrophylla",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Plačialapė hortenzija"
       },
@@ -10566,18 +10858,22 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
+)seed",
+    R"seed(        "ellenbergMoisture": null,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 6a-11b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -10599,26 +10895,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        7,
+        8,
+        9
+      ]
     },
     {
       "id": "juniperus-communis",
       "scientificName": "Juniperus communis",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis kadagys"
       },
@@ -10645,14 +10940,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "urbanForest"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 8.1,
         "ellenbergMoisture": null,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergNutrients": 2.6,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
@@ -10685,20 +10980,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "sambucus-nigra",
       "scientificName": "Sambucus nigra",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Juodauogis šeivamedis"
       },
@@ -10727,21 +11015,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 6.6,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 6.7,
+        "ellenbergNutrients": 8.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -10761,26 +11054,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "sambucus-racemosa",
       "scientificName": "Sambucus racemosa",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Juodauogis šeivamedis"
       },
@@ -10799,8 +11090,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 3.5
       },
       "plantingDensityPerM2": {
-)seed",
-    R"seed(        "min": 1.0,
+        "min": 1.0,
         "max": 1.0
       },
       "sites": [
@@ -10809,14 +11099,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 5.9,
+        "ellenbergMoisture": 5.2,
+        "ellenbergReaction": 5.0,
+        "ellenbergNutrients": 7.2,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
         "hardiness": null
       },
@@ -10850,19 +11140,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-cinerea",
       "scientificName": "Salix cinerea",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Pilkasis karklas"
       },
@@ -10890,21 +11177,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.0,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 5.3,
+        "ellenbergNutrients": 4.4,
+        "ellenbergSalinity": 0.1,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -10924,26 +11213,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+)seed",
+    R"seed(        "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-pentandra",
       "scientificName": "Salix pentandra",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Virbinis gluosnis"
       },
@@ -10971,14 +11258,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.1,
+        "ellenbergMoisture": 8.1,
+        "ellenbergReaction": 5.7,
+        "ellenbergNutrients": 4.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -11012,19 +11299,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "salix-triandra",
       "scientificName": "Salix triandra",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Krantinis gluosnis"
       },
@@ -11052,14 +11336,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.6,
+        "ellenbergMoisture": 8.3,
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 4.9,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -11093,19 +11377,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-daphnoides",
       "scientificName": "Salix daphnoides",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Smėlyninis karklas"
       },
@@ -11133,14 +11414,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.6,
+        "ellenbergMoisture": 7.4,
+        "ellenbergReaction": 7.8,
+        "ellenbergNutrients": 4.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -11157,8 +11438,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-)seed",
-    R"seed(        "density": null,
+        "density": null,
         "transmittance": null
       },
       "phenology": {
@@ -11175,19 +11455,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        3,
+        4
+      ]
     },
     {
       "id": "salix-purpurea",
       "scientificName": "Salix purpurea",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 17
-        }
-      ],
       "localNames": {
         "lt": "Purpurinis karklas"
       },
@@ -11216,19 +11493,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 8.1,
+        "ellenbergMoisture": 8.3,
+        "ellenbergReaction": 7.5,
+        "ellenbergNutrients": 4.5,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "moderatelyDrained",
+          "poorlyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -11250,26 +11530,23 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-lapponum",
       "scientificName": "Salix lapponum",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Laplandinis karklas"
       },
@@ -11297,14 +11574,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.9,
+        "ellenbergMoisture": 7.6,
+        "ellenbergReaction": 4.0,
+        "ellenbergNutrients": 2.7,
+)seed",
+    R"seed(        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
@@ -11338,19 +11616,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        6
+      ]
     },
     {
       "id": "salix-viminalis",
       "scientificName": "Salix viminalis",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Žilvitis"
       },
@@ -11378,14 +11652,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.4,
+        "ellenbergMoisture": 8.0,
+        "ellenbergReaction": 7.1,
+        "ellenbergNutrients": 5.6,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -11419,19 +11693,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-repens",
       "scientificName": "Salix repens",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Gulsčiasis karklas"
       },
@@ -11459,21 +11730,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.8,
+        "ellenbergMoisture": 7.4,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergNutrients": 3.3,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -11500,19 +11773,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "salix-rosmarinifolia",
       "scientificName": "Salix rosmarinifolia",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Pelkinis karklas"
       },
@@ -11520,8 +11790,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "min": 1.5,
         "max": 1.5
       },
-)seed",
-    R"seed(      "matureSpreadM": {
+      "matureSpreadM": {
         "min": 1.5,
         "max": 1.5
       },
@@ -11530,14 +11799,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "max": 3.0
       },
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.8,
+        "ellenbergMoisture": 7.4,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergNutrients": 3.3,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -11571,19 +11840,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "spiraea-cinerea-grefsheim",
       "scientificName": "Spiraea cinerea",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "cultivar": "Grefsheim",
       "localNames": {
         "lt": "Pilkoji lanksva"
@@ -11656,26 +11922,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "spiraea-betulifolia-tor",
       "scientificName": "Spiraea betulifolia Tor",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Beržalapė lanksva"
       },
       "saltTolerance": "low",
       "light": {
-        "acceptedClasses": [
+)seed",
+    R"seed(        "acceptedClasses": [
           "full"
         ]
       },
@@ -11741,20 +12001,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "syringa-vulgaris-nadezhda",
       "scientificName": "Syringa vulgaris",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "cultivar": "Nadezhda",
       "localNames": {
         "lt": "Paprastoji alyva"
@@ -11785,21 +12038,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "onSlabs"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.8,
+        "ellenbergMoisture": 4.9,
+        "ellenbergReaction": 6.4,
+        "ellenbergNutrients": 4.8,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7a"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -11819,26 +12078,23 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "pinus-nigra-nana",
       "scientificName": "Pinus nigra nana",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Juodoji pušis"
       },
@@ -11866,20 +12122,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.1,
+        "ellenbergMoisture": 3.5,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
-)seed",
-    R"seed(      "competition": {
-        "establishmentSpeed": null,
+      "competition": {
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -11901,26 +12159,23 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": false,
+      "floweringMonths": [
+        5
+      ]
     },
     {
       "id": "ribes-alpinum",
       "scientificName": "Ribes alpinum",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Kalninis serbentas"
       },
@@ -11953,19 +12208,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergLight": 5.3,
+        "ellenbergMoisture": 4.5,
+        "ellenbergReaction": 8.0,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 2a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -11987,26 +12244,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        3,
+        4,
+        5
+      ]
     },
     {
       "id": "ribes-nigrum",
       "scientificName": "Ribes nigrum",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Juodasis serbentas"
       },
@@ -12038,14 +12294,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 4.4,
+        "ellenbergMoisture": 8.5,
+        "ellenbergReaction": 5.9,
+)seed",
+    R"seed(        "ellenbergNutrients": 5.3,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -12079,19 +12336,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "ribes-spicatum",
       "scientificName": "Ribes spicatum",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 18
-        }
-      ],
       "localNames": {
         "lt": "Ilgakekis serbentas"
       },
@@ -12119,14 +12373,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 4.4,
+        "ellenbergMoisture": 7.4,
+        "ellenbergReaction": 6.3,
+        "ellenbergNutrients": 6.1,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
         "hardiness": null
       },
@@ -12160,19 +12414,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        4,
+        5
+      ]
     },
     {
       "id": "rhamnus-cathartica",
       "scientificName": "Rhamnus cathartica",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Dygioji šunobelė"
       },
@@ -12199,19 +12450,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.9,
+        "ellenbergMoisture": 4.3,
+        "ellenbergReaction": 8.0,
+        "ellenbergNutrients": 4.4,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -12233,27 +12487,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
-)seed",
-    R"seed(        "scope": null,
+        "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "ligustrum-vulgare",
       "scientificName": "Ligustrum vulgare",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis ligustras"
       },
@@ -12285,19 +12536,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 6.7,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 7.6,
+        "ellenbergNutrients": 4.1,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -12319,26 +12573,23 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": false,
+      "floweringMonths": [
+        6
+      ]
     },
     {
       "id": "rubus-caesius",
       "scientificName": "Rubus caesius",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji gervuogė"
       },
@@ -12357,21 +12608,24 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.9,
+        "ellenbergMoisture": 6.4,
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 6.7,
+        "ellenbergSalinity": 1.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -12398,19 +12652,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "matureHeightM": {
+        "min": 0.5,
+)seed",
+    R"seed(        "max": 0.5
+      },
+      "floweringMonths": [
+        5,
+        6,
+        7
+      ]
     },
     {
       "id": "rubus-fruticosus",
       "scientificName": "Rubus fruticosus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Bespyglė gervuogė"
       },
@@ -12433,7 +12690,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergMoisture": null,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
@@ -12443,7 +12700,9 @@ constexpr const char* kSeedPlantsPieces[] = {
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -12469,20 +12728,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "rubus-idaeus",
       "scientificName": "Rubus idaeus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji avietė"
       },
@@ -12501,22 +12753,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergLight": 6.7,
+        "ellenbergMoisture": 5.5,
+        "ellenbergReaction": 5.8,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -12535,26 +12792,31 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "matureHeightM": {
+        "min": 1.6,
+        "max": 1.6
+      },
+      "floweringMonths": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
     },
     {
       "id": "rubus-saxatilis",
       "scientificName": "Rubus saxatilis",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji katuogė"
       },
@@ -12573,95 +12835,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "riverside"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.0,
+        "ellenbergMoisture": 5.6,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 4.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
-        "selfSeeding": null
-      },
-      "roots": {
-        "depthClass": null,
-)seed",
-    R"seed(        "architecture": null,
-        "competitiveIntensity": null
-      },
-      "canopy": {
-        "density": null,
-        "transmittance": null
-      },
-      "phenology": {
-        "emergenceMonths": [],
-        "senescenceMonths": [],
-        "leafOnMonths": []
-      },
-      "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
-      },
-      "regulatory": {
-        "status": null,
-        "scope": null,
-        "note": null
-      },
-      "evidence": []
-    },
-    {
-      "id": "rubus-chamaemorus",
-      "scientificName": "Rubus chamaemorus",
-      "section": "shrubs",
-      "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
-      "localNames": {
-        "lt": "Paprastoji tekšlė"
-      },
-      "breeam": true,
-      "light": {
-        "acceptedClasses": [
-          "full"
-        ]
-      },
-      "plantingDensityPerM2": {
-        "min": 9.0,
-        "max": 9.0
-      },
-      "sites": [
-        "urbanForest",
-        "riverside"
-      ],
-      "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
-      },
-      "competition": {
-        "establishmentSpeed": null,
-        "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "high",
         "selfSeeding": null
       },
       "roots": {
@@ -12687,19 +12880,96 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "matureHeightM": {
+        "min": 0.4,
+        "max": 0.4
+      },
+      "floweringMonths": [
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "id": "rubus-chamaemorus",
+      "scientificName": "Rubus chamaemorus",
+      "section": "shrubs",
+      "habit": "shrub",
+      "localNames": {
+        "lt": "Paprastoji tekšlė"
+      },
+      "breeam": true,
+      "light": {
+        "acceptedClasses": [
+          "full"
+        ]
+      },
+      "plantingDensityPerM2": {
+        "min": 9.0,
+        "max": 9.0
+      },
+      "sites": [
+        "urbanForest",
+        "riverside"
+      ],
+      "ecology": {
+        "ellenbergLight": 9.0,
+        "ellenbergMoisture": 7.5,
+        "ellenbergReaction": 1.7,
+        "ellenbergNutrients": 1.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": null,
+        "pHMax": null,
+        "nutrientPreference": "low",
+        "drainage": [],
+        "hardiness": null
+      },
+      "competition": {
+        "establishmentSpeed": null,
+        "competitiveVigour": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "high",
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": null
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "matureHeightM": {
+        "min": 0.2,
+        "max": 0.2
+      },
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "lonicera-xylosteum",
       "scientificName": "Lonicera xylosteum",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis sausmedis"
       },
@@ -12729,23 +12999,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 5.2,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 5.2,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
         "lateralSpread": null,
-        "selfSeeding": null
+)seed",
+    R"seed(        "selfSeeding": null
       },
       "roots": {
         "depthClass": null,
@@ -12770,19 +13044,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "viburnum-opulus",
       "scientificName": "Viburnum opulus",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis putinas"
       },
@@ -12814,21 +13085,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.0,
+        "ellenbergMoisture": 6.5,
+        "ellenbergReaction": 6.9,
+        "ellenbergNutrients": 6.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -12848,26 +13125,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "deciduous": true,
+      "floweringMonths": [
+        5,
+        6
+      ]
     },
     {
       "id": "rosa-canina",
       "scientificName": "Rosa canina",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis erškėtis"
       },
@@ -12899,11 +13174,11 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.5,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergReaction": 7.0,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
@@ -12940,21 +13215,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        6,
+        7
+      ]
     },
     {
       "id": "rosa-majalis",
       "scientificName": "Rosa majalis",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
-)seed",
-    R"seed(      "localNames": {
+      "localNames": {
         "lt": "Miškinis erškėtis"
       },
       "saltTolerance": "high",
@@ -12985,14 +13256,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.0,
+        "ellenbergMoisture": 5.3,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 3.3,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -13026,19 +13297,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        6
+      ]
     },
     {
       "id": "potentila-fruticossa",
       "scientificName": "Potentila fruticossa",
       "section": "shrubs",
       "habit": "shrub",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 19
-        }
-      ],
       "localNames": {
         "lt": "Sidabrakrūm is"
       },
@@ -13069,21 +13336,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "containers"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 8.3,
         "ellenbergMoisture": null,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergNutrients": 2.3,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -13110,19 +13379,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "scope": null,
         "note": null
       },
-      "evidence": []
+      "floweringMonths": [
+        6,
+        7
+)seed",
+    R"seed(      ]
     },
     {
       "id": "achillea-filipendulina-coronation-gold",
       "scientificName": "Achillea filipendulina Coronation Gold",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 21
-        }
-      ],
       "localNames": {
         "lt": "Vingiorykštinė kraujažolė"
       },
@@ -13151,19 +13418,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 8.0,
+        "ellenbergMoisture": 4.0,
+        "ellenbergReaction": 8.0,
+        "ellenbergNutrients": 7.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -13184,27 +13453,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "medium",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "achillea-millefolium-apple-blossom",
       "scientificName": "Achillea millefolium",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 21
-        }
-      ],
       "cultivar": "Apple Blossom",
       "saltTolerance": "low",
       "growthIntensity": "slow",
@@ -13232,21 +13494,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergLight": 7.9,
+        "ellenbergMoisture": 4.1,
+        "ellenbergReaction": 5.8,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.9,
+        "pHMin": 6.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "shortRhizome",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -13265,27 +13533,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "achillea-moonshine",
       "scientificName": "Achillea",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 21
-        }
-      ],
       "cultivar": "Moonshine",
       "saltTolerance": "low",
       "growthIntensity": "slow",
@@ -13315,84 +13576,6 @@ constexpr const char* kSeedPlantsPieces[] = {
       "ecology": {
         "ellenbergLight": null,
         "ellenbergMoisture": null,
-)seed",
-    R"seed(        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
-      },
-      "competition": {
-        "establishmentSpeed": null,
-        "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
-        "selfSeeding": null
-      },
-      "roots": {
-        "depthClass": null,
-        "architecture": null,
-        "competitiveIntensity": null
-      },
-      "canopy": {
-        "density": null,
-        "transmittance": null
-      },
-      "phenology": {
-        "emergenceMonths": [],
-        "senescenceMonths": [],
-        "leafOnMonths": []
-      },
-      "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
-      },
-      "regulatory": {
-        "status": null,
-        "scope": null,
-        "note": null
-      },
-      "evidence": []
-    },
-    {
-      "id": "ajuga-reptans",
-      "scientificName": "Ajuga reptans",
-      "section": "perennials",
-      "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 21
-        }
-      ],
-      "localNames": {
-        "lt": "Šliaužiančioji vaisgina"
-      },
-      "growthIntensity": "fast",
-      "moistureClasses": [
-        "dry",
-        "moist"
-      ],
-      "plantingLayers": [
-        "D"
-      ],
-      "plantingDensityPerM2": {
-        "min": 9.0,
-        "max": 9.0
-      },
-      "floweringMonths": [
-        5,
-        6
-      ],
-      "soilTypes": [
-        "B"
-      ],
-      "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
@@ -13431,20 +13614,96 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
+      }
+    },
+    {
+      "id": "ajuga-reptans",
+      "scientificName": "Ajuga reptans",
+      "section": "perennials",
+      "habit": "perennial",
+      "localNames": {
+        "lt": "Šliaužiančioji vaisgina"
       },
-      "evidence": []
+      "growthIntensity": "fast",
+      "moistureClasses": [
+        "dry",
+        "moist"
+      ],
+      "plantingLayers": [
+        "D"
+      ],
+      "plantingDensityPerM2": {
+        "min": 9.0,
+        "max": 9.0
+      },
+      "floweringMonths": [
+        5,
+        6
+      ],
+      "soilTypes": [
+        "B"
+      ],
+      "ecology": {
+        "ellenbergLight": 6.1,
+        "ellenbergMoisture": 6.2,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": null,
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-10b"
+      },
+      "competition": {
+        "establishmentSpeed": "fast",
+        "competitiveVigour": null,
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
+        "lateralSpread": "medium",
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": "long",
+        "maintenanceSensitivity": "medium"
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      },
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial",
+          "shade"
+        ]
+      }
     },
     {
       "id": "agastache-aurantiaca",
       "scientificName": "Agastache aurantiaca",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 21
-        }
-      ],
       "localNames": {
         "lt": "Kinmėtė"
       },
@@ -13477,7 +13736,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+)seed",
+    R"seed(        "density": null,
         "transmittance": null
       },
       "phenology": {
@@ -13493,20 +13753,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "allium-christophii",
       "scientificName": "Allium Christophii",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "localNames": {
         "lt": "Kristoferio česnakas"
       },
@@ -13574,20 +13827,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "allium-senescens",
       "scientificName": "Allium senescens",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "localNames": {
         "lt": "Žilasis česnakas"
       },
@@ -13615,22 +13861,24 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 8.8,
+        "ellenbergMoisture": 2.3,
+        "ellenbergReaction": 6.3,
+        "ellenbergNutrients": 2.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "clump"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -13648,29 +13896,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "amsonia-salicifolia",
       "scientificName": "Amsonia salicifolia",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
-)seed",
-    R"seed(      "localNames": {
+      "localNames": {
         "lt": "Amerikinis dirktas"
       },
       "growthIntensity": "slow",
@@ -13739,20 +13979,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "anemone-sylvestris",
       "scientificName": "Anemone sylvestris",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "localNames": {
         "lt": "Pavasarinė plukė"
       },
@@ -13780,22 +14013,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.6,
+        "ellenbergMoisture": 3.5,
+        "ellenbergReaction": 7.4,
+        "ellenbergNutrients": 3.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -13813,27 +14050,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "anthemis-cotula",
       "scientificName": "Anthemis cotula",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "localNames": {
         "lt": "Šuninis bobramunis"
       },
@@ -13861,14 +14091,15 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.3,
+        "ellenbergMoisture": 4.2,
+        "ellenbergReaction": 6.0,
+        "ellenbergNutrients": 5.6,
+        "ellenbergSalinity": 0.3,
         "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
+)seed",
+    R"seed(        "pHMax": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
@@ -13894,27 +14125,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "medium",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "artemisia-maritima-splendens",
       "scientificName": "Artemisia maritima",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "cultivar": "Splendens",
       "localNames": {
         "lt": "Gvaizdė"
@@ -13943,21 +14167,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 8.9,
+        "ellenbergMoisture": 5.6,
+        "ellenbergReaction": 8.0,
+        "ellenbergNutrients": 6.8,
+        "ellenbergSalinity": 5.7,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -13976,27 +14202,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "short",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "artemisia-ludoviciana",
       "scientificName": "Artemisia ludoviciana",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "localNames": {
         "lt": "Baltasis kietis"
       },
@@ -14033,12 +14252,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-)seed",
-    R"seed(        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-10b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -14066,20 +14287,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "artemisia-powis-castle",
       "scientificName": "Artemisia",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "cultivar": "Powis castle",
       "localNames": {
         "lt": "Kvepiantysis kietis"
@@ -14149,20 +14363,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "artemisia-schmidtiana-nana",
       "scientificName": "Artemisia",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "cultivar": "Schmidtiana Nana",
       "localNames": {
         "lt": "Šmito kietis"
@@ -14232,25 +14439,19 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "artemisia-stelleriana",
       "scientificName": "Artemisia stelleriana",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "localNames": {
         "lt": "Stelerio kietis"
       },
       "saltTolerance": "low",
-      "growthIntensity": "slow",
+)seed",
+    R"seed(      "growthIntensity": "slow",
       "light": {
         "acceptedClasses": [
           "full"
@@ -14279,14 +14480,16 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -14308,26 +14511,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "aruncus-dioides-horatio",
       "scientificName": "Aruncus dioides",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "cultivar": "Horatio",
       "localNames": {
         "lt": "Arunkas"
@@ -14358,22 +14554,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 4.1,
+        "ellenbergMoisture": 6.2,
+        "ellenbergReaction": 6.7,
+        "ellenbergNutrients": 7.8,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -14391,28 +14591,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
-)seed",
-    R"seed(      "regulatory": {
+      "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "asarum-europaeum",
       "scientificName": "Asarum europaeum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 22
-        }
-      ],
       "localNames": {
         "lt": "Europinė pipirnė"
       },
@@ -14441,22 +14633,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 3.2,
+        "ellenbergMoisture": 5.5,
+        "ellenbergReaction": 7.2,
+        "ellenbergNutrients": 6.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -14474,27 +14669,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "aster-novae-angliae-purple-dome",
       "scientificName": "Aster novae-angliae",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
       "cultivar": "Purple Dome",
       "localNames": {
         "lt": "Šiurkščialapis astras"
@@ -14532,14 +14720,19 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -14558,26 +14751,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "aster-divaricatus",
       "scientificName": "Aster divaricatus",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
       "localNames": {
         "lt": "Skėstašakis astras"
       },
@@ -14611,11 +14797,92 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
+      },
+      "competition": {
+        "establishmentSpeed": "fast",
+        "competitiveVigour": null,
+)seed",
+    R"seed(        "spreadMode": [],
+        "lateralSpread": null,
+        "selfSeeding": null
+      },
+      "roots": {
+        "depthClass": null,
+        "architecture": null,
+        "competitiveIntensity": null
+      },
+      "canopy": {
+        "density": null,
+        "transmittance": null
+      },
+      "phenology": {
+        "emergenceMonths": [],
+        "senescenceMonths": [],
+        "leafOnMonths": []
+      },
+      "lifecycle": {
+        "lifespan": null,
+        "maintenanceSensitivity": "low"
+      },
+      "regulatory": {
+        "status": null,
+        "scope": null,
+        "note": null
+      }
+    },
+    {
+      "id": "aster-macrophyllus-twilight",
+      "scientificName": "Aster macrophyllus TWILIGHT",
+      "section": "perennials",
+      "habit": "perennial",
+      "localNames": {
+        "lt": "Stambialapis astras"
+      },
+      "growthIntensity": "fast",
+      "light": {
+        "acceptedClasses": [
+          "full",
+          "partial"
+        ]
+      },
+      "moistureClasses": [
+        "dry"
+      ],
+      "plantingLayers": [
+        "S"
+      ],
+      "plantingDensityPerM2": {
+        "min": 8.0,
+        "max": 8.0
+      },
+      "floweringMonths": [
+        8
+      ],
+      "soilTypes": [
+        "B"
+      ],
+      "ecology": {
+        "ellenbergLight": null,
+        "ellenbergMoisture": null,
+        "ellenbergReaction": null,
+        "ellenbergNutrients": null,
+        "ellenbergSalinity": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": null,
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -14640,34 +14907,24 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
-      "id": "aster-macrophyllus-twilight",
-      "scientificName": "Aster macrophyllus TWILIGHT",
+      "id": "astras-little-carlow",
+      "scientificName": "Astras Little Carlow",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
-      "localNames": {
-        "lt": "Stambialapis astras"
-      },
+      "saltTolerance": "low",
       "growthIntensity": "fast",
       "light": {
         "acceptedClasses": [
-          "full",
-          "partial"
+          "full"
         ]
       },
       "moistureClasses": [
@@ -14727,99 +14984,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
-    },
-    {
-      "id": "astras-little-carlow",
-      "scientificName": "Astras Little Carlow",
-      "section": "perennials",
-      "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
-      "saltTolerance": "low",
-      "growthIntensity": "fast",
-      "light": {
-        "acceptedClasses": [
-          "full"
-        ]
-      },
-      "moistureClasses": [
-        "dry"
-      ],
-      "plantingLayers": [
-        "S"
-      ],
-      "plantingDensityPerM2": {
-        "min": 8.0,
-        "max": 8.0
-      },
-)seed",
-    R"seed(      "floweringMonths": [
-        8
-      ],
-      "soilTypes": [
-        "B"
-      ],
-      "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
-      },
-      "competition": {
-        "establishmentSpeed": null,
-        "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
-        "selfSeeding": null
-      },
-      "roots": {
-        "depthClass": null,
-        "architecture": null,
-        "competitiveIntensity": null
-      },
-      "canopy": {
-        "density": null,
-        "transmittance": null
-      },
-      "phenology": {
-        "emergenceMonths": [],
-        "senescenceMonths": [],
-        "leafOnMonths": []
-      },
-      "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
-      },
-      "regulatory": {
-        "status": null,
-        "scope": null,
-        "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "aster-ageratoides-asran",
       "scientificName": "Aster ageratoides Asran",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
       "saltTolerance": "high",
       "growthIntensity": "aggressive",
       "light": {
@@ -14884,20 +15055,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "arctostaphylos-uva-ursi",
       "scientificName": "Arctostaphylos uva-ursi",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
       "localNames": {
         "lt": "Miltinė meškauogė"
       },
@@ -14926,21 +15090,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 6.8,
+        "ellenbergMoisture": 3.3,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 1.7,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-7b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -14959,27 +15129,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "baptisia-australis",
       "scientificName": "Baptisia australis",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
       "localNames": {
         "lt": "Barškė"
       },
@@ -15006,17 +15169,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B",
         "C"
       ],
-      "ecology": {
+)seed",
+    R"seed(      "ecology": {
         "ellenbergLight": null,
         "ellenbergMoisture": null,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -15041,26 +15208,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "bergenia-cordifolia",
       "scientificName": "Bergenia cordifolia",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
       "localNames": {
         "lt": "Širdžialapė bergenija"
       },
@@ -15096,14 +15256,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -15117,35 +15280,27 @@ constexpr const char* kSeedPlantsPieces[] = {
       "canopy": {
         "density": null,
         "transmittance": null
-)seed",
-    R"seed(      },
+      },
       "phenology": {
         "emergenceMonths": [],
         "senescenceMonths": [],
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "calluna-vulgaris",
       "scientificName": "Calluna vulgaris",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 23
-        }
-      ],
       "localNames": {
         "lt": "Šilinis viržis"
       },
@@ -15174,21 +15329,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 7.7,
+        "ellenbergMoisture": 5.6,
+        "ellenbergReaction": 1.5,
+        "ellenbergNutrients": 1.4,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-6b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -15207,27 +15368,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "calamagrostis-x-acutiflora-karl-foerster",
       "scientificName": "Calamagrostis x acutiflora Karl Foerster",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
         "lt": "Smailiažiedis lendrūnas Karl Foerster"
       },
@@ -15266,11 +15420,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-11b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -15292,26 +15449,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "calamintha-nepeta",
       "scientificName": "Calamintha nepeta",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
         "lt": "Vaistinės girmėtė"
       },
@@ -15340,11 +15490,11 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergLight": 7.0,
+        "ellenbergMoisture": 3.7,
+        "ellenbergReaction": 7.8,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
@@ -15370,7 +15520,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       "phenology": {
         "emergenceMonths": [],
         "senescenceMonths": [],
-        "leafOnMonths": []
+)seed",
+    R"seed(        "leafOnMonths": []
       },
       "lifecycle": {
         "lifespan": null,
@@ -15380,20 +15531,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "carex-remota",
       "scientificName": "Carex remota",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
         "lt": "Retavarpė viksva"
       },
@@ -15428,9 +15572,9 @@ constexpr const char* kSeedPlantsPieces[] = {
       "ecology": {
         "ellenbergLight": null,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergReaction": 5.9,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
@@ -15440,8 +15584,10 @@ constexpr const char* kSeedPlantsPieces[] = {
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -15459,30 +15605,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "centrantus-ruber",
       "scientificName": "Centrantus ruber",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
-)seed",
-    R"seed(        "lt": "Rausvažiedis viduvis"
+        "lt": "Rausvažiedis viduvis"
       },
       "saltTolerance": "low",
       "growthIntensity": "fast",
@@ -15509,21 +15647,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.1,
+        "ellenbergMoisture": 3.6,
+        "ellenbergReaction": 8.0,
+        "ellenbergNutrients": 5.0,
+        "ellenbergSalinity": 0.2,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -15549,20 +15689,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "crambe-maritima",
       "scientificName": "Crambe maritima",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
         "lt": "Pajūrinė balža"
       },
@@ -15590,21 +15723,23 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 8.8,
+        "ellenbergMoisture": 5.5,
+        "ellenbergReaction": 7.2,
+        "ellenbergNutrients": 7.6,
+        "ellenbergSalinity": 3.6,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -15623,27 +15758,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "chasmanthium-latifolium",
       "scientificName": "Chasmanthium latifolium",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
         "lt": "Plačialapis dirsūnas"
       },
@@ -15682,11 +15810,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -15708,26 +15838,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "corydalis-solida",
       "scientificName": "Corydalis solida",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis rūtenis"
       },
@@ -15754,22 +15877,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
+        "ellenbergLight": 3.7,
+        "ellenbergMoisture": 5.5,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 6.8,
+        "ellenbergSalinity": 0.0,
+)seed",
+    R"seed(        "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "clump"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -15787,27 +15913,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "medium",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "darmera-peltata",
       "scientificName": "Darmera peltata",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
         "lt": "Skydinė darmera"
       },
@@ -15845,8 +15964,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "drainage": [],
         "hardiness": null
       },
-)seed",
-    R"seed(      "competition": {
+      "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
         "spreadMode": [],
@@ -15875,20 +15993,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "dianthus-x-allwoodii-helen",
       "scientificName": "Dianthus x allwoodii Helen",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 24
-        }
-      ],
       "localNames": {
         "lt": "Gvazdikas"
       },
@@ -15957,20 +16068,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "dianthus-gratianopolitanus",
       "scientificName": "Dianthus gratianopolitanus",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "Plunksninis gvazdikas"
       },
@@ -15998,21 +16102,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 8.7,
+        "ellenbergMoisture": 2.5,
+        "ellenbergReaction": 6.8,
+        "ellenbergNutrients": 1.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -16031,27 +16140,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "echinops-sp",
       "scientificName": "Echinops sp.",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "bandrenis"
       },
@@ -16121,20 +16223,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "epimedium-versicolor-sulphureum",
       "scientificName": "Epimedium versicolor) SULPHUREUM",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "Margasis epimedis"
       },
@@ -16142,7 +16237,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       "light": {
         "acceptedClasses": [
           "partial",
-          "shade"
+)seed",
+    R"seed(          "shade"
         ]
       },
       "moistureClasses": [
@@ -16204,21 +16300,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-)seed",
-    R"seed(      "evidence": []
+      }
     },
     {
       "id": "epimedium-rubrum",
       "scientificName": "Epimedium rubrum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "Raudonasis epimedis"
       },
@@ -16254,14 +16342,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -16283,26 +16374,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "erigeron-glaucus",
       "scientificName": "Erigeron glaucus",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "Šiušelė"
       },
@@ -16371,20 +16455,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "euphorbia-amygdaloides",
       "scientificName": "Euphorbia amygdaloides",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "Migdolinė karpažolė"
       },
@@ -16414,20 +16491,22 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergMoisture": 5.3,
+        "ellenbergReaction": 6.7,
+        "ellenbergNutrients": 5.3,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -16446,27 +16525,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "euphorbia-polychroma",
       "scientificName": "Euphorbia polychroma",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "daugiažiedė karpažolė"
       },
@@ -16495,21 +16567,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.3,
+        "ellenbergMoisture": 3.3,
+        "ellenbergReaction": 8.0,
+        "ellenbergNutrients": 3.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -16519,7 +16597,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-        "density": null,
+)seed",
+    R"seed(        "density": null,
         "transmittance": null
       },
       "phenology": {
@@ -16528,27 +16607,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "eryngium-x-oliverianum",
       "scientificName": "Eryngium x oliverianum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "Zunda"
       },
@@ -16572,8 +16644,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       "floweringMonths": [
         7
       ],
-)seed",
-    R"seed(      "soilTypes": [
+      "soilTypes": [
         "A",
         "B",
         "D"
@@ -16619,20 +16690,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "eryngium-x-tripartitum",
       "scientificName": "Eryngium x tripartitum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "localNames": {
         "lt": "Zunda"
       },
@@ -16702,20 +16766,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "eupatorium-mac-gateway",
       "scientificName": "Eupatorium mac.",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 25
-        }
-      ],
       "cultivar": "Gateway",
       "localNames": {
         "lt": "Dėmėtasis kemeras"
@@ -16785,20 +16842,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "empetrum-nigrum",
       "scientificName": "Empetrum nigrum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 26
-        }
-      ],
       "localNames": {
         "lt": "Juodoji varnauogė"
       },
@@ -16826,21 +16876,24 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.6,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 2.6,
+        "ellenbergNutrients": 2.2,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -16859,27 +16912,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "festuca-glauca-elijah-blue",
       "scientificName": "Festuca glauca",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 26
-        }
-      ],
       "cultivar": "Elijah Blue",
       "localNames": {
         "lt": "Melsvasis eraičinas"
@@ -16910,16 +16956,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 8.0,
+        "ellenbergMoisture": 5.0,
+        "ellenbergReaction": 6.0,
+)seed",
+    R"seed(        "ellenbergNutrients": 5.0,
+        "ellenbergSalinity": 6.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -16931,8 +16981,7 @@ constexpr const char* kSeedPlantsPieces[] = {
       "roots": {
         "depthClass": null,
         "architecture": null,
-)seed",
-    R"seed(        "competitiveIntensity": null
+        "competitiveIntensity": null
       },
       "canopy": {
         "density": null,
@@ -16944,27 +16993,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "festuca-mairei",
       "scientificName": "Festuca Mairei",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 26
-        }
-      ],
       "localNames": {
         "lt": "Majerio eraičinas"
       },
@@ -17034,20 +17076,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "filipendula-rubra-venusta-magnifica",
       "scientificName": "Filipendula rubra) VENUSTA MAGNIFICA",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 26
-        }
-      ],
       "localNames": {
         "lt": "Raudonoji vingiorykštė"
       },
@@ -17114,20 +17149,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "gaillardia-x-grandiflora-goblin",
       "scientificName": "Gaillardia x grandiflora Goblin",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 26
-        }
-      ],
       "localNames": {
         "lt": "Stambiagraižė gailiardija"
       },
@@ -17159,14 +17187,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 6.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 7a-10b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -17188,26 +17219,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "galium-odoratum",
       "scientificName": "Galium odoratum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 26
-        }
-      ],
       "localNames": {
         "lt": "Kvapusis lipikas"
       },
@@ -17234,22 +17258,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 2.8,
+        "ellenbergMoisture": 5.4,
+        "ellenbergReaction": 6.3,
+        "ellenbergNutrients": 5.3,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -17267,37 +17296,30 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "galium-verum",
       "scientificName": "Galium verum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 26
-        }
-      ],
       "localNames": {
         "lt": "Tikrasis lipikas"
-      },
+)seed",
+    R"seed(      },
       "light": {
         "acceptedClasses": [
           "full"
         ]
       },
-)seed",
-    R"seed(      "moistureClasses": [
+      "moistureClasses": [
         "dry"
       ],
       "plantingLayers": [
@@ -17315,21 +17337,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 7.3,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 6.5,
+        "ellenbergNutrients": 2.7,
+        "ellenbergSalinity": 0.3,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -17348,27 +17374,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "goniolimon-tataricum",
       "scientificName": "Goniolimon tataricum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 27
-        }
-      ],
       "localNames": {
         "lt": "Totorinis kermėkas"
       },
@@ -17395,19 +17414,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 8.5,
+        "ellenbergMoisture": 3.5,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-10b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -17429,26 +17450,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "geranium-renardii-philippe-vapelle",
       "scientificName": "Geranium renardii Philippe Vapelle",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 27
-        }
-      ],
       "localNames": {
         "lt": "Renardžio snaputis"
       },
@@ -17514,20 +17528,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "geranium-sanguineum",
       "scientificName": "Geranium sanguineum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 27
-        }
-      ],
       "localNames": {
         "lt": "Raudonžiedis snaputis"
       },
@@ -17554,22 +17561,28 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 7.1,
+        "ellenbergMoisture": 3.3,
+        "ellenbergReaction": 7.4,
+        "ellenbergNutrients": 2.9,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -17587,27 +17600,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "geranium-macrorrhizum",
       "scientificName": "Geranium macrorrhizum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 27
-        }
-      ],
       "localNames": {
         "lt": "Stambiašaknis snaputis"
       },
@@ -17635,14 +17641,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 8.0,
+        "ellenbergMoisture": 2.0,
+        "ellenbergReaction": 7.0,
+        "ellenbergNutrients": 2.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
@@ -17658,38 +17664,31 @@ constexpr const char* kSeedPlantsPieces[] = {
         "architecture": null,
         "competitiveIntensity": null
       },
-)seed",
-    R"seed(      "canopy": {
+      "canopy": {
         "density": null,
         "transmittance": null
       },
       "phenology": {
         "emergenceMonths": [],
         "senescenceMonths": [],
-        "leafOnMonths": []
+)seed",
+    R"seed(        "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "medium",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "gillenia-trifoliata",
       "scientificName": "Gillenia trifoliata",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 27
-        }
-      ],
       "localNames": {
         "lt": "Triskiautė draika"
       },
@@ -17722,14 +17721,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -17751,26 +17753,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "heuchera-micrantha-purple-palace",
       "scientificName": "Heuchera micrantha",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 27
-        }
-      ],
       "cultivar": "Purple Palace",
       "localNames": {
         "lt": "smulkiažiedė alūnė"
@@ -17839,20 +17834,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "heuchera-sanguinea-chatterbox",
       "scientificName": "Heuchera sanguinea",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 27
-        }
-      ],
       "cultivar": "Chatterbox",
       "localNames": {
         "lt": "Raudonoji alūnė"
@@ -17888,8 +17876,10 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -17914,26 +17904,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "helleborus-niger",
       "scientificName": "Helleborus niger",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 28
-        }
-      ],
       "localNames": {
         "lt": "Eleboras"
       },
@@ -17962,22 +17945,27 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 4.5,
+        "ellenbergMoisture": 5.0,
+        "ellenbergReaction": 8.0,
+        "ellenbergNutrients": 4.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -17995,34 +17983,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "hemerocallis-sp",
       "scientificName": "Hemerocallis sp.",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 28
-        }
-      ],
       "localNames": {
         "lt": "Viendienės"
       },
       "saltTolerance": "low",
       "light": {
-)seed",
-    R"seed(        "acceptedClasses": [
+        "acceptedClasses": [
           "full"
         ]
       },
@@ -18050,7 +18030,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergSalinity": null,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+)seed",
+    R"seed(        "nutrientPreference": null,
         "drainage": [],
         "hardiness": null
       },
@@ -18083,20 +18064,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "helictotrichon-sempervirens",
       "scientificName": "Helictotrichon sempervirens",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 28
-        }
-      ],
       "localNames": {
         "lt": "Mėlynlapė poavižė"
       },
@@ -18121,19 +18095,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 8.0,
+        "ellenbergMoisture": 4.0,
+        "ellenbergReaction": 9.0,
+        "ellenbergNutrients": 3.0,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -18155,26 +18132,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "hedera-helix",
       "scientificName": "Hedera helix",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 28
-        }
-      ],
       "localNames": {
         "lt": "Gebenė lipikė"
       },
@@ -18200,20 +18170,25 @@ constexpr const char* kSeedPlantsPieces[] = {
       ],
       "ecology": {
         "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
+        "ellenbergMoisture": 5.3,
+        "ellenbergReaction": 6.2,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-13b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -18232,27 +18207,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "humulus-lupulus",
       "scientificName": "Humulus lupulus",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 28
-        }
-      ],
       "localNames": {
         "lt": "Apynys"
       },
@@ -18276,22 +18244,28 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 6.7,
+        "ellenbergMoisture": 7.9,
+        "ellenbergReaction": 6.7,
+        "ellenbergNutrients": 7.9,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome"
+        ],
+        "lateralSpread": "high",
         "selfSeeding": null
       },
       "roots": {
@@ -18309,27 +18283,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "hosta-plantaginea",
       "scientificName": "Hosta plantaginea",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 28
-        }
-      ],
       "localNames": {
         "lt": "Gyslotinė melsvė"
       },
@@ -18365,14 +18332,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -18384,8 +18354,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveIntensity": null
       },
       "canopy": {
-)seed",
-    R"seed(        "density": null,
+        "density": null,
         "transmittance": null
       },
       "phenology": {
@@ -18395,26 +18364,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "hosta-undulata-medio-variegata",
       "scientificName": "Hosta undulata",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 28
-        }
-      ],
       "cultivar": "Medio-variegata",
       "localNames": {
         "lt": "Banguotoji melsvė"
@@ -18422,7 +18384,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       "saltTolerance": "low",
       "light": {
         "acceptedClasses": [
-          "partial",
+)seed",
+    R"seed(          "partial",
           "shade"
         ]
       },
@@ -18486,20 +18449,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "hosta-tardiana-halcion",
       "scientificName": "Hosta tardiana Halcion",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 29
-        }
-      ],
       "localNames": {
         "lt": "Melsvė"
       },
@@ -18569,20 +18525,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "iris-sibirica-sp",
       "scientificName": "Iris sibirica sp.",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 29
-        }
-      ],
       "localNames": {
         "lt": "Sibirinis irisas"
       },
@@ -18610,22 +18559,28 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.8,
+        "ellenbergMoisture": 7.4,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.6,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -18643,27 +18598,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "leucanthemum-x-superbum-becky",
       "scientificName": "Leucanthemum x superbum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 29
-        }
-      ],
       "cultivar": "Becky",
       "localNames": {
         "lt": "Baltagalvė"
@@ -18697,14 +18645,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -18726,31 +18677,23 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "leymus-arenarius",
       "scientificName": "Leymus arenarius",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 29
-        }
-      ],
       "localNames": {
         "lt": "Rugiaveidė"
       },
-)seed",
-    R"seed(      "saltTolerance": "high",
+      "saltTolerance": "high",
       "light": {
         "acceptedClasses": [
           "full"
@@ -18775,22 +18718,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 8.6,
+        "ellenbergMoisture": 5.4,
+        "ellenbergReaction": 7.2,
+        "ellenbergNutrients": 5.6,
+        "ellenbergSalinity": 2.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-10b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -18800,7 +18747,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "canopy": {
         "density": null,
-        "transmittance": null
+)seed",
+    R"seed(        "transmittance": null
       },
       "phenology": {
         "emergenceMonths": [],
@@ -18808,27 +18756,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "limonium-latifolium",
       "scientificName": "Limonium latifolium",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 29
-        }
-      ],
       "localNames": {
         "lt": "Plačialapis kermėkas"
       },
@@ -18896,20 +18837,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "luzula-nivea",
       "scientificName": "Luzula nivea",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 29
-        }
-      ],
       "localNames": {
         "lt": "Kiškiagrikis"
       },
@@ -18937,22 +18871,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 3.8,
+        "ellenbergMoisture": 4.5,
+        "ellenbergReaction": 3.3,
+        "ellenbergNutrients": 3.8,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -18977,20 +18914,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "matteuccia-struthiopteris",
       "scientificName": "Matteuccia struthiopteris",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 29
-        }
-      ],
       "localNames": {
         "lt": "Paupinis jonpapartis"
       },
@@ -19017,22 +18947,24 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 5.1,
+        "ellenbergMoisture": 7.0,
+        "ellenbergReaction": 6.8,
+        "ellenbergNutrients": 7.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "high",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -19057,20 +18989,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "miscanthus-sp",
       "scientificName": "Miscanthus sp",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 30
-        }
-      ],
       "localNames": {
         "lt": "Miskantai"
       },
@@ -19115,8 +19040,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
-)seed",
-    R"seed(        "selfSeeding": null
+        "selfSeeding": null
       },
       "roots": {
         "depthClass": null,
@@ -19140,20 +19064,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "molinia-caerulea",
       "scientificName": "Molinia caerulea",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 30
-        }
-      ],
       "localNames": {
         "lt": "Melsvoji melvenė"
       },
@@ -19180,22 +19097,28 @@ constexpr const char* kSeedPlantsPieces[] = {
         "C"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 6.9,
         "ellenbergMoisture": null,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 2.1,
+        "ellenbergSalinity": 0.1,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 5a-8b"
       },
-      "competition": {
-        "establishmentSpeed": null,
+)seed",
+    R"seed(      "competition": {
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -19213,27 +19136,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "nepeta-x-faassenii",
       "scientificName": "Nepeta x faassenii",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 30
-        }
-      ],
       "localNames": {
         "lt": "Faseno katžolė"
       },
@@ -19269,11 +19185,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 5a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -19295,26 +19213,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "rudbeckia-fulgida-gold-sturm",
       "scientificName": "Rudbeckia fulgida Gold Sturm",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 30
-        }
-      ],
       "saltTolerance": "low",
       "light": {
         "acceptedClasses": [
@@ -19345,11 +19256,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -19371,26 +19285,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "rodgersia-aesculifolia",
       "scientificName": "Rodgersia aesculifolia",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 30
-        }
-      ],
       "localNames": {
         "lt": "Kaštonlapė rodžersija"
       },
@@ -19460,27 +19367,19 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "oenothera-fruticosa-subdp-glauca",
       "scientificName": "Oenothera fruticosa subdp.glauca",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 30
-        }
-      ],
       "localNames": {
         "lt": "Krūminė nakviša"
       },
       "saltTolerance": "low",
       "light": {
-)seed",
-    R"seed(        "acceptedClasses": [
+        "acceptedClasses": [
           "full"
         ]
       },
@@ -19507,14 +19406,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -19536,26 +19438,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "oenothera-macrocarpa",
       "scientificName": "Oenothera macrocarpa",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 30
-        }
-      ],
       "localNames": {
         "lt": "Misūrinė nakviša"
       },
@@ -19574,7 +19469,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       "plantingDensityPerM2": {
         "min": 9.0,
         "max": 9.0
-      },
+)seed",
+    R"seed(      },
       "floweringMonths": [
         8
       ],
@@ -19623,20 +19519,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "origanum-vulgaris",
       "scientificName": "Origanum vulgaris",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 31
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis raudonėlis"
       },
@@ -19663,21 +19552,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 7.0,
+        "ellenbergMoisture": 3.6,
+        "ellenbergReaction": 7.1,
+        "ellenbergNutrients": 3.1,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "medium",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "shortRhizome"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -19696,27 +19590,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "pachysandra-terminalis",
       "scientificName": "Pachysandra terminalis",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 31
-        }
-      ],
       "localNames": {
         "lt": "Viršūnžiedė mietveinė"
       },
@@ -19749,14 +19636,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "slow",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -19778,26 +19668,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "panicum-virgatum",
       "scientificName": "Panicum virgatum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 31
-        }
-      ],
       "localNames": {
         "lt": "Rykštėtoji sora"
       },
@@ -19834,19 +19717,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "moderatelyDrained",
+          "poorlyDrained",
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 5a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
         "selfSeeding": null
       },
       "roots": {
-)seed",
-    R"seed(        "depthClass": null,
+        "depthClass": null,
         "architecture": null,
         "competitiveIntensity": null
       },
@@ -19861,26 +19747,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "penstemon-spp-dark-tower",
       "scientificName": "Penstemon spp.Dark Tower",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 31
-        }
-      ],
       "localNames": {
         "lt": "Penstemonas"
       },
@@ -19946,21 +19825,15 @@ constexpr const char* kSeedPlantsPieces[] = {
       "regulatory": {
         "status": null,
         "scope": null,
-        "note": null
-      },
-      "evidence": []
+)seed",
+    R"seed(        "note": null
+      }
     },
     {
       "id": "pennisetum-alopecuroides",
       "scientificName": "Pennisetum alopecuroides",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 31
-        }
-      ],
       "localNames": {
         "lt": "Pašiaušėlinė soruolė"
       },
@@ -20028,20 +19901,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "persicaria-polymorpha",
       "scientificName": "Persicaria polymorpha",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 31
-        }
-      ],
       "localNames": {
         "lt": "Rūgtis"
       },
@@ -20108,20 +19974,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "perovskia-atriplicifolia",
       "scientificName": "Perovskia atriplicifolia",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 31
-        }
-      ],
       "localNames": {
         "lt": "Mėlesas"
       },
@@ -20189,27 +20048,19 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "phlox-subulata",
       "scientificName": "Phlox subulata",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 32
-        }
-      ],
       "localNames": {
         "lt": "Ylalapis flioksas"
       },
       "saltTolerance": "low",
       "light": {
-)seed",
-    R"seed(        "acceptedClasses": [
+        "acceptedClasses": [
           "full"
         ]
       },
@@ -20235,14 +20086,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 6.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -20264,26 +20118,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "phlox-divaricata",
       "scientificName": "Phlox divaricata",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 32
-        }
-      ],
       "localNames": {
         "lt": "Skėstašakis flioksas"
       },
@@ -20314,11 +20161,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
@@ -20334,7 +20184,8 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "canopy": {
         "density": null,
-        "transmittance": null
+)seed",
+    R"seed(        "transmittance": null
       },
       "phenology": {
         "emergenceMonths": [],
@@ -20343,26 +20194,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "pulmonaria-angustifolia-blue-ensign",
       "scientificName": "Pulmonaria angustifolia",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 32
-        }
-      ],
       "cultivar": "Blue ensign",
       "localNames": {
         "lt": "Plautė"
@@ -20390,22 +20234,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 5.5,
+        "ellenbergMoisture": 4.9,
+        "ellenbergReaction": 6.3,
+        "ellenbergNutrients": 3.5,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "medium",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "low",
         "selfSeeding": null
       },
       "roots": {
@@ -20430,20 +20278,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "physostegia-virginiana",
       "scientificName": "Physostegia virginiana",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 32
-        }
-      ],
       "localNames": {
         "lt": "Virgininis pūstatauris"
       },
@@ -20475,14 +20316,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 2a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -20504,26 +20348,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "medium"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "polygonatum-odoratum",
       "scientificName": "Polygonatum odoratum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 32
-        }
-      ],
       "localNames": {
         "lt": "Vaistinė baltašaknė"
       },
@@ -20551,28 +20388,29 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 6.5,
+        "ellenbergMoisture": 3.7,
+        "ellenbergReaction": 7.3,
+        "ellenbergNutrients": 3.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
         "depthClass": null,
-)seed",
-    R"seed(        "architecture": null,
+        "architecture": null,
         "competitiveIntensity": null
       },
       "canopy": {
@@ -20585,27 +20423,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "saponaria-ocymoides",
       "scientificName": "Saponaria ocymoides",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 32
-        }
-      ],
       "localNames": {
         "lt": "Bazilikinis putoklis"
       },
@@ -20634,21 +20465,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.6,
+        "ellenbergMoisture": 3.0,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 1.8,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 2a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -20668,26 +20503,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "sedum-spp",
       "scientificName": "Sedum spp.",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 32
-        }
-      ],
       "localNames": {
         "lt": "Šilokai"
       },
@@ -20718,7 +20546,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergMoisture": null,
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+)seed",
+    R"seed(        "ellenbergSalinity": null,
         "pHMin": null,
         "pHMax": null,
         "nutrientPreference": null,
@@ -20754,20 +20583,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "sedum-herbstfreude",
       "scientificName": "Sedum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 33
-        }
-      ],
       "cultivar": "Herbstfreude",
       "localNames": {
         "lt": "Gurgždantysis šilokas"
@@ -20835,20 +20657,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "sempervivum-spp",
       "scientificName": "Sempervivum spp.",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 33
-        }
-      ],
       "localNames": {
         "lt": "Šilropė"
       },
@@ -20916,28 +20731,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "sidalcea-malviflora",
       "scientificName": "Sidalcea malviflora",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 33
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji rožūnėlė"
       },
       "breeam": true,
       "saltTolerance": "low",
       "light": {
-)seed",
-    R"seed(        "acceptedClasses": [
+        "acceptedClasses": [
           "full"
         ]
       },
@@ -20998,20 +20805,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "stachys-lanata-big-ears",
       "scientificName": "Stachys lanata) BIG EARS",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 33
-        }
-      ],
       "localNames": {
         "lt": "Vilnotoji notra"
       },
@@ -21078,20 +20878,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "teucrium-subspinosum",
       "scientificName": "Teucrium subspinosum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 33
-        }
-      ],
       "localNames": {
         "lt": "Miškinis berutis"
       },
@@ -21112,7 +20905,8 @@ constexpr const char* kSeedPlantsPieces[] = {
         "min": 9.0,
         "max": 9.0
       },
-      "floweringMonths": [
+)seed",
+    R"seed(      "floweringMonths": [
         7
       ],
       "soilTypes": [
@@ -21159,20 +20953,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "thymus-serpyllum",
       "scientificName": "Thymus serpyllum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 33
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis čiobrelis"
       },
@@ -21199,21 +20986,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergLight": 7.4,
+        "ellenbergMoisture": 2.8,
+        "ellenbergReaction": 4.2,
+        "ellenbergNutrients": 1.4,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker",
+          "stolon"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
@@ -21232,27 +21024,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "thymus-pulegioides",
       "scientificName": "Thymus pulegioides",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 33
-        }
-      ],
       "localNames": {
         "lt": "Keturbriaunis čiobrelis"
       },
@@ -21279,29 +21064,33 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
+        "ellenbergLight": 7.9,
+        "ellenbergMoisture": 3.8,
         "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "ellenbergNutrients": 1.7,
+        "ellenbergSalinity": 0.0,
+        "pHMin": 6.0,
+        "pHMax": 10.0,
+        "nutrientPreference": "low",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-8b"
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
+        "spreadMode": [
+          "rootSucker"
+        ],
         "lateralSpread": null,
         "selfSeeding": null
       },
       "roots": {
         "depthClass": null,
         "architecture": null,
-)seed",
-    R"seed(        "competitiveIntensity": null
+        "competitiveIntensity": null
       },
       "canopy": {
         "density": null,
@@ -21313,27 +21102,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
-        "maintenanceSensitivity": null
+        "lifespan": "long",
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "schyzachyrium-scoparium",
       "scientificName": "Schyzachyrium scoparium",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 34
-        }
-      ],
       "localNames": {
         "lt": "Barzdūnas"
       },
@@ -21367,14 +21149,17 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 10.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 3a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "medium",
         "competitiveVigour": null,
         "spreadMode": [],
         "lateralSpread": null,
@@ -21396,26 +21181,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "vaccinium-uliginosum",
       "scientificName": "Vaccinium uliginosum",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 34
-        }
-      ],
       "localNames": {
         "lt": "Paprastasis vaivoras"
       },
@@ -21443,22 +21221,26 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 6.6,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 1.7,
+        "ellenbergNutrients": 2.1,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "rootSucker",
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "high",
         "selfSeeding": null
       },
       "roots": {
@@ -21476,27 +21258,21 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
-        "scope": null,
+)seed",
+    R"seed(        "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "vaccinium-myrtillus",
       "scientificName": "Vaccinium myrtillus",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 34
-        }
-      ],
       "localNames": {
         "lt": "Juodauogė mėlynė"
       },
@@ -21524,22 +21300,24 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
+        "ellenbergLight": 5.7,
         "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergReaction": 1.9,
+        "ellenbergNutrients": 2.5,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -21557,27 +21335,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "vaccinium-vitis-idaea",
       "scientificName": "Vaccinium vitis-idaea",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 34
-        }
-      ],
       "localNames": {
         "lt": "Bruknė"
       },
@@ -21605,22 +21376,25 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 5.1,
+        "ellenbergMoisture": 4.8,
+        "ellenbergReaction": 2.0,
+        "ellenbergNutrients": 1.9,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -21638,27 +21412,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "vaccinium-oxycoccos",
       "scientificName": "Vaccinium oxycoccos",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 34
-        }
-      ],
       "localNames": {
         "lt": "Paprastoji spanguolė"
       },
@@ -21667,8 +21434,7 @@ constexpr const char* kSeedPlantsPieces[] = {
         "acceptedClasses": [
           "full"
         ]
-)seed",
-    R"seed(      },
+      },
       "moistureClasses": [
         "wet"
       ],
@@ -21687,22 +21453,24 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.4,
+        "ellenbergMoisture": 8.8,
+        "ellenbergReaction": 2.6,
+        "ellenbergNutrients": 1.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
       "competition": {
         "establishmentSpeed": null,
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "stolon"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -21720,27 +21488,20 @@ constexpr const char* kSeedPlantsPieces[] = {
         "leafOnMonths": []
       },
       "lifecycle": {
-        "lifespan": null,
+        "lifespan": "long",
         "maintenanceSensitivity": null
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "veronica-incana",
       "scientificName": "Veronica incana",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 34
-        }
-      ],
       "localNames": {
         "lt": "Žiloji veronika"
       },
@@ -21767,14 +21528,14 @@ constexpr const char* kSeedPlantsPieces[] = {
         "A"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 7.8,
+        "ellenbergMoisture": 2.6,
+        "ellenbergReaction": 6.0,
+        "ellenbergNutrients": 2.0,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
+        "nutrientPreference": "low",
         "drainage": [],
         "hardiness": null
       },
@@ -21807,20 +21568,13 @@ constexpr const char* kSeedPlantsPieces[] = {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "vinca-minor-atropurpurea",
       "scientificName": "Vinca minor atropurpurea",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 34
-        }
-      ],
       "localNames": {
         "lt": "Mažoji žiemė"
       },
@@ -21847,26 +21601,33 @@ constexpr const char* kSeedPlantsPieces[] = {
         "B"
       ],
       "ecology": {
-        "ellenbergLight": null,
-        "ellenbergMoisture": null,
-        "ellenbergReaction": null,
-        "ellenbergNutrients": null,
-        "ellenbergSalinity": null,
+        "ellenbergLight": 3.9,
+        "ellenbergMoisture": 5.3,
+        "ellenbergReaction": 6.6,
+        "ellenbergNutrients": 6.2,
+        "ellenbergSalinity": 0.0,
         "pHMin": null,
         "pHMax": null,
-        "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "nutrientPreference": "high",
+        "drainage": [
+          "freelyDrained",
+          "moderatelyDrained"
+        ],
+        "hardiness": "USDA 4a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
-        "depthClass": null,
+)seed",
+    R"seed(        "depthClass": null,
         "architecture": null,
         "competitiveIntensity": null
       },
@@ -21881,26 +21642,19 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "high"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     },
     {
       "id": "waldsteinia-ternata",
       "scientificName": "Waldsteinia ternata",
       "section": "perennials",
       "habit": "perennial",
-      "sourceRefs": [
-        {
-          "sourceId": "vilnius-2024",
-          "page": 34
-        }
-      ],
       "localNames": {
         "lt": "Trilapė valdšteinija"
       },
@@ -21932,17 +21686,22 @@ constexpr const char* kSeedPlantsPieces[] = {
         "ellenbergReaction": null,
         "ellenbergNutrients": null,
         "ellenbergSalinity": null,
-        "pHMin": null,
-        "pHMax": null,
+        "pHMin": 3.0,
+        "pHMax": 8.0,
         "nutrientPreference": null,
-        "drainage": [],
-        "hardiness": null
+        "drainage": [
+          "freelyDrained"
+        ],
+        "hardiness": "USDA 4a-9b"
       },
       "competition": {
-        "establishmentSpeed": null,
+        "establishmentSpeed": "fast",
         "competitiveVigour": null,
-        "spreadMode": [],
-        "lateralSpread": null,
+        "spreadMode": [
+          "shortRhizome",
+          "stolon"
+        ],
+        "lateralSpread": "medium",
         "selfSeeding": null
       },
       "roots": {
@@ -21961,14 +21720,13 @@ constexpr const char* kSeedPlantsPieces[] = {
       },
       "lifecycle": {
         "lifespan": null,
-        "maintenanceSensitivity": null
+        "maintenanceSensitivity": "low"
       },
       "regulatory": {
         "status": null,
         "scope": null,
         "note": null
-      },
-      "evidence": []
+      }
     }
   ]
 }
