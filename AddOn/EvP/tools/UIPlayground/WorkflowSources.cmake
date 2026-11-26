@@ -20,6 +20,7 @@ foreach (source
     ArchViz/DiligentHudPlanting.cpp ArchViz/DiligentHudPlantingResults.cpp ArchViz/PlantingHudModel.cpp
     ArchViz/DiligentHudPlantingCatalogue.cpp ArchViz/DiligentHudPlantingClimate.cpp
     ArchViz/PlantCatalogue.cpp ArchViz/PlantCatalogueCsv.cpp ArchViz/PlantTraits.cpp
+    ArchViz/PlantingScheme.cpp ArchViz/DiligentHudPlantingScheme.cpp
     ArchViz/PlantingFiles.cpp
     ArchViz/DiligentHudControls.cpp ArchViz/AnalysisTabs.cpp
     ArchViz/AnalysisPath.cpp ArchViz/AnalysisProfile.cpp ArchViz/EditLayers.cpp

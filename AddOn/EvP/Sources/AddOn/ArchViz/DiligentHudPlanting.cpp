@@ -643,6 +643,7 @@ void DrawPlantingHudSection (HudState& state, const DiligentSceneStats& scene)
 {
     ServicePlantingRuns (state);
     ApplyPlantingDisplay (state);
+    plantinghud::PublishSchemeScene (state); // the placed scheme stays on screen on every sub-tab
     if (!hudshell::BeginSubTabs ("##planting-tabs"))
         return;
     if (ImGui::BeginTabItem ("Light")) {
@@ -663,6 +664,10 @@ void DrawPlantingHudSection (HudState& state, const DiligentSceneStats& scene)
     const bool openPlants = std::exchange (state.planting.catalogue.openPlantsTab, false);
     if (ImGui::BeginTabItem ("Plants", nullptr, openPlants ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) {
         plantinghud::DrawPlantsTab (state);
+        ImGui::EndTabItem ();
+    }
+    if (ImGui::BeginTabItem ("Scheme")) {
+        plantinghud::DrawSchemeTab (state);
         ImGui::EndTabItem ();
     }
     if (ImGui::BeginTabItem ("Compare")) {

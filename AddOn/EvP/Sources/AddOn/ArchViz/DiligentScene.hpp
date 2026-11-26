@@ -69,6 +69,9 @@ namespace archviz {
 
 class Camera;
 struct SunPathSceneGeometry; // ArchViz/SunPathScene.hpp
+namespace planting {
+struct PlantingSchemeGeometry; // ArchViz/PlantingSchemeScene.hpp
+}
 namespace diagram {
 struct DiagramView; // ArchViz/DiagramView.hpp
 }
@@ -716,6 +719,14 @@ class DiligentScene final {
     void DrawSunPathOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
                              uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                              const SunPathSceneGeometry* replacement, uint64_t key, bool modelIsDrawn);
+
+    // A placed planting scheme (#278): translucent crown cylinders and the
+    // lines joining each species, depth-tested like the sun path. Uploaded only
+    // when `key` changes; key 0 hides it.
+    void DrawPlantingSchemeOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                                    uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                                    const planting::PlantingSchemeGeometry* replacement, uint64_t key,
+                                    bool modelIsDrawn);
 
     // ---- picking (PLAT-RE34) -----------------------------------------------
     // The same geometry, drawn as FLAT ID COLOURS into DiligentPickBuffer's id

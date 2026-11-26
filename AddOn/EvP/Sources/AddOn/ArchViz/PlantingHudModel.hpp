@@ -13,6 +13,7 @@
 
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/PlantCatalogue.hpp"
+#include "ArchViz/PlantingScheme.hpp"
 #include "SunStudy/SunStudyPlantingAreas.hpp"
 #include "SunStudy/SunStudyWeather.hpp"
 
@@ -129,6 +130,28 @@ struct ClimateState {
     evp::sunstudy::GrowingSeason season;
 };
 
+// The Scheme sub-tab (#278): a mix of catalogue plants placed on one kept
+// layer's samples. Held for the session only; nothing is written to the model.
+struct SchemeState {
+    std::vector<SchemeSpecies> species;
+    int layer = -1;     // kept layer the region comes from; -1 = the shown one
+    int highlight = -1; // species row the viewer emphasises
+    int marker = 0;     // SchemeMarker
+    float crownOverlap = 0.0f;
+    bool show = true;
+    // The region read for `siteStudy`, as classes at the edges it was read with.
+    std::string siteStudy;
+    std::vector<double> siteEdges;
+    std::vector<double> siteHours; // raw, so new edges reclassify without a read
+    SchemeSite site;
+    std::vector<std::string> siteHosts;
+    std::string siteError;
+    // The last placement and what it was placed from; `revision` bumps on change.
+    SchemeResult result;
+    std::string placedFrom;
+    uint64_t revision = 0;
+};
+
 struct PlantingHud {
     // Run form.
     std::vector<std::string> hosts;   // measured: the planting beds
@@ -151,6 +174,7 @@ struct PlantingHud {
     int climate = 0; // 0 geometry only; weather-weighted hours wait for #155 P2
     ClimateState climateState;
     CatalogueState catalogue;
+    SchemeState scheme;
     std::string profileId = "vilnius-2024";
 
     // Run queue: heights still to trace, the one running, and the finished ones.

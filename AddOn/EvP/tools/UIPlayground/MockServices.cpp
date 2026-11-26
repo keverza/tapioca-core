@@ -180,6 +180,26 @@ bool ReadPlantingAreas (const std::string& studyId, const std::vector<double>& e
     pg::LogMock ("Read planting areas -> fixed courtyard fixture; no store read");
     return true;
 }
+// The planting scheme's region (#278): the same courtyard as a 20 x 12 m bed at
+// 0.5 m, shaded towards its north edge. No store is read.
+bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingSite& out, std::string& error)
+{
+    error.clear ();
+    out = PlantingSite ();
+    out.studyId = studyId;
+    for (int i = 0; i < 40; ++i)
+        for (int j = 0; j < 24; ++j) {
+            const double x = 0.25 + 0.5 * i, y = 0.25 + 0.5 * j;
+            out.x.push_back (x);
+            out.y.push_back (y);
+            out.groundZ.push_back (0.0);
+            out.hours.push_back (1.0 + 8.0 * (1.0 - y / 12.0) + 0.05 * (x - 10.0));
+            out.groups.push_back (x < 14 ? 0u : 1u);
+        }
+    out.meshGuids = { "FIXTURE-COURTYARD-BED-0A1B", "FIXTURE-ROOF-TERRACE-9C2D" };
+    pg::LogMock ("Read planting site -> fixed courtyard bed; layer " + std::to_string (layerHeight) + " m");
+    return true;
+}
 bool ClearPeriodCache (std::string& error)
 {
     error.clear ();
@@ -187,6 +207,12 @@ bool ClearPeriodCache (std::string& error)
     return true;
 }
 } // namespace geomsrv::sunstudyhud
+namespace geomsrv::archviz::plantinghud {
+// The playground has no scene: the scheme's viewer geometry is not built.
+void PublishSchemeScene (HudState&)
+{
+}
+} // namespace geomsrv::archviz::plantinghud
 namespace evp::sunstudy {
 // EPW weather (#155 P1): the Playground has no Rust parser. Any picked file
 // reads as one synthetic Vilnius-like year, so the Climate section can be laid

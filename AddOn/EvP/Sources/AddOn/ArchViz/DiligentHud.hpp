@@ -67,6 +67,9 @@ struct InputSnapshot;
 struct DiligentSceneStats;
 struct SunStudyAtlasUpload;
 struct SunPathSceneGeometry; // ArchViz/SunPathScene.hpp
+namespace planting {
+struct PlantingSchemeGeometry; // ArchViz/PlantingSchemeScene.hpp
+}
 namespace surfacetakeoff {
 struct ShotTable; // ArchViz/SurfaceTakeoffShot.hpp
 }
@@ -348,6 +351,11 @@ struct HudState {
     // changes. `sunPathSceneKey` is this frame's: 0 hides the scene channel.
     std::shared_ptr<const SunPathSceneGeometry> sunPathScene;
     uint64_t sunPathSceneKey = 0, sunPathSceneBuilt = 0;
+    // The Planting tab's placed scheme (#278), built when the scheme changes.
+    // The HUD publishes `plantingSchemeSceneKey` each frame the tab is open; the
+    // frame loop draws it and consumes it, so leaving the tab hides the markers.
+    std::shared_ptr<const planting::PlantingSchemeGeometry> plantingSchemeScene;
+    uint64_t plantingSchemeSceneKey = 0, plantingSchemeSceneBuilt = 0;
     // The sunpath's words (#182), world-anchored, drawn by the scene text pass
     // with depth; `sunPathSceneText` is that pass's readiness, set before the
     // HUD each frame. False: the HUD draws them itself, unoccluded.

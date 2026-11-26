@@ -134,6 +134,11 @@ bool ReadPlantingAreas (const std::string&, const std::vector<double>&, Planting
     error = "no store in the offline HUD tests";
     return false;
 }
+bool ReadPlantingSite (const std::string&, double, PlantingSite&, std::string& error)
+{
+    error = "no store in the offline HUD tests";
+    return false;
+}
 } // namespace geomsrv::sunstudyhud
 
 namespace tapioca::test {

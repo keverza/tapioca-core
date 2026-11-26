@@ -1,0 +1,103 @@
+#include "ArchViz/PlantingSchemeScene.hpp"
+
+#include "ArchViz/SunPathScene.hpp"
+
+#include <algorithm>
+#include <cmath>
+
+namespace geomsrv::archviz::planting {
+
+namespace {
+
+constexpr int kSides = 24;
+constexpr double kLift = 0.01; // above the host surface, so the base never fights it
+constexpr double kTwoPi = 6.28318530717958647692;
+
+// A species colour as display (sRGB) components, linearised for this channel.
+uint32_t Display (uint32_t rgba, int alpha)
+{
+    return SunPathDisplayRgba (int ((rgba >> 24) & 0xff), int ((rgba >> 16) & 0xff), int ((rgba >> 8) & 0xff), alpha);
+}
+
+void Vertex (GhPreviewBucket& b, double x, double y, double z, float nx, float ny, float nz, uint32_t rgba)
+{
+    b.meshVertices.push_back ({ float (x), float (y), float (z), nx, ny, nz, rgba });
+}
+
+void AppendCylinder (const PlacedPlant& p, double height, uint32_t rgba, GhPreviewBucket& b)
+{
+    const double z0 = p.z + kLift, z1 = p.z + kLift + height;
+    const uint32_t base = uint32_t (b.meshVertices.size ());
+    for (int i = 0; i <= kSides; ++i) {
+        const double a = kTwoPi * i / kSides;
+        const float c = float (std::cos (a)), s = float (std::sin (a));
+        Vertex (b, p.x + p.radius * c, p.y + p.radius * s, z0, c, s, 0, rgba);
+        Vertex (b, p.x + p.radius * c, p.y + p.radius * s, z1, c, s, 0, rgba);
+    }
+    for (uint32_t i = 0; i < uint32_t (kSides); ++i) {
+        const uint32_t k = base + 2 * i;
+        b.meshIndices.insert (b.meshIndices.end (), { k, k + 2, k + 1, k + 1, k + 2, k + 3 });
+    }
+    // The top cap, a fan around the centre.
+    const uint32_t centre = uint32_t (b.meshVertices.size ());
+    Vertex (b, p.x, p.y, z1, 0, 0, 1, rgba);
+    for (int i = 0; i <= kSides; ++i) {
+        const double a = kTwoPi * i / kSides;
+        Vertex (b, p.x + p.radius * std::cos (a), p.y + p.radius * std::sin (a), z1, 0, 0, 1, rgba);
+    }
+    for (uint32_t i = 0; i < uint32_t (kSides); ++i)
+        b.meshIndices.insert (b.meshIndices.end (), { centre, centre + 1 + i, centre + 2 + i });
+}
+
+void AppendRim (const PlacedPlant& p, double z, uint32_t rgba, GhPreviewBucket& b)
+{
+    for (int i = 0; i < kSides; ++i) {
+        const double a0 = kTwoPi * i / kSides, a1 = kTwoPi * (i + 1) / kSides;
+        const float from[3] = { float (p.x + p.radius * std::cos (a0)), float (p.y + p.radius * std::sin (a0)),
+                                float (z) };
+        const float to[3] = { float (p.x + p.radius * std::cos (a1)), float (p.y + p.radius * std::sin (a1)),
+                              float (z) };
+        AppendPreviewSegment (from, to, rgba, b);
+    }
+}
+
+} // namespace
+
+void BuildPlantingSchemeScene (const SchemeResult& scheme, SchemeMarker marker, int highlight,
+                               PlantingSchemeGeometry& out)
+{
+    out = {};
+    std::vector<double> top (scheme.plants.size ());
+    for (size_t i = 0; i < scheme.plants.size (); ++i) {
+        const PlacedPlant& p = scheme.plants[i];
+        const double h = marker == SchemeMarker::Mature ? std::max (p.height, 0.05)
+                                                        : std::min (kSchemeDiscHeight, std::max (p.height, 0.05));
+        top[i] = p.z + kLift + h;
+        const bool dim = highlight >= 0 && p.species != highlight;
+        const uint32_t rgba = SchemeSpeciesRgba (p.species);
+        AppendCylinder (p, h, Display (rgba, dim ? 40 : 150), out.crowns.translucent);
+        AppendRim (p, top[i] + 0.005, Display (rgba, dim ? 70 : 255), out.crowns.depthTested);
+        // A small cross at the centre, where the species' line starts.
+        const double t = std::min (0.15, p.radius * 0.3);
+        const uint32_t ink = Display (rgba, dim ? 70 : 255);
+        const float ax[3] = { float (p.x - t), float (p.y), float (top[i] + 0.01) };
+        const float bx[3] = { float (p.x + t), float (p.y), float (top[i] + 0.01) };
+        const float ay[3] = { float (p.x), float (p.y - t), float (top[i] + 0.01) };
+        const float by[3] = { float (p.x), float (p.y + t), float (top[i] + 0.01) };
+        AppendPreviewSegment (ax, bx, ink, out.links.depthTested);
+        AppendPreviewSegment (ay, by, ink, out.links.depthTested);
+    }
+    for (const SchemeLink& link : scheme.links) {
+        const PlacedPlant& a = scheme.plants[size_t (link.a)];
+        const PlacedPlant& b = scheme.plants[size_t (link.b)];
+        const bool dim = highlight >= 0 && a.species != highlight;
+        // Lines run at the higher of the two tops, so neither cylinder swallows them.
+        const double z = std::max (top[size_t (link.a)], top[size_t (link.b)]) + 0.01;
+        const float from[3] = { float (a.x), float (a.y), float (z) };
+        const float to[3] = { float (b.x), float (b.y), float (z) };
+        AppendPreviewSegment (from, to, Display (SchemeSpeciesRgba (a.species), dim ? 70 : 255), out.links.depthTested);
+    }
+    out.plants = scheme.plants.size ();
+}
+
+} // namespace geomsrv::archviz::planting

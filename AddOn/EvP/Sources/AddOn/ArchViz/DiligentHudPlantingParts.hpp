@@ -63,6 +63,14 @@ void OpenFolderInExplorer (const std::filesystem::path& folder);
 void DrawClimateSection (HudState& state, const DiligentSceneStats& scene);
 void DrawCompareTab (HudState& state);
 
+// The Scheme sub-tab (#278): a mix of catalogue plants placed on a kept layer.
+void DrawSchemeTab (HudState& state);
+// Adds a catalogue plant to the scheme (the Plants tab's "Add to scheme").
+void AddToScheme (planting::PlantingHud& hud, const planting::Plant& plant);
+// Publishes the scheme's viewer geometry for this frame (add-on only; the
+// playground has no scene and stubs it). Call every frame the Planting tab is open.
+void PublishSchemeScene (HudState& state);
+
 } // namespace plantinghud
 } // namespace geomsrv::archviz
 

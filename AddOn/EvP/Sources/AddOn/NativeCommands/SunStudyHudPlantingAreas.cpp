@@ -40,4 +40,40 @@ bool ReadPlantingAreas (const std::string& studyId, const std::vector<double>& e
     return true;
 }
 
+bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingSite& out, std::string& error)
+{
+    using evp::sunstudy::SunStudyStore;
+    out = PlantingSite ();
+    out.studyId = studyId;
+    error.clear ();
+    std::vector<double> hours, positions, normals;
+    if (!SunStudyStore::Get ().Results (studyId, hours, positions, normals, nullptr, error, true))
+        return false;
+    std::vector<double> mean;
+    if (period::MeanDailyHours (studyId, mean, error))
+        hours = std::move (mean);
+    else if (!error.empty ())
+        return false;
+    SunStudyStore::SampleCells cells;
+    if (!SunStudyStore::Get ().Cells (studyId, cells, error))
+        return false;
+    if (positions.size () != hours.size () * 3 || cells.groups.size () != hours.size ()) {
+        error = "the study's samples, positions and cells do not match";
+        return false;
+    }
+    const size_t n = hours.size ();
+    out.x.resize (n);
+    out.y.resize (n);
+    out.groundZ.resize (n);
+    for (size_t i = 0; i < n; ++i) {
+        out.x[i] = positions[3 * i];
+        out.y[i] = positions[3 * i + 1];
+        out.groundZ[i] = positions[3 * i + 2] - layerHeight;
+    }
+    out.hours = std::move (hours);
+    out.groups = std::move (cells.groups);
+    out.meshGuids = std::move (cells.meshGuids);
+    return true;
+}
+
 } // namespace geomsrv::sunstudyhud

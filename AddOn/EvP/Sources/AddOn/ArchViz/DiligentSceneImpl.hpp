@@ -829,6 +829,18 @@ struct geomsrv::archviz::DiligentScene::Impl {
         sunPathInitFailed = false;
     }
 
+    // The planting scheme (#278): crowns, then same-species lines.
+    GhPreviewLayer plantingSchemeLayers[2];
+    uint64_t plantingSchemeKey = 0;
+    bool plantingSchemeInitFailed = false;
+    void ShutdownPlantingSchemeOverlay ()
+    {
+        for (GhPreviewLayer& layer : plantingSchemeLayers)
+            layer.Shutdown ();
+        plantingSchemeKey = 0;
+        plantingSchemeInitFailed = false;
+    }
+
     // ---- the exploded diagram (#201, DiligentSceneDiagram.cpp) -----------------
     // The publication lives in DiagramModel, on the CPU; only the GPU copy dies with the
     // viewport. `diagramGeneration` names what is uploaded (0: nothing).
@@ -867,6 +879,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
         ShutdownAnalysisOverlay ();
         ShutdownObstructionOverlay ();
         ShutdownSunPathOverlay ();
+        ShutdownPlantingSchemeOverlay ();
         ShutdownDiagram ();
     }
     Diligent::ITextureView* taaView = nullptr;

@@ -348,6 +348,21 @@ struct PlantingAreas {
 bool ReadPlantingAreas (const std::string& studyId, const std::vector<double>& edges, PlantingAreas& out,
                         std::string& error);
 
+// ---- the planting scheme's region (#278) -----------------------------------
+//
+// Every measured sample of a planting study: plan position, the host surface
+// under it (the sample's z less `layerHeight`: the receptor lift is vertical),
+// its RAW hours (a kept period's mean hours a day, as the area table reads) and
+// its host. Unavailable receptors are not stored, so none is listed. Copies the
+// study: call it when the layer changes, not every frame.
+struct PlantingSite {
+    std::string studyId;
+    std::vector<double> x, y, groundZ, hours;
+    std::vector<uint32_t> groups;
+    std::vector<std::string> meshGuids;
+};
+bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingSite& out, std::string& error);
+
 } // namespace geomsrv::sunstudyhud
 
 #endif

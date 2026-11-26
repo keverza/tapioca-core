@@ -441,6 +441,10 @@ void SelectedPlant (HudState& state)
         if (ImGui::SmallButton ("Show its layer##plantcat"))
             ShowLayer (state, size_t (fit.layer));
     }
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("Add to scheme##plantcat"))
+        AddToScheme (hud, p);
+    hudshell::ItemTip ("Add this plant to the Scheme tab's mix, to be placed on a measured layer.");
     hud.highlightMask = cat.highlight && fit.layer >= 0 ? pl::AcceptedClassMask (hud, p) : 0;
 }
 

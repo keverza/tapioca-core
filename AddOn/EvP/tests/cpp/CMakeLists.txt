@@ -214,6 +214,8 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantCatalogue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantCatalogueCsv.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantTraits.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingScheme.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingSchemeScene.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlantingFiles.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnalysisLiveRerun.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudControls.cpp"
@@ -600,6 +602,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingResults.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingCatalogue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingClimate.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingScheme.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudPlantingSchemeScene.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/LayoutReportPage.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerScreenshotGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunRun.cpp"
@@ -1271,6 +1275,7 @@ set (EVP_TEST_SOURCES
     test_plantinghudmodel.cpp
     test_plantcatalogue.cpp
     test_plantcataloguecsv.cpp
+    test_plantingscheme.cpp
     test_layoutreportplanting.cpp
     test_analysisliverun.cpp
     test_analysispath.cpp

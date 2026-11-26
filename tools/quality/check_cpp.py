@@ -576,6 +576,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # hands the same runner a plain-value request per height (receptor fields
     # included) and reads its plain-value status to advance its queue.
     ("ArchViz/DiligentHudPlanting.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # Its Scheme sub-tab reads a kept layer's samples from the same runner by
+    # plain value (ReadPlantingSite) to place plants on them; it submits nothing.
+    ("ArchViz/DiligentHudPlantingScheme.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
     # Seasonal small multiples are the same panel's read-only plain-value adapter.
     ("ArchViz/DiligentHudSunSeasons.cpp", "NativeCommands/SunStudySeasonal.hpp"),
     # The sun path preview (#152) asks the same runner, by plain value, for
