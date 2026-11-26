@@ -8,10 +8,14 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <memory>
 #include <vector>
 
@@ -303,4 +307,156 @@ TEST (SunStudyClimateRun, ReferenceWeatherFilesCloseOnTheirOwnGhi)
     }
     if (checked == 0)
         GTEST_SKIP () << "no weather file in TAPIOCA_EPW_DIR";
+}
+
+// Opt-in, #155 P3 "a shaded vertical surface against an independent
+// reference": TAPIOCA_RADIANCE_OVERHANG_DIR names a folder of pairs
+// `<name>.wea` (Radiance's epw2wea) and `<name>.wall`, the hourly SKY
+// irradiance on this file's wall sample under OverhangScene from Radiance:
+//
+//   rfluxmtx -I+ -ab 1 -ad 65536 -lw 1e-6 -c 1 < sensor.pts - sky_m1.rad overhang.rad > wall_m1.dc
+//   (sensor 0 -0.02 0 facing 0 -1 0; the ground bin zeroed: sky only)
+//   gendaymtx -m 1 -s -O1 <name>.wea | dctimestep wall_m1_sky.dc /dev/stdin > <name>.wall
+//
+// Ours: the same sample through the sky masks (4 x 4 cells a patch) and the
+// Perez sky, with the independent sun. Radiance computes its own sun and its
+// own Perez sky, so the sky models' difference (within 2.2 % of the year's
+// DHI, sky::radiance_tests) is part of what is measured. Bound: 10 % over the
+// year (P3); the months are printed. Measured 2026-11-26: Perugia IGDG -2.48 %,
+// Kaunas IWEC -2.15 %, Vilnius TMYx -2.18 %, every month within -3.6 %; the
+// same offset as gendaymtx's sky alone (its patches integrate to about 1.022 x
+// DHI), so the shading adds almost nothing. Radiance's view factor for this
+// sensor is 0.2256, the analytic 0.2254.
+namespace {
+
+struct Wea {
+    double latitude = std::nan (""), longitudeEast = std::nan (""), offsetHours = std::nan ("");
+    struct Step {
+        int month = 0, day = 0;
+        double hour = 0.0, dni = 0.0, dhi = 0.0;
+    };
+    std::vector<Step> steps;
+};
+
+bool ReadWea (const std::filesystem::path& path, Wea& wea)
+{
+    std::ifstream in (path);
+    std::string line;
+    while (std::getline (in, line)) {
+        std::istringstream fields (line);
+        std::string key;
+        fields >> key;
+        if (key == "latitude")
+            fields >> wea.latitude;
+        else if (key == "longitude") {
+            fields >> wea.longitudeEast; // the file writes west positive
+            wea.longitudeEast = -wea.longitudeEast;
+        }
+        else if (key == "time_zone") {
+            fields >> wea.offsetHours; // the meridian, west positive
+            wea.offsetHours = -wea.offsetHours / 15.0;
+        }
+        else if (!key.empty () && std::isdigit (static_cast<unsigned char> (key[0]))) {
+            Wea::Step s;
+            s.month = std::stoi (key);
+            fields >> s.day >> s.hour >> s.dni >> s.dhi;
+            wea.steps.push_back (s);
+        }
+    }
+    return std::isfinite (wea.latitude) && std::isfinite (wea.longitudeEast) && std::isfinite (wea.offsetHours);
+}
+
+// dctimestep's one row: after the header's blank line, an RGB triple a step.
+std::vector<double> ReadWall (const std::filesystem::path& path)
+{
+    std::ifstream in (path);
+    std::string line;
+    while (std::getline (in, line) && !line.empty () && line != "\r") {
+    }
+    std::vector<double> rgb, out;
+    double v = 0.0;
+    while (in >> v)
+        rgb.push_back (v);
+    for (size_t i = 0; i + 2 < rgb.size (); i += 3)
+        out.push_back ((rgb[i] + rgb[i + 1] + rgb[i + 2]) / 3.0);
+    return out;
+}
+
+} // namespace
+
+TEST (SunStudyClimateRun, AShadedWallMatchesRadianceWhenFixturesAreProvided)
+{
+    const char* dir = std::getenv ("TAPIOCA_RADIANCE_OVERHANG_DIR");
+    if (dir == nullptr || *dir == 0)
+        GTEST_SKIP () << "set TAPIOCA_RADIANCE_OVERHANG_DIR to a folder of .wea and .wall pairs";
+    int checked = 0;
+    for (const auto& entry : std::filesystem::directory_iterator (std::filesystem::u8path (dir))) {
+        if (entry.path ().extension () != ".wea")
+            continue;
+        auto wallPath = entry.path ();
+        wallPath.replace_extension (".wall");
+        Wea wea;
+        ASSERT_TRUE (ReadWea (entry.path (), wea)) << entry.path ();
+        const std::vector<double> wall = ReadWall (wallPath);
+        ASSERT_EQ (wall.size (), wea.steps.size ()) << wallPath;
+
+        WeatherPlacement place;
+        place.year = 2026;
+        place.stationOffsetHours = wea.offsetHours;
+        place.projectOffsetHours = wea.offsetHours;
+        place.latitude = wea.latitude;
+        place.longitude = wea.longitudeEast;
+        std::vector<WeatherStamp> stamps;
+        for (const auto& s : wea.steps) // the .wea hour is the interval's midpoint
+            stamps.push_back ({ s.month, s.day, int (std::floor (s.hour)) + 1, 0 });
+        std::vector<WeatherInstant> instants;
+        std::string error;
+        ASSERT_TRUE (WeatherInstants (stamps, place, instants, error)) << error;
+
+        ClimateRunRequest request;
+        request.positions = { 0, 0, 0 };
+        request.normals = { 0, -1, 0 };
+        request.sunSource = SunSource::Independent;
+        std::vector<size_t> kept; // the steps run, by index into the .wall
+        for (size_t k = 0; k < wea.steps.size (); ++k) {
+            if (!instants[k].valid)
+                continue;
+            ClimateInterval i;
+            i.sun = instants[k].independentSun;
+            i.hours = instants[k].hours;
+            i.dni = wea.steps[k].dni;
+            i.dhi = wea.steps[k].dhi;
+            i.albedo = 0.2;
+            i.dewPointC = std::nan ("");
+            i.dayOfYear = instants[k].dayOfYear;
+            i.month = wea.steps[k].month - 1;
+            request.intervals.push_back (i);
+            kept.push_back (k);
+        }
+        const auto scene = OverhangScene ();
+        ClimateRunResult result;
+        ASSERT_TRUE (RunClimate (*scene, request, {}, {}, result, error)) << error;
+
+        std::array<double, 12> theirs {};
+        for (size_t k : kept)
+            theirs[size_t (wea.steps[k].month - 1)] += wall[k]; // W/m2 over one hour: Wh/m2
+        double oursYear = 0.0, theirsYear = 0.0;
+        std::string months;
+        for (size_t m = 0; m < 12; ++m) {
+            const double ours = result.diffuse[0][m];
+            oursYear += ours;
+            theirsYear += theirs[m];
+            char text[32];
+            std::snprintf (text, sizeof text, " %+.1f", theirs[m] > 0.0 ? 100.0 * (ours / theirs[m] - 1.0) : 0.0);
+            months += text;
+        }
+        const double share = oursYear / theirsYear - 1.0;
+        std::printf ("shaded wall %s: sky %.1f kWh/m2 (Radiance %.1f), %+.2f %% over the year; months%s\n",
+                     entry.path ().filename ().string ().c_str (), oursYear / 1000.0, theirsYear / 1000.0,
+                     100.0 * share, months.c_str ());
+        EXPECT_LT (std::fabs (share), 0.10) << entry.path ().filename ().string ();
+        ++checked;
+    }
+    if (checked == 0)
+        GTEST_SKIP () << "no .wea in TAPIOCA_RADIANCE_OVERHANG_DIR";
 }
