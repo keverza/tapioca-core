@@ -74,6 +74,7 @@
 #include "NativeCommands/QueryCommands.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
 #include "NativeCommands/SunStudyDisplayCommands.hpp"
+#include "NativeCommands/SunStudyWeatherCommands.hpp"
 #include "NativeCommands/VisibilityStudyCommands.hpp"
 #include "NativeCommands/RoofCreateCommands.hpp"
 #include "NativeCommands/SelectionCommands.hpp"
@@ -114,6 +115,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetQueryCommandRegistrations,
     &GetSunStudyCommandRegistrations,
     &GetSunStudyDisplayCommandRegistrations,
+    &GetSunStudyWeatherCommandRegistrations,
     &GetVisibilityStudyCommandRegistrations,
     &GetElementReadCommandRegistrations,
     &GetElementPropertyCommandRegistrations,
