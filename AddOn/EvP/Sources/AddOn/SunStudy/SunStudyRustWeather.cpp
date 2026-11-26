@@ -1,7 +1,9 @@
 #include "SunStudy/SunStudyWeather.hpp"
 #include "SunStudy/SunStudyRustDetail.hpp"
+#include "SunStudy/ZipArchive.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -142,6 +144,13 @@ bool ParseWeather (const std::vector<uint8_t>& bytes, WeatherData& out, std::str
     return true;
 }
 
+bool IsZipPath (const std::filesystem::path& path)
+{
+    std::string ext = Utf8 (path.extension ());
+    std::transform (ext.begin (), ext.end (), ext.begin (), [] (unsigned char c) { return char (std::tolower (c)); });
+    return ext == ".zip";
+}
+
 bool ReadWeatherFile (const std::filesystem::path& path, WeatherData& out, std::string& error)
 {
     out = WeatherData ();
@@ -150,9 +159,35 @@ bool ReadWeatherFile (const std::filesystem::path& path, WeatherData& out, std::
         error = "cannot open " + Utf8 (path);
         return false;
     }
-    const std::vector<uint8_t> bytes ((std::istreambuf_iterator<char> (file)), std::istreambuf_iterator<char> ());
+    std::vector<uint8_t> bytes ((std::istreambuf_iterator<char> (file)), std::istreambuf_iterator<char> ());
+    std::string shown = Utf8 (path.filename ());
+    if (IsZipPath (path)) {
+        // As downloaded: the archive's .epw, read without unpacking it to disk.
+        std::vector<ZipMember> members;
+        if (!ListZipMembers (bytes, members, error)) {
+            error = shown + ": " + error;
+            return false;
+        }
+        const auto epw = std::find_if (members.begin (), members.end (), [] (const ZipMember& m) {
+            std::string name = m.name;
+            std::transform (name.begin (), name.end (), name.begin (),
+                            [] (unsigned char c) { return char (std::tolower (c)); });
+            return name.size () > 4 && name.compare (name.size () - 4, 4, ".epw") == 0;
+        });
+        if (epw == members.end ()) {
+            error = shown + ": no .epw file inside";
+            return false;
+        }
+        std::vector<uint8_t> inner;
+        if (!ExtractZipMember (bytes, *epw, inner, error)) {
+            error = shown + ": " + error;
+            return false;
+        }
+        bytes = std::move (inner);
+        shown += "/" + epw->name;
+    }
     if (!ParseWeather (bytes, out, error)) {
-        error = Utf8 (path.filename ()) + ": " + error;
+        error = shown + ": " + error;
         return false;
     }
     return true;

@@ -2,12 +2,17 @@
 // energy, refusals with their line, growing season and station distance.
 
 #include "SunStudy/SunStudyWeather.hpp"
+#include "SunStudy/ZipArchive.hpp"
 
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 using namespace evp::sunstudy;
 
@@ -44,7 +49,157 @@ std::vector<uint8_t> Bytes (const std::string& s)
     return { s.begin (), s.end () };
 }
 
+void Put16 (std::vector<uint8_t>& b, uint32_t v)
+{
+    b.push_back (uint8_t (v));
+    b.push_back (uint8_t (v >> 8));
+}
+
+void Put32 (std::vector<uint8_t>& b, uint32_t v)
+{
+    Put16 (b, v & 0xffffu);
+    Put16 (b, v >> 16);
+}
+
+// A zip of "stored" members, as a minimal writer would make it.
+std::vector<uint8_t> StoredZip (const std::vector<std::pair<std::string, std::string>>& files)
+{
+    std::vector<uint8_t> zip, directory;
+    for (const auto& [name, text] : files) {
+        const uint32_t offset = uint32_t (zip.size ());
+        const uint32_t crc = Crc32 (reinterpret_cast<const uint8_t*> (text.data ()), text.size ());
+        Put32 (zip, 0x04034b50u);
+        Put16 (zip, 20);
+        Put16 (zip, 0);
+        Put16 (zip, 0); // stored
+        Put32 (zip, 0);
+        Put32 (zip, crc);
+        Put32 (zip, uint32_t (text.size ()));
+        Put32 (zip, uint32_t (text.size ()));
+        Put16 (zip, uint32_t (name.size ()));
+        Put16 (zip, 0);
+        zip.insert (zip.end (), name.begin (), name.end ());
+        zip.insert (zip.end (), text.begin (), text.end ());
+        Put32 (directory, 0x02014b50u);
+        Put16 (directory, 20);
+        Put16 (directory, 20);
+        Put16 (directory, 0);
+        Put16 (directory, 0);
+        Put32 (directory, 0);
+        Put32 (directory, crc);
+        Put32 (directory, uint32_t (text.size ()));
+        Put32 (directory, uint32_t (text.size ()));
+        Put16 (directory, uint32_t (name.size ()));
+        Put16 (directory, 0);
+        Put16 (directory, 0);
+        Put16 (directory, 0);
+        Put16 (directory, 0);
+        Put32 (directory, 0);
+        Put32 (directory, offset);
+        directory.insert (directory.end (), name.begin (), name.end ());
+    }
+    const uint32_t at = uint32_t (zip.size ());
+    zip.insert (zip.end (), directory.begin (), directory.end ());
+    Put32 (zip, 0x06054b50u);
+    Put16 (zip, 0);
+    Put16 (zip, 0);
+    Put16 (zip, uint32_t (files.size ()));
+    Put16 (zip, uint32_t (files.size ()));
+    Put32 (zip, uint32_t (directory.size ()));
+    Put32 (zip, at);
+    Put16 (zip, 0);
+    return zip;
+}
+
 } // namespace
+
+// Raw deflate streams made by zlib (wbits -15): one fixed-Huffman block, and
+// one dynamic block with long back references.
+TEST (ZipArchive, InflatesFixedAndDynamicBlocks)
+{
+    EXPECT_EQ (Crc32 (reinterpret_cast<const uint8_t*> ("123456789"), 9), 0xCBF43926u);
+    const uint8_t fixed[] = { 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0xd7, 0x51, 0xc8, 0x40, 0xa2,
+                              0x14, 0x0a, 0x72, 0x12, 0xf3, 0x4a, 0x32, 0xf3, 0xd2, 0x01 };
+    std::vector<uint8_t> out;
+    std::string error;
+    ASSERT_TRUE (Inflate (fixed, sizeof (fixed), 64, out, error)) << error;
+    EXPECT_EQ (std::string (out.begin (), out.end ()), "hello, hello, hello planting");
+
+    const uint8_t dynamic[] = { 0xed, 0xd0, 0x2b, 0x0e, 0x80, 0x30, 0x10, 0x84, 0x61, 0xcf, 0x29, 0xe6, 0x00, 0x08,
+                                0xde, 0xf7, 0xa9, 0xd8, 0x86, 0x26, 0x5b, 0x9a, 0xd0, 0x4d, 0x80, 0xdb, 0xf3, 0x50,
+                                0xd8, 0xf5, 0xa3, 0x46, 0x4c, 0x7e, 0xf3, 0x69, 0xda, 0x04, 0x1d, 0x4a, 0x84, 0xad,
+                                0x82, 0x43, 0xc2, 0x33, 0x3b, 0x62, 0x52, 0x69, 0x91, 0x4b, 0x35, 0xbd, 0xbe, 0xa3,
+                                0x86, 0x2c, 0x30, 0x39, 0xad, 0xd1, 0x37, 0xe8, 0xbd, 0xc1, 0xe0, 0x0d, 0x46, 0x6f,
+                                0x30, 0x79, 0x83, 0xd9, 0x1b, 0x2c, 0xde, 0x80, 0xac, 0x64, 0x25, 0x2b, 0x59, 0xc9,
+                                0x4a, 0x56, 0xb2, 0x92, 0x95, 0xac, 0x64, 0xfd, 0x07, 0x37 };
+    std::string expected;
+    for (int i = 0; i < 60; ++i)
+        expected += "line " + std::to_string (i % 7) + " of the weather file, mostly the same text\n";
+    ASSERT_TRUE (Inflate (dynamic, sizeof (dynamic), expected.size (), out, error)) << error;
+    EXPECT_EQ (std::string (out.begin (), out.end ()), expected);
+
+    // Damage and a size cap are refused, never read past.
+    EXPECT_FALSE (Inflate (dynamic, 40, expected.size (), out, error));
+    EXPECT_FALSE (Inflate (dynamic, sizeof (dynamic), 100, out, error)) << "beyond the stated size";
+    EXPECT_NE (error.find ("beyond"), std::string::npos);
+}
+
+// A zipped .epw reads as the .epw itself; the other members are passed over.
+TEST (ZipArchive, AZippedWeatherFileReads)
+{
+    const std::string epw = Epw (3, 1);
+    const auto zip = StoredZip ({ { "README.txt", "not weather" }, { "LTU_Vilnius/Vilnius.EPW", epw } });
+    std::vector<ZipMember> members;
+    std::string error;
+    ASSERT_TRUE (ListZipMembers (zip, members, error)) << error;
+    ASSERT_EQ (members.size (), 2u);
+    EXPECT_EQ (members[1].name, "LTU_Vilnius/Vilnius.EPW");
+    std::vector<uint8_t> inner;
+    ASSERT_TRUE (ExtractZipMember (zip, members[1], inner, error)) << error;
+    EXPECT_EQ (std::string (inner.begin (), inner.end ()), epw);
+
+    const auto path = std::filesystem::temp_directory_path () / "tapioca-weather-test.zip";
+    std::ofstream (path, std::ios::binary)
+        .write (reinterpret_cast<const char*> (zip.data ()), std::streamsize (zip.size ()));
+    WeatherData data;
+    ASSERT_TRUE (ReadWeatherFile (path, data, error)) << error;
+    EXPECT_EQ (data.records.size (), 72u);
+
+    auto damaged = zip;
+    damaged[damaged.size () / 2] ^= 0xff; // inside the .epw's bytes: the checksum catches it
+    std::ofstream (path, std::ios::binary)
+        .write (reinterpret_cast<const char*> (damaged.data ()), std::streamsize (damaged.size ()));
+    EXPECT_FALSE (ReadWeatherFile (path, data, error));
+    EXPECT_NE (error.find ("tapioca-weather-test.zip"), std::string::npos) << error;
+
+    const auto none = StoredZip ({ { "README.txt", "not weather" } });
+    std::ofstream (path, std::ios::binary)
+        .write (reinterpret_cast<const char*> (none.data ()), std::streamsize (none.size ()));
+    EXPECT_FALSE (ReadWeatherFile (path, data, error));
+    EXPECT_NE (error.find ("no .epw"), std::string::npos) << error;
+    std::filesystem::remove (path);
+}
+
+// Opt-in: TAPIOCA_EPW_DIR names a folder of zipped reference files (as
+// downloaded); each one's .epw reads in full.
+TEST (ZipArchive, ReferenceZipsReadWhenProvided)
+{
+    const char* dir = std::getenv ("TAPIOCA_EPW_DIR");
+    if (dir == nullptr || *dir == 0)
+        GTEST_SKIP () << "set TAPIOCA_EPW_DIR to a folder of zipped .epw files";
+    int read = 0;
+    for (const auto& entry : std::filesystem::directory_iterator (std::filesystem::u8path (dir))) {
+        if (!IsZipPath (entry.path ()))
+            continue;
+        WeatherData data;
+        std::string error;
+        EXPECT_TRUE (ReadWeatherFile (entry.path (), data, error)) << error;
+        EXPECT_GE (data.records.size (), 8760u) << entry.path ().filename ().string ();
+        ++read;
+    }
+    if (read == 0)
+        GTEST_SKIP () << "no .zip in TAPIOCA_EPW_DIR";
+}
 
 TEST (SunStudyWeather, AParsedFileCarriesItsIdentity)
 {

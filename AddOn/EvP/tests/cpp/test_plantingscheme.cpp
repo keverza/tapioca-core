@@ -553,9 +553,9 @@ TEST (PlantingScheme, FilledTraitsAddSiteAndCompetitionNotes)
     EXPECT_FALSE (Has (one, "far apart"));
 }
 
-// Opt-in: TAPIOCA_EPW_DIR names a folder of the reference .epw files
-// (tapioca-ref\EPW, unzipped; never committed). The coldest hour and its zone
-// were read independently from the files' text.
+// Opt-in: TAPIOCA_EPW_DIR names a folder of the reference weather files
+// (tapioca-ref\EPW, zipped as downloaded or unzipped; never committed). The
+// coldest hour and its zone were read independently from the files' text.
 TEST (PlantHardiness, ReferenceWeatherFilesGiveTheirColdestHourZone)
 {
     const char* dir = std::getenv ("TAPIOCA_EPW_DIR");
@@ -569,7 +569,7 @@ TEST (PlantHardiness, ReferenceWeatherFilesGiveTheirColdestHourZone)
                       { "160760", -6.1, "9a" },  { "725016", -2.5, "9b" },  { "725145", -22.0, "6a" } };
     size_t checked = 0;
     for (const auto& entry : std::filesystem::directory_iterator (dir)) {
-        if (entry.path ().extension () != ".epw")
+        if (entry.path ().extension () != ".epw" && !evp::sunstudy::IsZipPath (entry.path ()))
             continue;
         evp::sunstudy::WeatherData w;
         std::string error;

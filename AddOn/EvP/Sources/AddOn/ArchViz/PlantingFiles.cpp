@@ -338,7 +338,7 @@ std::vector<std::string> ListWeatherFiles (const fs::path& folder, std::string& 
         std::string ext = PathText (it->path ().extension ());
         std::transform (ext.begin (), ext.end (), ext.begin (),
                         [] (unsigned char c) { return char (std::tolower (c)); });
-        if (ext == ".epw")
+        if (ext == ".epw" || ext == ".zip") // a .zip as downloaded: ReadWeatherFile opens its .epw
             names.push_back (PathText (it->path ().filename ()));
     }
     if (ec)

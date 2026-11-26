@@ -220,6 +220,17 @@ void QualityLines (const ss::WeatherData& w)
                             int (id.radiationInDark));
 }
 
+// The month under the mouse in the plot just drawn, as ImGui's own plot picks
+// the point it highlights: a line snaps to the nearest of its 12 points, a bar
+// chart to the bar under the mouse.
+int HoveredMonth (bool bars)
+{
+    const ImVec2 pad = ImGui::GetStyle ().FramePadding;
+    const float x0 = ImGui::GetItemRectMin ().x + pad.x, x1 = ImGui::GetItemRectMax ().x - pad.x;
+    const float t = std::clamp ((ImGui::GetIO ().MousePos.x - x0) / std::max (x1 - x0, 1.0f), 0.0f, 0.9999f);
+    return std::clamp (bars ? int (t * 12.0f) : int (t * 11.0f + 0.5f), 0, 11);
+}
+
 void MonthlyCharts (const ss::WeatherData& w)
 {
     float temps[12] = {}, ghi[12] = {};
@@ -238,15 +249,10 @@ void MonthlyCharts (const ss::WeatherData& w)
     std::snprintf (label, sizeof (label), "mean dry bulb, %.0f to %.0f C", lo, hi);
     ImGui::PlotLines ("##epwtemp", temps, 12, 0, label, lo - 2.0f, hi + 2.0f, ImVec2 (width, height));
     if (ImGui::IsItemHovered ()) {
-        std::string tip;
-        for (int m = 0; m < 12; ++m) {
-            char line[48];
-            std::snprintf (line, sizeof (line), "%s  %.1f C  (%.1f to %.1f)\n", kMonths[m],
-                           w.months[size_t (m)].meanDryBulbC, w.months[size_t (m)].minDryBulbC,
-                           w.months[size_t (m)].maxDryBulbC);
-            tip += line;
-        }
-        ImGui::SetTooltip ("%s", tip.c_str ());
+        const int m = HoveredMonth (false);
+        const auto& month = w.months[size_t (m)];
+        ImGui::SetTooltip ("%s: mean %.1f C, coldest %.1f C, warmest %.1f C", kMonths[m], month.meanDryBulbC,
+                           month.minDryBulbC, month.maxDryBulbC);
     }
     double year = 0;
     for (float g : ghi)
@@ -254,14 +260,9 @@ void MonthlyCharts (const ss::WeatherData& w)
     std::snprintf (label, sizeof (label), "global horizontal, %.0f kWh/m2 a year", year);
     ImGui::PlotHistogram ("##epwghi", ghi, 12, 0, label, 0.0f, ghiMax * 1.15f, ImVec2 (width, height));
     if (ImGui::IsItemHovered ()) {
-        std::string tip;
-        for (int m = 0; m < 12; ++m) {
-            char line[64];
-            std::snprintf (line, sizeof (line), "%s  %.1f kWh/m2%s\n", kMonths[m], ghi[m],
-                           w.months[size_t (m)].globalMissing ? "  (some hours missing)" : "");
-            tip += line;
-        }
-        ImGui::SetTooltip ("Interval energy: each value x its interval hours.\n%s", tip.c_str ());
+        const int m = HoveredMonth (true);
+        ImGui::SetTooltip ("%s: %.1f kWh/m2 of sun on open ground%s", kMonths[m], ghi[m],
+                           w.months[size_t (m)].globalMissing ? " (some hours missing)" : "");
     }
 }
 
@@ -328,7 +329,7 @@ void DrawClimateSection (HudState& state, const DiligentSceneStats& scene)
                        "instants are aligned with the sun positions (#155 P2).");
     const char* current = climate.selected >= 0 && size_t (climate.selected) < climate.files.size ()
                               ? climate.files[size_t (climate.selected)].c_str ()
-                              : (climate.files.empty () ? "no .epw in the folder" : "pick a weather file");
+                              : (climate.files.empty () ? "no .epw or .zip in the folder" : "pick a weather file");
     ImGui::SetNextItemWidth (-ImGui::GetFontSize () * 9.5f);
     if (ImGui::BeginCombo ("##epwfile", current)) {
         for (size_t i = 0; i < climate.files.size (); ++i)
@@ -336,7 +337,9 @@ void DrawClimateSection (HudState& state, const DiligentSceneStats& scene)
                 Load (climate, int (i));
         ImGui::EndCombo ();
     }
-    hudshell::ItemTip ("EnergyPlus weather files (.epw) in %s. Nothing is downloaded.", climate.folder.c_str ());
+    hudshell::ItemTip ("EnergyPlus weather files in %s: an .epw, or the .zip as downloaded (its .epw is read "
+                       "without unpacking). Nothing is downloaded.",
+                       climate.folder.c_str ());
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Open folder##epw"))
         OpenFolderInExplorer (pl::TapiocaDataFolder (L"Weather"));

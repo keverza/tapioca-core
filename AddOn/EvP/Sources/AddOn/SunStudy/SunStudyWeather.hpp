@@ -119,8 +119,12 @@ struct WeatherData {
 // not a number"); `out` is then empty.
 bool ParseWeather (const std::vector<uint8_t>& bytes, WeatherData& out, std::string& error);
 
-// Read and parse a file; adds the path to the error.
+// Read and parse a file; adds the path to the error. A .zip is read as
+// downloaded: its first .epw member is inflated in memory (SunStudy/ZipArchive).
 bool ReadWeatherFile (const std::filesystem::path& path, WeatherData& out, std::string& error);
+
+// True for a ".zip" extension, any case.
+bool IsZipPath (const std::filesystem::path& path);
 
 // The longest run of days whose centred `windowDays` running mean of the daily
 // mean dry bulb stays at or above `thresholdC`. `last < first` when it wraps

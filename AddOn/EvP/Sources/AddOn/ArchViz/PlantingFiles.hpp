@@ -74,7 +74,7 @@ bool ImportCatalogueCsv (const std::filesystem::path& folder, CatalogueState& st
 // Write `text` to `path` through a temporary file and a rename.
 bool WriteFileAtomically (const std::filesystem::path& path, const std::string& text, std::string& error);
 
-// The .epw files directly in `folder`, by name; the folder is created.
+// The .epw and .zip files directly in `folder`, by name; the folder is created.
 std::vector<std::string> ListWeatherFiles (const std::filesystem::path& folder, std::string& error);
 
 // UTF-8 of a path.
