@@ -62,8 +62,9 @@ bool CaptureWeatherSun (const WeatherSunRequest& request, WeatherSunCapture& out
     capture.north = place.north;
     capture.timeZoneInMinutes = place.timeZoneInMinutes;
     capture.projectSumTime = place.sumTime;
-    capture.projectOffsetHours = place.timeZoneInMinutes / 60.0; // assumed east-positive
-    capture.rotation = place.north - kPi / 2.0;                  // assumed convention, see the header
+    capture.projectOffsetHours =
+        place.timeZoneInMinutes / 60.0;         // east of Greenwich positive (measured, see the header)
+    capture.rotation = place.north - kPi / 2.0; // north CCW from +X (measured, see the header)
 
     WeatherPlacement placement;
     placement.year = request.year;
