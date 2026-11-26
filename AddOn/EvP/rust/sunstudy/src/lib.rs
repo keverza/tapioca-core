@@ -11,6 +11,7 @@
 
 pub mod annual;
 pub mod atlas;
+pub mod climate;
 pub mod follower;
 pub mod light_class;
 pub mod limits;
