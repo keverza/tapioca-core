@@ -113,6 +113,7 @@ struct CatalogueState {
     bool plantsLoaded = false, profilesLoaded = false;
     std::vector<std::string> problems; // the last read's, both files
     std::string status;                // "Read 8 plants and 1 profile."
+    bool edited = false;               // plants.json is the user's own, not a shipped seed
     PlantFilter filter;
     int selected = -1; // index into plants.plants
     int zone = -1;     // ZonesState::zones index the Fits column is read in; -1 = the whole layer

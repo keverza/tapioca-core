@@ -64,9 +64,18 @@ void ReloadCatalogue (pl::CatalogueState& cat)
         cat.status = "The catalogue folder could not be prepared.";
         return;
     }
+    // An unedited copy of an older shipped seed takes the newer one (backed up first).
+    std::vector<std::string> updated;
+    std::string backup;
+    const bool refreshed = pl::RefreshShippedCatalogue (folder, updated, backup, error);
     pl::ReadCatalogueFolder (folder, cat);
     for (const auto& name : created)
         cat.status += " Created " + name + ".";
+    for (const auto& name : updated)
+        cat.status += " Updated " + name + " to the newer shipped catalogue (it was unedited; backup *" + backup + ").";
+    if (!refreshed)
+        cat.problems.push_back ("The newer shipped catalogue was not applied: " + error);
+    cat.edited = pl::PlantsFileIsEdited (folder);
 }
 
 void EnsureCatalogue (HudState& state)
@@ -195,6 +204,9 @@ void CatalogueRow (HudState& state)
         ImGui::EndPopup ();
     }
     ImGui::TextWrapped ("%s", cat.status.c_str ());
+    if (cat.edited)
+        ImGui::TextDisabled ("plants.json is your own (edited or imported): newer shipped data is not applied to it. "
+                             "Restore defaults takes the shipped catalogue, after a backup.");
     if (!cat.problems.empty () && ImGui::TreeNodeEx ("Problems##plantcat", ImGuiTreeNodeFlags_DefaultOpen,
                                                      "%d problem(s)", int (cat.problems.size ()))) {
         ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.95f, 0.45f, 0.40f, 1.0f));

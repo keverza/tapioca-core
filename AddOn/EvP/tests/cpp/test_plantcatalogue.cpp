@@ -451,6 +451,51 @@ TEST (PlantingFiles, SeedingNeverOverwritesAndRestoreBacksUp)
     EXPECT_EQ (Read (temp.path / kPlantsFile), SeedPlantsJson ());
 }
 
+// ⚠️ A seed change must list its hash: an unlisted old seed would later be
+// taken for the user's own edit and never refreshed.
+TEST (PlantingFiles, EveryShippedSeedIsListed)
+{
+    const auto& plants = ShippedPlantsHashes ();
+    const auto& profiles = ShippedProfilesHashes ();
+    EXPECT_NE (std::find (plants.begin (), plants.end (), SeedTextHash (SeedPlantsJson ())), plants.end ())
+        << "append 0x" << std::hex << SeedTextHash (SeedPlantsJson ()) << " to ShippedPlantsHashes";
+    EXPECT_NE (std::find (profiles.begin (), profiles.end (), SeedTextHash (SeedProfilesJson ())), profiles.end ())
+        << "append 0x" << std::hex << SeedTextHash (SeedProfilesJson ()) << " to ShippedProfilesHashes";
+    EXPECT_EQ (SeedTextHash ("a\r\nb"), SeedTextHash ("a\nb")) << "line ends do not count";
+}
+
+// An unedited older seed takes the newer one, after a backup; the user's own
+// file is never touched.
+TEST (PlantingFiles, AnUneditedOlderSeedIsRefreshed)
+{
+    TempFolder temp;
+    std::vector<std::string> created, updated;
+    std::string error, backup;
+    ASSERT_TRUE (SeedCatalogueFolder (temp.path, created, error)) << error;
+    ASSERT_TRUE (RefreshShippedCatalogue (temp.path, updated, backup, error)) << error;
+    EXPECT_TRUE (updated.empty ()) << "the current seed is left alone";
+    EXPECT_FALSE (PlantsFileIsEdited (temp.path));
+
+    // The first shipped profiles.json (fe3a8818), saved with Windows line ends.
+    std::string old = SeedProfilesJson ();
+    const std::string now = "Miesto želdinimo ir želdinių priežiūros standartas, Vilnius 2024, p. 20";
+    ASSERT_NE (old.find (now), std::string::npos);
+    old.replace (old.find (now), now.size (), "Miesto zeldinimo ir zeldiniu prieziuros standartas (2024), p. 20");
+    std::string crlf;
+    for (char c : old)
+        crlf += c == '\n' ? std::string ("\r\n") : std::string (1, c);
+    Write (temp.path / kProfilesFile, crlf);
+    Write (temp.path / kPlantsFile, WithPlants (R"({"id": "mine", "scientificName": "Mine"})"));
+    ASSERT_TRUE (RefreshShippedCatalogue (temp.path, updated, backup, error)) << error;
+    EXPECT_EQ (updated, (std::vector<std::string> { kProfilesFile }));
+    EXPECT_EQ (Read (temp.path / kProfilesFile), SeedProfilesJson ());
+    fs::path copy = temp.path / "profiles";
+    copy += backup;
+    EXPECT_EQ (Read (copy), crlf) << "the old copy is backed up";
+    EXPECT_NE (Read (temp.path / kPlantsFile).find ("mine"), std::string::npos) << "an edited plants.json is kept";
+    EXPECT_TRUE (PlantsFileIsEdited (temp.path));
+}
+
 TEST (PlantingFiles, WeatherFilesAreListedByName)
 {
     TempFolder temp;

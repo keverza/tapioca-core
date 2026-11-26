@@ -234,6 +234,95 @@ bool RestoreCatalogueDefaults (const fs::path& folder, std::string& backup, std:
     return true;
 }
 
+uint64_t SeedTextHash (const std::string& text)
+{
+    uint64_t hash = 0xcbf29ce484222325ull;
+    for (const char c : text) {
+        if (c == '\r')
+            continue;
+        hash ^= uint64_t (static_cast<unsigned char> (c));
+        hash *= 0x100000001b3ull;
+    }
+    return hash;
+}
+
+const std::vector<uint64_t>& ShippedPlantsHashes ()
+{
+    static const std::vector<uint64_t> hashes = {
+        0x7bbeabbae2b9d850ull, // fe3a8818: the first Vilnius 2024 transcription
+        0xeef62017ca87bc38ull, // 3370b3e1: tables, filters and Find plants here
+        0x112f70973448aaa5ull, // 3d6952b4: trait fields, shipped empty
+        0x351bfbf53e0fcfa9ull, // f2bb5ab4: sourced traits, lean seed
+    };
+    return hashes;
+}
+
+const std::vector<uint64_t>& ShippedProfilesHashes ()
+{
+    static const std::vector<uint64_t> hashes = {
+        0xcb88066720706f1dull, // fe3a8818
+        0x252d3fd6dd05e7a1ull, // 3370b3e1
+    };
+    return hashes;
+}
+
+namespace {
+
+enum class SeedCopy { Missing, Current, OlderSeed, Edited };
+
+SeedCopy ClassifySeedCopy (const fs::path& path, const std::string& seed, const std::vector<uint64_t>& shipped)
+{
+    std::string text, error;
+    std::error_code ec;
+    if (!fs::exists (path, ec) || !ReadText (path, text, error))
+        return SeedCopy::Missing;
+    const uint64_t hash = SeedTextHash (text);
+    if (hash == SeedTextHash (seed))
+        return SeedCopy::Current;
+    return std::find (shipped.begin (), shipped.end (), hash) != shipped.end () ? SeedCopy::OlderSeed
+                                                                                : SeedCopy::Edited;
+}
+
+} // namespace
+
+bool RefreshShippedCatalogue (const fs::path& folder, std::vector<std::string>& updated, std::string& backup,
+                              std::string& error)
+{
+    updated.clear ();
+    struct File {
+        const char* name;
+        const std::string& seed;
+        const std::vector<uint64_t>& shipped;
+    };
+    const File files[] = { { kPlantsFile, SeedPlantsJson (), ShippedPlantsHashes () },
+                           { kProfilesFile, SeedProfilesJson (), ShippedProfilesHashes () } };
+    for (const File& f : files) {
+        const fs::path path = folder / f.name;
+        if (ClassifySeedCopy (path, f.seed, f.shipped) != SeedCopy::OlderSeed)
+            continue;
+        if (backup.empty ())
+            backup = BackupStamp ();
+        fs::path copy = path;
+        copy.replace_extension ();
+        copy += backup;
+        std::error_code ec;
+        fs::copy_file (path, copy, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            error = "cannot back up " + std::string (f.name) + ": " + ec.message ();
+            return false;
+        }
+        if (!WriteFileAtomically (path, f.seed, error))
+            return false;
+        updated.push_back (f.name);
+    }
+    return true;
+}
+
+bool PlantsFileIsEdited (const fs::path& folder)
+{
+    return ClassifySeedCopy (folder / kPlantsFile, SeedPlantsJson (), ShippedPlantsHashes ()) == SeedCopy::Edited;
+}
+
 std::vector<std::string> ListWeatherFiles (const fs::path& folder, std::string& error)
 {
     std::vector<std::string> names;
