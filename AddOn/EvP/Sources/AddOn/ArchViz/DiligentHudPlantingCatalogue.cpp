@@ -128,6 +128,34 @@ void CatalogueRow (HudState& state)
             ImGui::CloseCurrentPopup ();
         ImGui::EndPopup ();
     }
+    if (ImGui::Button ("Export CSV##plantcat")) {
+        std::string error;
+        if (pl::ExportCatalogueCsv (pl::TapiocaDataFolder (L"Planting"), cat.plants, error))
+            cat.status = std::string ("Wrote ") + pl::kCsvExportFile + " in the catalogue folder.";
+        else
+            cat.problems = { error };
+    }
+    hudshell::ItemTip ("One row per plant, for a spreadsheet: lists are joined with '|'. plants.json stays the "
+                       "catalogue.");
+    ImGui::SameLine ();
+    if (ImGui::Button ("Import plants.csv...##plantcat"))
+        ImGui::OpenPopup ("Import plants.csv?##plantcat");
+    hudshell::ItemTip ("Replace plants.json with the plants in plants.csv from the catalogue folder, after a "
+                       "dated backup. Same columns as the export.");
+    if (ImGui::BeginPopup ("Import plants.csv?##plantcat")) {
+        ImGui::TextUnformatted ("plants.csv is checked like plants.json. If it has no problem,\nplants.json is "
+                                "copied to a dated backup and replaced.");
+        if (ImGui::Button ("Back up and import")) {
+            std::string backup;
+            if (pl::ImportCatalogueCsv (pl::TapiocaDataFolder (L"Planting"), cat, backup))
+                cat.status += " Imported plants.csv; backup: plants" + backup + ".";
+            ImGui::CloseCurrentPopup ();
+        }
+        ImGui::SameLine ();
+        if (ImGui::Button ("Cancel"))
+            ImGui::CloseCurrentPopup ();
+        ImGui::EndPopup ();
+    }
     ImGui::TextWrapped ("%s", cat.status.c_str ());
     if (!cat.problems.empty () && ImGui::TreeNodeEx ("Problems##plantcat", ImGuiTreeNodeFlags_DefaultOpen,
                                                      "%d problem(s)", int (cat.problems.size ()))) {
@@ -278,6 +306,13 @@ void SelectedPlant (HudState& state)
     else
         ImGui::Text ("Compatible: %s of %.1f m² measured at %.2f m.", FitText (fit).c_str (), fit.evaluatedArea,
                      fit.layerHeight);
+    if (const auto quantity = pl::PlantQuantity (p, fit))
+        ImGui::Text ("Quantity: %.0f to %.0f plants at %g to %g per m² over the compatible area.", quantity->min,
+                     quantity->max, p.densityPerM2->min, p.densityPerM2->max);
+    else if (fit.status == pl::PlantFit::Status::Fits)
+        ImGui::TextDisabled ("Quantity: no planting density in the catalogue.");
+    hudshell::ItemTip ("Compatible area x the catalogue's plants per m², rounded up. An estimate for the whole "
+                       "compatible area, not a planting plan: spacing and packing are not checked.");
     ImGui::BeginDisabled (fit.layer < 0);
     ImGui::Checkbox ("Highlight where it fits##plantcat", &cat.highlight);
     ImGui::EndDisabled ();

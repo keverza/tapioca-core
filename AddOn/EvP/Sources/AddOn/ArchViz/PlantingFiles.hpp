@@ -36,6 +36,17 @@ void ReadCatalogueFolder (const std::filesystem::path& folder, CatalogueState& s
 // seeds. `backup` names the backup suffix.
 bool RestoreCatalogueDefaults (const std::filesystem::path& folder, std::string& backup, std::string& error);
 
+constexpr const char* kCsvImportFile = "plants.csv";
+constexpr const char* kCsvExportFile = "plants-export.csv";
+
+// Write the catalogue to <folder>/plants-export.csv (replacing an earlier export).
+bool ExportCatalogueCsv (const std::filesystem::path& folder, const Catalogue& catalogue, std::string& error);
+
+// Read <folder>/plants.csv; when it converts and validates, copy plants.json
+// to a dated backup, write the CSV's plants as plants.json, and read the
+// folder again. Any problem changes nothing and is listed in `state`.
+bool ImportCatalogueCsv (const std::filesystem::path& folder, CatalogueState& state, std::string& backup);
+
 // Write `text` to `path` through a temporary file and a rename.
 bool WriteFileAtomically (const std::filesystem::path& path, const std::string& text, std::string& error);
 

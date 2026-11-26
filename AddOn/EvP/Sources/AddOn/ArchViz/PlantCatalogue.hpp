@@ -58,6 +58,7 @@ struct Plant {
     std::optional<Range> matureHeightM;
     std::optional<Range> matureSpreadM;
     std::optional<double> receiverHeightM; // preferredReceiverHeightM
+    std::optional<Range> densityPerM2;     // plantingDensityPerM2, plants per m²
     std::vector<std::string> moistureClasses;
     std::vector<std::string> plantingLayers;
     std::vector<int> floweringMonths;
@@ -142,6 +143,10 @@ struct PlantFit {
     }
 };
 PlantFit FitOf (const PlantingHud& hud, const Plant& plant);
+
+// Plants for a fit's compatible area at the plant's sourced density, rounded
+// up; nothing when the catalogue gives no density (never a default).
+std::optional<Range> PlantQuantity (const Plant& plant, const PlantFit& fit);
 
 // The tab's class indices (lowest first, deep shade first when shown) a plant
 // accepts, as a bit mask for the highlight.

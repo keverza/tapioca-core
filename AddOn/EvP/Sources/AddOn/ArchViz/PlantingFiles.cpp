@@ -1,5 +1,7 @@
 #include "ArchViz/PlantingFiles.hpp"
 
+#include "ArchViz/PlantCatalogueCsv.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -144,11 +146,10 @@ void ReadCatalogueFolder (const fs::path& folder, CatalogueState& state)
                        "; the previous catalogue stays in use. " + state.status;
 }
 
-bool RestoreCatalogueDefaults (const fs::path& folder, std::string& backup, std::string& error)
+namespace {
+
+std::string BackupStamp ()
 {
-    std::vector<std::string> created;
-    if (!SeedCatalogueFolder (folder, created, error))
-        return false;
     const std::time_t now = std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ());
     std::tm local {};
 #ifdef _WIN32
@@ -158,6 +159,59 @@ bool RestoreCatalogueDefaults (const fs::path& folder, std::string& backup, std:
 #endif
     char stamp[32] = {};
     std::strftime (stamp, sizeof (stamp), ".backup-%Y%m%d-%H%M%S.json", &local);
+    return stamp;
+}
+
+} // namespace
+
+bool ExportCatalogueCsv (const fs::path& folder, const Catalogue& catalogue, std::string& error)
+{
+    return WriteFileAtomically (folder / kCsvExportFile, CatalogueToCsv (catalogue), error);
+}
+
+bool ImportCatalogueCsv (const fs::path& folder, CatalogueState& state, std::string& backup)
+{
+    std::string text, error;
+    if (!ReadText (folder / kCsvImportFile, text, error)) {
+        state.problems = { std::string (kCsvImportFile) + ": " + error + " (put it in the catalogue folder)" };
+        return false;
+    }
+    Catalogue imported;
+    ParseProblems problems;
+    if (!CatalogueFromCsv (text, state.plants, imported, problems)) {
+        state.problems.clear ();
+        for (const auto& item : problems.items)
+            state.problems.push_back (std::string (kCsvImportFile) + ": " + item);
+        state.status = "The CSV was not imported; plants.json is unchanged.";
+        return false;
+    }
+    const fs::path target = folder / kPlantsFile;
+    backup = BackupStamp ();
+    std::error_code ec;
+    if (fs::exists (target, ec)) {
+        fs::path copy = target;
+        copy.replace_extension ();
+        copy += backup;
+        fs::copy_file (target, copy, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            state.problems = { "cannot back up plants.json: " + ec.message () };
+            return false;
+        }
+    }
+    if (!WriteFileAtomically (target, CatalogueToJson (imported), error)) {
+        state.problems = { error };
+        return false;
+    }
+    ReadCatalogueFolder (folder, state);
+    return state.problems.empty ();
+}
+
+bool RestoreCatalogueDefaults (const fs::path& folder, std::string& backup, std::string& error)
+{
+    std::vector<std::string> created;
+    if (!SeedCatalogueFolder (folder, created, error))
+        return false;
+    const std::string stamp = BackupStamp ();
     backup = stamp;
     const std::pair<const char*, const std::string*> seeds[] = { { kPlantsFile, &SeedPlantsJson () },
                                                                  { kProfilesFile, &SeedProfilesJson () } };

@@ -202,6 +202,7 @@ void ParsePlant (const json::JsonValue& item, const Reader& r, const std::set<st
     }
     r.OptionalRange (item, "matureHeightM", p.matureHeightM);
     r.OptionalRange (item, "matureSpreadM", p.matureSpreadM);
+    r.OptionalRange (item, "plantingDensityPerM2", p.densityPerM2);
     if (const json::JsonValue* h = item.Find ("preferredReceiverHeightM"); h && !h->IsNull ()) {
         double v = 0;
         if (r.Number (*h, "preferredReceiverHeightM", v)) {
@@ -512,6 +513,14 @@ PlantFit FitOf (const PlantingHud& hud, const Plant& plant)
             fit.compatibleArea += layer.classAreas[cls];
     fit.status = fit.compatibleArea > 0 ? PlantFit::Status::Fits : PlantFit::Status::None;
     return fit;
+}
+
+std::optional<Range> PlantQuantity (const Plant& plant, const PlantFit& fit)
+{
+    if (!plant.densityPerM2 || fit.status != PlantFit::Status::Fits)
+        return std::nullopt;
+    return Range { std::ceil (fit.compatibleArea * plant.densityPerM2->min),
+                   std::ceil (fit.compatibleArea * plant.densityPerM2->max) };
 }
 
 namespace {
