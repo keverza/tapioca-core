@@ -448,8 +448,26 @@ bool EvidenceFromText (const std::string& text, std::vector<TraitEvidence>& out,
     for (const std::string& item : SplitOn (text, '|')) {
         if (item.empty ())
             continue;
-        const std::vector<std::string> parts = SplitOn (item, ':');
-        if (parts.size () < 2 || parts.size () > 4) {
+        // The method is free text and may hold colons ("Ellenberg N: 1-3 low"):
+        // it is everything after the third colon.
+        // Read verbatim, only its ends trimmed.
+        std::string head = item, method;
+        bool hasMethod = false;
+        size_t at = std::string::npos;
+        for (int colon = 0; colon < 3; ++colon) {
+            at = item.find (':', at == std::string::npos ? 0 : at + 1);
+            if (at == std::string::npos)
+                break;
+        }
+        if (at != std::string::npos) {
+            head = item.substr (0, at);
+            method = SplitOn (item.substr (at + 1), '\n')[0]; // trims the ends; no newline in a CSV cell
+            hasMethod = true;
+        }
+        std::vector<std::string> parts = SplitOn (head, ':');
+        if (hasMethod)
+            parts.push_back (method);
+        if (parts.size () < 2) {
             error = "'" + item + "' is not field:sourceId[:confidence[:method]]";
             return false;
         }

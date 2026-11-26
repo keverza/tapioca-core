@@ -132,7 +132,8 @@ TEST (PlantCatalogueCsv, TraitsRoundTripAndAreChecked)
     ASSERT_TRUE (CatalogueFromCsv ("id,scientificName,ecology.ellenbergLight,ecology.drainage,"
                                    "competition.competitiveVigour,phenology.emergenceMonths,regulatory.note,evidence\n"
                                    "a,Aa,4,freelyDrained|poorlyDrained,high,3|4,check locally,"
-                                   "ecology.ellenbergLight:ellenberg:high:dataset\n",
+                                   "\"ecology.ellenbergLight:ellenberg:high:dataset|"
+                                   "ecology.nutrientPreference:ellenberg:medium:from N: 1-3 low, 4-6 medium\"\n",
                                    base, c, problems))
         << (problems.Empty () ? "" : problems.items[0]);
     const PlantTraits& t = c.plants[0].traits;
@@ -140,7 +141,8 @@ TEST (PlantCatalogueCsv, TraitsRoundTripAndAreChecked)
     EXPECT_EQ (t[Trait::Drainage].choices, (std::vector<int> { 0, 2 }));
     EXPECT_STREQ (t.ChoiceKey (Trait::CompetitiveVigour), "high");
     EXPECT_EQ (t[Trait::RegulatoryNote].text, "check locally");
-    ASSERT_EQ (t.evidence.size (), 1u);
+    ASSERT_EQ (t.evidence.size (), 2u);
+    EXPECT_EQ (t.evidence[1].method, "from N: 1-3 low, 4-6 medium") << "a method may hold colons";
     EXPECT_EQ (c.sources.size (), 1u) << "a source named only by evidence keeps its entry";
 
     // Export and import again: every trait survives, so an import never wipes them.
