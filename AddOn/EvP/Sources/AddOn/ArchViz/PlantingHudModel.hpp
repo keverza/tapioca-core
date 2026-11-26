@@ -177,9 +177,16 @@ struct SchemeState {
     int layer = -1;     // kept layer the region comes from; -1 = the shown one
     int zone = -1;      // ZonesState::zones index the region is limited to; -1 = the whole layer, kAllBeds = every bed
     int highlight = -1; // species row the viewer emphasises
-    int marker = 0;     // SchemeMarker
+    int marker = int (SchemeMarker::Schematic);
     float crownOverlap = 0.0f;
     bool show = true;
+    // Layout (SchemeOptions): the pattern, where a hex grid starts, and the
+    // setback inside the region's edge, m.
+    int pattern = int (SchemePattern::Hex);
+    int start = int (SchemeStart::Centre);
+    float edgeOffset = 0.0f;
+    std::string columnsStatus; // the last "Create Columns" answer
+    uint64_t columnsSeen = 0;  // plantingcolumns::Status::serial taken
     // Above-ground space fit (Stage 2): keep mature crowns clear of walls and
     // overhangs once the layer's room is measured, with this margin, m.
     bool checkSpace = true;

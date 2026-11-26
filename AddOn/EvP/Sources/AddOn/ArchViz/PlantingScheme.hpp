@@ -41,14 +41,55 @@ struct PlantingHud;
 
 // How the viewer draws a placed plant (PlantingSchemeScene).
 enum class SchemeMarker : uint8_t {
-    Disc,  // a low cylinder, kSchemeDiscHeight tall (or the plant's height, if lower)
-    Mature // the plant's mature height
+    Disc,     // a low cylinder at the crown radius, kSchemeDiscHeight tall (or the plant's height, if lower)
+    Mature,   // the crown radius, to the plant's mature height
+    Schematic // a kSchematicDiameter stem, SchematicHeightOf tall, and the crown's outline on the ground
 };
 
-// One species in the mix. `count` 0 is "as many as fit".
+// One species in the mix. `count` 0 is "as many as fit"; `density` 0 is the
+// recommended density (RecommendedDensity).
 struct SchemeSpecies {
     std::string plantId;
     int count = 1;
+    double density = 0.0; // plants per m²
+};
+
+// How a species' plants are laid out.
+enum class SchemePattern : uint8_t {
+    Hex,   // a hexagonal grid at the species' density: the even, packed layout of a planting plan
+    Spread // each plant as far as possible from those already placed: few plants, spread out
+};
+// Where a hex grid starts, and which grid points are taken first when the
+// count is less than what fits.
+enum class SchemeStart : uint8_t {
+    Centre, // the grid centred on the usable area, filled outward from the middle
+    Corner  // the grid from the usable area's lower-left corner, filled outward from it
+};
+
+// The schematic marker: every plant a stem this wide (m) ...
+constexpr double kSchematicDiameter = 0.3;
+// ... and this tall: a tree 3 m, a shrub or climber 1.5 m, anything smaller 0.5 m.
+double SchematicHeightOf (const Plant& plant);
+
+// Plants per m² the catalogue recommends (the middle of its planting
+// density); without one, mature crowns touching on a hex grid,
+// 2 / (sqrt 3 * spread²).
+double RecommendedDensity (const Plant& plant);
+// The hex grid's spacing for a density: sqrt (2 / (sqrt 3 * density)).
+double HexSpacing (double density);
+
+// The measured area's distance to its own edge as a plan raster
+// (SampleEdgeDistances), so it can be read between samples too.
+struct EdgeField {
+    double x0 = 0, y0 = 0, cell = 0; // the centre of cell (0, 0), and the cell side, m
+    int w = 0, h = 0;
+    std::vector<float> metres; // per cell: distance from its centre to the area's edge, m
+    bool Empty () const
+    {
+        return metres.empty ();
+    }
+    // Bilinear between cell centres; 0 outside the raster.
+    double At (double x, double y) const;
 };
 
 // The region: one planting layer's samples, parallel arrays.
@@ -69,6 +110,16 @@ struct SchemeSite {
     // layer's outline (SampleEdgeDistances), and a zone's outline once
     // restricted to it. Empty: not known, and crowns are not kept inside.
     std::vector<float> edgeDistance;
+    // The same, between samples: the measured area's field, and the zones the
+    // region was restricted to with each sample's own (-1: none). Read by
+    // EdgeDistanceAt for a point that is not a sample (a hex grid's point).
+    EdgeField edgeField;
+    std::vector<PlantingZone> regionZones;
+    std::vector<int> regionZone;
+    // The plan distance from (x, y), near `sample`, to the region's edge: the
+    // nearer of the area's field and the sample's zone, exactly at the point.
+    // Without either, the sample's own distance less how far the point is from it.
+    double EdgeDistanceAt (size_t sample, double x, double y) const;
     // The layer's sample a row came from.
     size_t SourceOf (size_t row) const
     {
@@ -83,8 +134,9 @@ struct SchemeSite {
 struct PlacedPlant {
     int species = -1; // index into the scheme's species
     double x = 0, y = 0, z = 0;
-    double radius = 0; // mature crown radius used for spacing, m
-    double height = 0; // mature height used for the marker, m
+    double radius = 0;            // mature crown radius used for spacing, m
+    double height = 0;            // mature height used for the marker, m
+    double schematicHeight = 0.5; // SchematicHeightOf, for the Schematic marker and the columns
     int cls = -1;
     bool lightChecked = false; // the plant has light classes
     bool spaceChecked = false; // the site's room was measured
@@ -138,7 +190,8 @@ struct SchemeResult {
     std::vector<SchemeLink> links;
     std::vector<int> wanted, placed; // per species; wanted 0 = as many as fit
     std::vector<SchemeSpeciesSize> sizes;
-    std::vector<SchemeRoom> room; // per species; empty when the space was not checked
+    std::vector<double> density, spacing; // per species: plants per m² used, and the hex grid's spacing, m
+    std::vector<SchemeRoom> room;         // per species; empty when the space was not checked
     std::vector<SchemeNote> notes;
     bool spaceChecked = false;
 };
@@ -154,6 +207,11 @@ struct SchemeOptions {
     // Keep each mature crown inside the region (SchemeSite::edgeDistance), so
     // a tree is never placed with half its crown off the bed or the slab.
     bool containCrowns = true;
+    SchemePattern pattern = SchemePattern::Hex;
+    SchemeStart start = SchemeStart::Centre;
+    // Kept clear inside the region's edge, m: beyond the crown when crowns are
+    // kept inside, else from the plant's centre.
+    double edgeOffset = 0.0;
 };
 
 // The plan distance from each sample to the edge of the area the samples
@@ -165,14 +223,19 @@ struct SchemeOptions {
 void SampleEdgeDistances (SchemeSite& site);
 
 // The crown radius and marker height a plant is placed with, and where they
-// came from: the larger stated spread (conservative), the density's footprint
-// sqrt(1 / (pi * density)), else 0.25 m; the larger stated height, else the
+// came from: the larger stated spread (conservative), half the hex spacing of
+// the lower stated density (so the recommended density packs touching
+// crowns), else 0.25 m; the larger stated height, else the
 // plant's receiver height.
 SchemeSpeciesSize SizeOf (const Plant& plant);
 
-// Places every species, largest crown first, each plant at the sample farthest
-// from the crowns already placed among those its light classes accept, never
-// closer than the two radii allow. Then links each species' plants by a
+// Places every species, largest crown first, on samples its light classes
+// accept, with room for its crown and inside the region. Hex: a grid at the
+// species' density, from the centre or a corner, its points snapped to the
+// nearest measured sample; Spread: each plant farthest from those placed.
+// ⚠️ COLLISIONS ARE RESOLVED: a plant is never closer to another species'
+// plant than the two radii allow (less the crown overlap), nor to its own
+// species than the grid's spacing. Then links each species' plants by a
 // minimum spanning tree in plan and adds the community notes. Deterministic.
 SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, const std::vector<SchemeSpecies>& species,
                           const SchemeSite& site, const SchemeOptions& options = {});

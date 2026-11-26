@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include "Geometry/MeshStore.hpp"
+#include "NativeCommands/PlantingColumns.hpp"
 #include <stdexcept>
 
 namespace tapioca::playground {
@@ -467,3 +468,16 @@ Baked LastBake ()
 }
 } // namespace viewpointbake
 } // namespace geomsrv::archviz
+
+// The playground has no Archicad to write Columns into.
+namespace geomsrv::plantingcolumns {
+bool Request (std::vector<Column>, double, std::string& error)
+{
+    error = "the playground has no Archicad";
+    return false;
+}
+Status Current ()
+{
+    return {};
+}
+} // namespace geomsrv::plantingcolumns

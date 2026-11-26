@@ -15,11 +15,13 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentHudPlantingParts.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "NativeCommands/PlantingColumns.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -134,11 +136,12 @@ void RefreshPlacement (pl::PlantingHud& hud)
                        "|" + std::to_string (hud.deepShade) + "|zone" + std::to_string (s.zone) + "@" +
                        std::to_string (hud.zones.revision) + "|room" + std::to_string (s.checkSpace) + "/" +
                        std::to_string (s.clearanceMargin) + "/" + std::to_string (s.site.clearance.Count ()) +
-                       "|inside" + std::to_string (s.containCrowns);
+                       "|inside" + std::to_string (s.containCrowns) + "|layout" + std::to_string (s.pattern) + "/" +
+                       std::to_string (s.start) + "/" + std::to_string (s.edgeOffset);
     for (double e : s.siteEdges)
         from += "|" + std::to_string (e);
     for (const auto& sp : s.species)
-        from += "|" + sp.plantId + "*" + std::to_string (sp.count);
+        from += "|" + sp.plantId + "*" + std::to_string (sp.count) + "@" + std::to_string (sp.density);
     if (from == s.placedFrom)
         return;
     pl::SchemeOptions options;
@@ -146,9 +149,42 @@ void RefreshPlacement (pl::PlantingHud& hud)
     options.checkSpace = s.checkSpace;
     options.clearanceMargin = s.clearanceMargin;
     options.containCrowns = s.containCrowns;
+    options.pattern = pl::SchemePattern (s.pattern);
+    options.start = pl::SchemeStart (s.start);
+    options.edgeOffset = s.edgeOffset;
     s.result = pl::PlaceScheme (hud, hud.catalogue.plants, s.species, SchemeRegionSite (hud), options);
     s.placedFrom = from;
     ++s.revision;
+}
+
+// A density cell: the tick takes the recommended density; untick it and the
+// slider sets your own, with a tick mark where the recommended one is.
+void DensityCell (pl::SchemeSpecies& sp, const pl::Plant& plant, double spacing)
+{
+    const double recommended = pl::RecommendedDensity (plant);
+    bool useRecommended = sp.density <= 0.0;
+    if (ImGui::Checkbox ("##recommended", &useRecommended))
+        sp.density = useRecommended ? 0.0 : recommended;
+    hudshell::ItemTip ("Ticked: the recommended density, %.2f plants per m2 (%s).", recommended,
+                       plant.densityPerM2 ? "the catalogue's planting density" : "mature crowns touching");
+    ImGui::SameLine (0.0f, ImGui::GetStyle ().ItemInnerSpacing.x);
+    const float lo = float (recommended / 8.0), hi = float (recommended * 4.0);
+    float value = float (useRecommended ? recommended : sp.density);
+    ImGui::SetNextItemWidth (-1);
+    ImGui::BeginDisabled (useRecommended);
+    if (ImGui::SliderFloat ("##density", &value, lo, hi, value < 1.0f ? "%.3f" : "%.2f",
+                            ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+        sp.density = value;
+    ImGui::EndDisabled ();
+    // The tick mark: where the recommended density sits on the slider.
+    const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
+    const float pad = ImGui::GetStyle ().GrabMinSize * 0.5f + ImGui::GetStyle ().FramePadding.x * 0.5f;
+    const float t = std::log (float (recommended) / lo) / std::log (hi / lo);
+    const float x = a.x + pad + t * (b.x - a.x - 2.0f * pad);
+    ImGui::GetWindowDrawList ()->AddLine (ImVec2 (x, a.y), ImVec2 (x, a.y + (b.y - a.y) * 0.35f),
+                                          ImGui::GetColorU32 (ImGuiCol_Text), 1.5f);
+    hudshell::ItemTip ("Plants per m2 on the hex grid; spacing %.2f m. The mark is the recommended %.2f.", spacing,
+                       recommended);
 }
 
 void Swatch (uint32_t rgba)
@@ -272,11 +308,12 @@ void SpeciesTable (pl::PlantingHud& hud)
         return;
     }
     const ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg;
-    if (!ImGui::BeginTable ("##scheme-species", 5, flags))
+    if (!ImGui::BeginTable ("##scheme-species", 6, flags))
         return;
     ImGui::TableSetupColumn ("##colour", ImGuiTableColumnFlags_WidthFixed, ImGui::GetTextLineHeight ());
     ImGui::TableSetupColumn ("Plant", ImGuiTableColumnFlags_WidthStretch, 2.4f);
     ImGui::TableSetupColumn ("Count", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize () * 4.5f);
+    ImGui::TableSetupColumn ("Density /m2", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize () * 7.5f);
     ImGui::TableSetupColumn ("Placed", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize () * 3.2f);
     ImGui::TableSetupColumn ("##remove", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize () * 1.4f);
     ImGui::TableHeadersRow ();
@@ -297,7 +334,11 @@ void SpeciesTable (pl::PlantingHud& hud)
         int count = s.species[i].count;
         if (ImGui::InputInt ("##count", &count, 1, 5))
             s.species[i].count = std::clamp (count, 0, 400);
-        hudshell::ItemTip ("How many to place; 0 places as many as fit.");
+        hudshell::ItemTip ("How many to place; 0 places as many as fit at the density.");
+        ImGui::TableNextColumn ();
+        if (at >= 0)
+            DensityCell (s.species[i], plants.plants[size_t (at)],
+                         i < s.result.spacing.size () ? s.result.spacing[i] : 0.0);
         ImGui::TableNextColumn ();
         if (i < s.result.placed.size ()) {
             const int placed = s.result.placed[i], wanted = s.result.wanted[i];
@@ -334,6 +375,46 @@ void SpeciesTable (pl::PlantingHud& hud)
             s.highlight = -1;
         else if (s.highlight > remove)
             --s.highlight;
+    }
+}
+
+// Create Columns: the placed plants as round Columns in Archicad, on request.
+void ColumnsRow (pl::SchemeState& s)
+{
+    const plantingcolumns::Status status = plantingcolumns::Current ();
+    if (status.serial != s.columnsSeen) {
+        s.columnsSeen = status.serial;
+        s.columnsStatus = status.message;
+    }
+    ImGui::BeginDisabled (s.result.plants.empty () || status.busy);
+    if (ImGui::Button ("Create Columns in Archicad...##scheme"))
+        ImGui::OpenPopup ("Create Columns?##scheme");
+    ImGui::EndDisabled ();
+    hudshell::ItemTip ("Write the placed plants to Archicad as round Columns, 0.3 m wide: trees 3 m tall, shrubs "
+                       "1.5 m, smaller plants 0.5 m, each standing on its host. Layer, material and story follow "
+                       "Archicad's Column tool.");
+    if (ImGui::BeginPopup ("Create Columns?##scheme")) {
+        ImGui::Text ("%zu round Columns, one per placed plant.", s.result.plants.size ());
+        ImGui::TextDisabled ("One Undo in Archicad removes them all.");
+        if (ImGui::Button ("Create")) {
+            std::vector<plantingcolumns::Column> columns;
+            columns.reserve (s.result.plants.size ());
+            for (const pl::PlacedPlant& p : s.result.plants)
+                columns.push_back ({ p.x, p.y, p.z, p.schematicHeight });
+            std::string error;
+            s.columnsStatus = plantingcolumns::Request (std::move (columns), pl::kSchematicDiameter, error)
+                                  ? "Creating the Columns..."
+                                  : "The Columns were not created: " + error;
+            ImGui::CloseCurrentPopup ();
+        }
+        ImGui::SameLine ();
+        if (ImGui::Button ("Cancel"))
+            ImGui::CloseCurrentPopup ();
+        ImGui::EndPopup ();
+    }
+    if (!s.columnsStatus.empty ()) {
+        ImGui::SameLine ();
+        ImGui::TextWrapped ("%s", s.columnsStatus.c_str ());
     }
 }
 
@@ -400,6 +481,27 @@ void DrawSchemeTab (HudState& state)
     ImGui::Checkbox ("Crowns inside the region##scheme", &s.containCrowns);
     hudshell::ItemTip ("Keep each mature crown inside the region in plan: inside the chosen zone, and inside the "
                        "measured layer's outline. Off, a crown may overhang the bed's edge.");
+    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 6.5f);
+    ImGui::Combo ("##schemepattern", &s.pattern, "Hex grid\0Spread out\0");
+    hudshell::ItemTip ("Hex grid: an even, packed grid at each species' density, the layout of a planting plan. "
+                       "Spread out: each plant as far as possible from the others, for a few specimens.");
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (s.pattern != int (pl::SchemePattern::Hex));
+    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 6.5f);
+    ImGui::Combo ("##schemestart", &s.start, "From centre\0From corner\0");
+    ImGui::EndDisabled ();
+    hudshell::ItemTip ("Where the grid starts, and which points are planted first when the count is less than what "
+                       "fits: outward from the middle of the usable area, or from its lower-left corner.");
+    ImGui::SameLine ();
+    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 5.5f);
+    ImGui::DragFloat ("Edge offset##scheme", &s.edgeOffset, 0.01f, 0.0f, 5.0f, "%.2f m");
+    s.edgeOffset = std::clamp (s.edgeOffset, 0.0f, 5.0f);
+    hudshell::ItemTip ("Kept clear inside the region's edge: beyond each crown when crowns stay inside the region, "
+                       "else from each plant's centre.");
+    ImGui::RadioButton ("Schematic##schememarker", &s.marker, int (pl::SchemeMarker::Schematic));
+    hudshell::ItemTip ("A 0.3 m stem: trees 3 m tall, shrubs 1.5 m, smaller plants 0.5 m, with the mature crown's "
+                       "outline on the ground. What Create Columns makes.");
+    ImGui::SameLine ();
     ImGui::RadioButton ("Disc##schememarker", &s.marker, int (pl::SchemeMarker::Disc));
     hudshell::ItemTip ("A low cylinder at each plant's mature crown radius: the plan reads.");
     ImGui::SameLine ();
@@ -416,10 +518,7 @@ void DrawSchemeTab (HudState& state)
     if (!s.species.empty ())
         ImGui::Text ("%zu plant(s) placed.", s.result.plants.size ());
     Notes (s);
-    ImGui::BeginDisabled ();
-    ImGui::SmallButton ("Bake to model...##scheme");
-    ImGui::EndDisabled ();
-    hudshell::ItemTip ("Later: place approved plants as objects on a dedicated layer. Never automatic.");
+    ColumnsRow (s);
 }
 
 } // namespace geomsrv::archviz::plantinghud

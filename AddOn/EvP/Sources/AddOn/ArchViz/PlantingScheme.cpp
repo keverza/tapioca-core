@@ -10,6 +10,7 @@
 #include <map>
 #include <numeric>
 #include <set>
+#include <unordered_map>
 
 namespace geomsrv::archviz::planting {
 
@@ -119,15 +120,14 @@ bool KeptOut (const SchemeSite& site, size_t sample, double radius, double heigh
     return false;
 }
 
-void SampleEdgeDistances (SchemeSite& site)
+namespace {
+
+// The samples' own spacing: the median cell side, else 0.5 m.
+double SampleSpacing (const SchemeSite& site)
 {
-    site.edgeDistance.clear ();
     const size_t n = site.Size ();
-    if (n == 0)
-        return;
-    // The raster's cell: the samples' own spacing (the median cell side).
     double cell = 0.5;
-    if (site.area.size () == n) {
+    if (site.area.size () == n && n > 0) {
         std::vector<double> sides;
         sides.reserve (n);
         for (double a : site.area)
@@ -138,6 +138,95 @@ void SampleEdgeDistances (SchemeSite& site)
             cell = std::max (0.05, sides[sides.size () / 2]);
         }
     }
+    return cell;
+}
+
+// The nearest sample to a plan point, through buckets one spacing wide.
+class SampleBuckets {
+  public:
+    SampleBuckets (const SchemeSite& site, double cell) : site_ (site), cell_ (cell)
+    {
+        for (size_t s = 0; s < site.Size (); ++s)
+            buckets_[Key (Cell (site.x[s]), Cell (site.y[s]))].push_back (s);
+    }
+    // SIZE_MAX when no sample is within `reach`.
+    size_t Nearest (double x, double y, double reach) const
+    {
+        size_t best = SIZE_MAX;
+        double bestDistance = reach;
+        const int64_t cx = Cell (x), cy = Cell (y);
+        const int64_t span = int64_t (std::ceil (reach / cell_));
+        for (int64_t i = cx - span; i <= cx + span; ++i)
+            for (int64_t j = cy - span; j <= cy + span; ++j) {
+                const auto it = buckets_.find (Key (i, j));
+                if (it == buckets_.end ())
+                    continue;
+                for (size_t s : it->second) {
+                    const double d = std::hypot (site_.x[s] - x, site_.y[s] - y);
+                    if (d < bestDistance || (d == bestDistance && s < best)) {
+                        bestDistance = d;
+                        best = s;
+                    }
+                }
+            }
+        return best;
+    }
+
+  private:
+    int64_t Cell (double v) const
+    {
+        return int64_t (std::floor (v / cell_));
+    }
+    static int64_t Key (int64_t i, int64_t j)
+    {
+        return (i << 32) ^ (j & 0xffffffffll);
+    }
+    const SchemeSite& site_;
+    double cell_;
+    std::unordered_map<int64_t, std::vector<size_t>> buckets_;
+};
+
+} // namespace
+
+double EdgeField::At (double x, double y) const
+{
+    if (Empty ())
+        return 0.0;
+    const double fx = (x - x0) / cell, fy = (y - y0) / cell;
+    const int i = int (std::floor (fx)), j = int (std::floor (fy));
+    if (i < 0 || j < 0 || i + 1 >= w || j + 1 >= h)
+        return 0.0;
+    const double tx = fx - i, ty = fy - j;
+    const auto v = [&] (int a, int b) { return double (metres[size_t (b) * size_t (w) + size_t (a)]); };
+    return (1 - ty) * ((1 - tx) * v (i, j) + tx * v (i + 1, j)) +
+           ty * ((1 - tx) * v (i, j + 1) + tx * v (i + 1, j + 1));
+}
+
+double SchemeSite::EdgeDistanceAt (size_t sample, double x, double y) const
+{
+    const bool field = !edgeField.Empty ();
+    const bool zone =
+        regionZone.size () == Size () && regionZone[sample] >= 0 && size_t (regionZone[sample]) < regionZones.size ();
+    if (!field && !zone)
+        return edgeDistance.size () == Size ()
+                   ? double (edgeDistance[sample]) - std::hypot (x - this->x[sample], y - this->y[sample])
+                   : std::numeric_limits<double>::infinity ();
+    double d = field ? edgeField.At (x, y) : std::numeric_limits<double>::infinity ();
+    if (zone) {
+        const PlantingZone& z = regionZones[size_t (regionZone[sample])];
+        d = std::min (d, z.Contains (x, y) ? z.EdgeDistance (x, y) : 0.0);
+    }
+    return d;
+}
+
+void SampleEdgeDistances (SchemeSite& site)
+{
+    site.edgeDistance.clear ();
+    const size_t n = site.Size ();
+    if (n == 0)
+        return;
+    // The raster's cell: the samples' own spacing.
+    double cell = SampleSpacing (site);
     double x0 = site.x[0], x1 = x0, y0 = site.y[0], y1 = y0;
     for (size_t s = 0; s < n; ++s) {
         x0 = std::min (x0, site.x[s]);
@@ -198,6 +287,14 @@ void SampleEdgeDistances (SchemeSite& site)
                             d[at (i - 1, j + 1)] + kDiagonal });
         }
     // A cell's centre is half a cell inside the boundary of an edge cell.
+    site.edgeField.x0 = x0 - border * cell;
+    site.edgeField.y0 = y0 - border * cell;
+    site.edgeField.cell = cell;
+    site.edgeField.w = w;
+    site.edgeField.h = h;
+    site.edgeField.metres.resize (d.size ());
+    for (size_t k = 0; k < d.size (); ++k)
+        site.edgeField.metres[k] = float (std::max (0.0, (double (d[k]) - 0.5) * cell));
     site.edgeDistance.resize (n);
     for (size_t s = 0; s < n; ++s)
         site.edgeDistance[s] = float (std::max (0.0, (double (d[at (ci[s], cj[s])]) - 0.5) * cell));
@@ -233,6 +330,11 @@ SchemeSite RestrictToZones (const SchemeSite& site, const std::vector<const Plan
     if (site.clearance.Count () == site.Size ())
         out.clearance = site.clearance.Subset (keep);
     // Inside the zone, and inside what was measured: the nearer edge counts.
+    out.edgeField = site.edgeField;
+    for (const PlantingZone* z : zonesIn)
+        out.regionZones.push_back (*z);
+    for (const PlantingZone* z : home)
+        out.regionZone.push_back (int (std::find (zonesIn.begin (), zonesIn.end (), z) - zonesIn.begin ()));
     for (size_t k = 0; k < keep.size (); ++k) {
         const size_t s = keep[k];
         const double zoneEdge = home[k]->EdgeDistance (site.x[s], site.y[s]);
@@ -266,6 +368,39 @@ uint32_t SchemeSpeciesRgba (int species)
     return kPalette[((species % n) + n) % n];
 }
 
+double SchematicHeightOf (const Plant& plant)
+{
+    switch (plant.habit) {
+        case Habit::Tree:
+            return 3.0;
+        case Habit::Shrub:
+        case Habit::Climber:
+            return 1.5;
+        default:
+            return 0.5;
+    }
+}
+
+double HexSpacing (double density)
+{
+    return std::sqrt (2.0 / (std::sqrt (3.0) * std::max (density, 1e-6)));
+}
+
+double RecommendedDensity (const Plant& plant)
+{
+    if (plant.densityPerM2 && plant.densityPerM2->min > 0) {
+        const double hi = plant.densityPerM2->max > 0 ? plant.densityPerM2->max : plant.densityPerM2->min;
+        return 0.5 * (plant.densityPerM2->min + hi);
+    }
+    double spread = 2.0 * kAssumedRadius;
+    if (const auto& r = plant.matureSpreadM) {
+        const double d = r->openMax ? r->min : r->max;
+        if (d > 0)
+            spread = d;
+    }
+    return 2.0 / (std::sqrt (3.0) * spread * spread);
+}
+
 SchemeSpeciesSize SizeOf (const Plant& plant)
 {
     SchemeSpeciesSize s;
@@ -277,7 +412,7 @@ SchemeSpeciesSize SizeOf (const Plant& plant)
         }
     }
     if (s.radiusFrom.empty () && plant.densityPerM2 && plant.densityPerM2->min > 0) {
-        s.radius = std::sqrt (1.0 / (kPi * plant.densityPerM2->min));
+        s.radius = HexSpacing (plant.densityPerM2->min) / 2.0;
         s.radiusFrom = "density";
     }
     if (s.radiusFrom.empty ()) {
@@ -523,6 +658,8 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
     result.wanted.resize (species.size ());
     result.placed.assign (species.size (), 0);
     result.sizes.resize (species.size ());
+    result.density.assign (species.size (), 0.0);
+    result.spacing.assign (species.size (), 0.0);
     std::vector<const Plant*> plants (species.size (), nullptr);
     for (size_t i = 0; i < species.size (); ++i) {
         result.wanted[i] = std::max (0, species[i].count);
@@ -544,10 +681,14 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
     result.spaceChecked = space;
     const bool noGo = !site.noGoAllowance.empty ();
     const bool contain = options.containCrowns && site.edgeDistance.size () == n;
+    const double offset = std::max (0.0, options.edgeOffset);
+    const bool checkEdge = site.edgeDistance.size () == n && (contain || offset > 0.0);
+    // How far inside the region's edge a plant's centre must be.
+    const auto edgeNeed = [&] (double r) { return (contain ? r : 0.0) + offset; };
     result.room.resize (species.size ());
+    const double cell = SampleSpacing (site);
+    const SampleBuckets buckets (site, cell);
 
-    // gap[s]: distance from sample s to the nearest placed crown's edge.
-    std::vector<double> gap (n, std::numeric_limits<double>::infinity ());
     bool capped = false;
     for (size_t i : order) {
         if (!plants[i])
@@ -565,7 +706,7 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
                 continue;
             SchemeRoom& room = result.room[i];
             ++room.lightSamples;
-            if (contain && double (site.edgeDistance[s]) + 1e-6 < r) {
+            if (checkEdge && double (site.edgeDistance[s]) + 1e-6 < edgeNeed (r)) {
                 ++room.outside;
                 continue;
             }
@@ -600,19 +741,112 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
                     break;
             }
         }
-        // The first plant of an empty site goes nearest the usable samples' centre.
-        double cx = 0, cy = 0;
+        // The usable area: its centroid and its lower-left corner.
+        double cx = 0, cy = 0, x0 = 0, y0 = 0, x1 = 0, y1 = 0;
         size_t accepted = 0;
-        for (size_t s = 0; s < n; ++s)
-            if (ok[s]) {
-                cx += site.x[s];
-                cy += site.y[s];
-                ++accepted;
+        for (size_t s = 0; s < n; ++s) {
+            if (!ok[s])
+                continue;
+            if (accepted == 0) {
+                x0 = x1 = site.x[s];
+                y0 = y1 = site.y[s];
             }
-        if (accepted > 0) {
-            cx /= double (accepted);
-            cy /= double (accepted);
+            cx += site.x[s];
+            cy += site.y[s];
+            x0 = std::min (x0, site.x[s]);
+            x1 = std::max (x1, site.x[s]);
+            y0 = std::min (y0, site.y[s]);
+            y1 = std::max (y1, site.y[s]);
+            ++accepted;
         }
+        const double density = species[i].density > 0.0 ? species[i].density : RecommendedDensity (plant);
+        const double spacing = HexSpacing (density);
+        result.density[i] = density;
+        result.spacing[i] = spacing;
+        if (accepted == 0)
+            continue;
+        cx /= double (accepted);
+        cy /= double (accepted);
+        const bool corner = options.start == SchemeStart::Corner;
+        const double ox = corner ? x0 : cx, oy = corner ? y0 : cy;
+
+        // Candidates: where a plant may stand, in the order they are taken.
+        struct Candidate {
+            double x, y, key;
+            size_t sample;
+        };
+        std::vector<Candidate> candidates;
+        if (options.pattern == SchemePattern::Hex) {
+            const double row = spacing * std::sqrt (3.0) / 2.0;
+            // A grid of millions of points is a density the area cannot hold anyway.
+            const double points = (x1 - x0 + 2 * spacing) * (y1 - y0 + 2 * spacing) / (spacing * row);
+            if (points > 2.0e6)
+                continue;
+            const int j0 = int (std::floor ((y0 - oy) / row)) - 1, j1 = int (std::ceil ((y1 - oy) / row)) + 1;
+            for (int j = j0; j <= j1; ++j) {
+                const double y = oy + j * row;
+                const double shift = (j % 2 != 0) ? spacing / 2.0 : 0.0;
+                const int k0 = int (std::floor ((x0 - ox - shift) / spacing)) - 1;
+                const int k1 = int (std::ceil ((x1 - ox - shift) / spacing)) + 1;
+                for (int k = k0; k <= k1; ++k) {
+                    const double x = ox + shift + k * spacing;
+                    const size_t s = buckets.Nearest (x, y, 0.75 * cell);
+                    if (s == SIZE_MAX || !ok[s])
+                        continue;
+                    // The grid point is off its sample by d: the edge and the
+                    // no-go zones are that much nearer, never assumed farther.
+                    const double d = std::hypot (x - site.x[s], y - site.y[s]);
+                    if (checkEdge && site.EdgeDistanceAt (s, x, y) + 1e-6 < edgeNeed (r))
+                        continue;
+                    if (noGo && KeptOut (site, s, r, result.sizes[i].height, options.clearanceMargin + d))
+                        continue;
+                    candidates.push_back ({ x, y, std::hypot (x - ox, y - oy), s });
+                }
+            }
+            std::stable_sort (candidates.begin (), candidates.end (),
+                              [] (const Candidate& a, const Candidate& b) { return a.key < b.key; });
+        }
+
+        const auto clear = [&] (double x, double y) {
+            for (const PlacedPlant& q : result.plants) {
+                const double apart = q.species == int (i) ? spacing - 1e-6 : q.radius + need - 1e-9;
+                if (std::hypot (q.x - x, q.y - y) < apart)
+                    return false;
+            }
+            return true;
+        };
+        const auto place = [&] (double x, double y, size_t s) {
+            PlacedPlant p;
+            p.species = int (i);
+            p.x = x;
+            p.y = y;
+            p.z = site.groundZ[s];
+            p.radius = r;
+            p.height = result.sizes[i].height;
+            p.schematicHeight = SchematicHeightOf (plant);
+            p.cls = site.cls[s];
+            p.lightChecked = plant.HasLight ();
+            p.spaceChecked = space;
+            result.plants.push_back (p);
+            ++result.placed[i];
+        };
+
+        if (options.pattern == SchemePattern::Hex) {
+            for (const Candidate& c : candidates) {
+                if (result.placed[i] >= wanted)
+                    break;
+                if (int (result.plants.size ()) >= options.maxPlants) {
+                    capped = true;
+                    break;
+                }
+                if (clear (c.x, c.y))
+                    place (c.x, c.y, c.sample);
+            }
+            continue;
+        }
+
+        // Spread: each plant at the usable sample farthest from those placed;
+        // the first nearest the start.
         for (int k = 0; k < wanted; ++k) {
             if (int (result.plants.size ()) >= options.maxPlants) {
                 capped = true;
@@ -621,9 +855,12 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
             size_t best = n;
             double bestScore = -std::numeric_limits<double>::infinity ();
             for (size_t s = 0; s < n; ++s) {
-                if (!ok[s] || gap[s] < need)
+                if (!ok[s] || !clear (site.x[s], site.y[s]))
                     continue;
-                const double score = std::isinf (gap[s]) ? -std::hypot (site.x[s] - cx, site.y[s] - cy) : gap[s];
+                double gap = std::numeric_limits<double>::infinity ();
+                for (const PlacedPlant& q : result.plants)
+                    gap = std::min (gap, std::hypot (site.x[s] - q.x, site.y[s] - q.y) - q.radius);
+                const double score = std::isinf (gap) ? -std::hypot (site.x[s] - ox, site.y[s] - oy) : gap;
                 if (score > bestScore) {
                     bestScore = score;
                     best = s;
@@ -631,20 +868,7 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
             }
             if (best == n)
                 break;
-            PlacedPlant p;
-            p.species = int (i);
-            p.x = site.x[best];
-            p.y = site.y[best];
-            p.z = site.groundZ[best];
-            p.radius = r;
-            p.height = result.sizes[i].height;
-            p.cls = site.cls[best];
-            p.lightChecked = plant.HasLight ();
-            p.spaceChecked = space;
-            result.plants.push_back (p);
-            ++result.placed[i];
-            for (size_t s = 0; s < n; ++s)
-                gap[s] = std::min (gap[s], std::hypot (site.x[s] - p.x, site.y[s] - p.y) - r);
+            place (site.x[best], site.y[best], best);
         }
     }
 

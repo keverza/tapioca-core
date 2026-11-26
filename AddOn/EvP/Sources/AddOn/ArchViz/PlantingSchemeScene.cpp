@@ -70,11 +70,22 @@ void BuildPlantingSchemeScene (const SchemeResult& scheme, SchemeMarker marker, 
     std::vector<double> top (scheme.plants.size ());
     for (size_t i = 0; i < scheme.plants.size (); ++i) {
         const PlacedPlant& p = scheme.plants[i];
+        const bool dim = highlight >= 0 && p.species != highlight;
+        const uint32_t rgba = SchemeSpeciesRgba (p.species);
+        if (marker == SchemeMarker::Schematic) {
+            // A stem kSchematicDiameter wide, as tall as its habit's schematic
+            // height, and the mature crown's outline on the ground.
+            PlacedPlant stem = p;
+            stem.radius = kSchematicDiameter / 2.0;
+            top[i] = p.z + kLift + p.schematicHeight;
+            AppendCylinder (stem, p.schematicHeight, Display (rgba, dim ? 60 : 230), out.crowns.translucent);
+            AppendRim (stem, top[i] + 0.005, Display (rgba, dim ? 70 : 255), out.crowns.depthTested);
+            AppendRim (p, p.z + kLift + 0.02, Display (rgba, dim ? 70 : 255), out.crowns.depthTested);
+            continue;
+        }
         const double h = marker == SchemeMarker::Mature ? std::max (p.height, 0.05)
                                                         : std::min (kSchemeDiscHeight, std::max (p.height, 0.05));
         top[i] = p.z + kLift + h;
-        const bool dim = highlight >= 0 && p.species != highlight;
-        const uint32_t rgba = SchemeSpeciesRgba (p.species);
         AppendCylinder (p, h, Display (rgba, dim ? 40 : 150), out.crowns.translucent);
         AppendRim (p, top[i] + 0.005, Display (rgba, dim ? 70 : 255), out.crowns.depthTested);
         // A small cross at the centre, where the species' line starts.

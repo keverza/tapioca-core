@@ -587,6 +587,12 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Its zones (#278) read the same layer samples by plain value to give each
     # drawn zone an area table row; the zone outlines come from the selection.
     ("ArchViz/DiligentHudPlantingZones.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # Its Create Columns button (#278) hands the placed plants to the column
+    # writer as plain values (x, y, base, height) and reads its plain-value
+    # status; the write runs on the main thread through the command dispatcher.
+    ("ArchViz/DiligentHudPlantingScheme.cpp", "NativeCommands/PlantingColumns.hpp"),
+    # That writer logs one line per create to the existing host log.
+    ("NativeCommands/PlantingColumns.cpp", "ArchViz/ArchVizLog.hpp"),
     # Seasonal small multiples are the same panel's read-only plain-value adapter.
     ("ArchViz/DiligentHudSunSeasons.cpp", "NativeCommands/SunStudySeasonal.hpp"),
     # The sun path preview (#152) asks the same runner, by plain value, for

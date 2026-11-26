@@ -11,6 +11,7 @@
 #include "Geometry/MeshStore.hpp"
 #include "MeshFixtures.hpp"
 #include "ArchViz/PlantingZoneSource.hpp"
+#include "NativeCommands/PlantingColumns.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
@@ -158,6 +159,18 @@ Imported Latest ()
     return {};
 }
 } // namespace geomsrv::archviz::plantingzonesource
+
+namespace geomsrv::plantingcolumns {
+bool Request (std::vector<Column>, double, std::string& error)
+{
+    error = "no Archicad in the offline HUD tests";
+    return false;
+}
+Status Current ()
+{
+    return {};
+}
+} // namespace geomsrv::plantingcolumns
 
 namespace tapioca::test {
 void ResetSunStudyHudServices ()

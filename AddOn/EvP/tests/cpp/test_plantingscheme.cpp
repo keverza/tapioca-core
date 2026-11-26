@@ -85,7 +85,8 @@ TEST (PlantingScheme, SizesComeFromTheCatalogueAndSayWhere)
     EXPECT_EQ (tree.radiusFrom, "spread");
     EXPECT_DOUBLE_EQ (tree.height, 8.0) << "16+ style open height: its stated end";
     const SchemeSpeciesSize spreader = SizeOf (c.plants[2]);
-    EXPECT_NEAR (spreader.radius, std::sqrt (1.0 / (3.14159265358979 * 9)), 1e-9);
+    EXPECT_NEAR (spreader.radius, std::sqrt (2.0 / (std::sqrt (3.0) * 9)) / 2.0, 1e-9)
+        << "half the hex spacing at its density: touching crowns at the recommended density";
     EXPECT_EQ (spreader.radiusFrom, "density");
     EXPECT_EQ (spreader.heightFrom, "layer");
     EXPECT_FLOAT_EQ (float (spreader.height), 0.15f) << "a cover-layer perennial's receiver height";
@@ -123,6 +124,67 @@ TEST (PlantingScheme, PlantsGoOnAcceptedLightAndCrownsDoNotOverlap)
     ASSERT_EQ (again.plants.size (), r.plants.size ());
     for (size_t i = 0; i < r.plants.size (); ++i)
         EXPECT_EQ (again.plants[i].x, r.plants[i].x) << "deterministic";
+}
+
+// A hex grid at the density: neighbours exactly one spacing apart, the count
+// a density sets, a corner start, an edge offset, and no collision between
+// species.
+TEST (PlantingScheme, AHexGridAtTheDensityResolvesCollisions)
+{
+    const Catalogue c = Plants ();
+    EXPECT_NEAR (RecommendedDensity (c.plants[2]), 9.0, 1e-12) << "the catalogue's density";
+    EXPECT_NEAR (RecommendedDensity (c.plants[0]), 2.0 / (std::sqrt (3.0) * 9.0), 1e-12) << "3 m crowns touching";
+    EXPECT_NEAR (HexSpacing (RecommendedDensity (c.plants[0])), 3.0, 1e-9);
+    EXPECT_DOUBLE_EQ (SchematicHeightOf (c.plants[0]), 3.0);
+    EXPECT_DOUBLE_EQ (SchematicHeightOf (c.plants[1]), 1.5);
+    EXPECT_DOUBLE_EQ (SchematicHeightOf (c.plants[2]), 0.5);
+
+    // A 10 x 10 m shade bed, all shade.
+    SchemeSite site = Courtyard ();
+    for (int& cls : site.cls)
+        cls = 0;
+    site.area.assign (site.Size (), 0.25);
+    SampleEdgeDistances (site);
+
+    // The shrub (r 0.5) first, then the spreader at 4 per m²: no spreader within
+    // a shrub's radius plus its own, and spreaders a grid spacing apart.
+    std::vector<SchemeSpecies> mix = { { "shrub", 5 }, { "spreader", 0, 4.0 } };
+    const SchemeResult r = PlaceScheme (Hud (), c, mix, site);
+    ASSERT_EQ (r.placed[0], 5);
+    EXPECT_GT (r.placed[1], 100);
+    EXPECT_NEAR (r.spacing[1], HexSpacing (4.0), 1e-12);
+    for (size_t a = 0; a < r.plants.size (); ++a)
+        for (size_t b = a + 1; b < r.plants.size (); ++b) {
+            const PlacedPlant &p = r.plants[a], &q = r.plants[b];
+            const double d = std::hypot (p.x - q.x, p.y - q.y);
+            if (p.species == q.species)
+                EXPECT_GE (d, r.spacing[size_t (p.species)] - 1e-6);
+            else
+                EXPECT_GE (d, p.radius + q.radius - 1e-6) << "species never collide";
+        }
+    // About 4 per m² of what is left: 81 m² inside the crown setback less the shrubs.
+    EXPECT_LT (r.placed[1], 4 * 100);
+
+    // From a corner, three plants sit by the lower-left corner; from the centre, in the middle.
+    SchemeOptions corner;
+    corner.start = SchemeStart::Corner;
+    const SchemeResult fromCorner = PlaceScheme (Hud (), c, { { "shrub", 3 } }, site, corner);
+    ASSERT_EQ (fromCorner.placed[0], 3);
+    for (const PlacedPlant& p : fromCorner.plants)
+        EXPECT_LT (std::hypot (p.x, p.y), 3.0);
+    const SchemeResult fromCentre = PlaceScheme (Hud (), c, { { "shrub", 3 } }, site);
+    for (const PlacedPlant& p : fromCentre.plants)
+        EXPECT_LT (std::hypot (p.x - 5.0, p.y - 5.0), 2.0);
+
+    // An edge offset of 2 m keeps every crown 2 m in from the edge.
+    SchemeOptions offset;
+    offset.edgeOffset = 2.0;
+    const SchemeResult inset = PlaceScheme (Hud (), c, { { "shrub", 0 } }, site, offset);
+    ASSERT_GT (inset.placed[0], 0);
+    for (const PlacedPlant& p : inset.plants) {
+        EXPECT_GE (std::min ({ p.x, p.y, 10.0 - p.x, 10.0 - p.y }), 0.5 + 2.0 - 1e-6);
+        EXPECT_DOUBLE_EQ (p.schematicHeight, 1.5);
+    }
 }
 
 // The measured area's own outline: a corner sample is a quarter cell from the
@@ -364,7 +426,8 @@ TEST (PlantingScheme, MeasuredRoomKeepsCrownsClearOfWallsAndOverhangs)
     off.checkSpace = false;
     const SchemeResult loose = PlaceScheme (hud, c, { { "tree", 0 } }, site, off);
     EXPECT_FALSE (loose.spaceChecked);
-    EXPECT_GT (loose.placed[0], r.placed[0]);
+    EXPECT_GE (loose.placed[0], r.placed[0]);
+    EXPECT_EQ (loose.room[0].overhead + loose.room[0].narrow, 0u) << "no sample refused for walls or overhangs";
     EXPECT_TRUE (Has (loose.notes, "Walls and overhangs were not checked"));
 }
 
