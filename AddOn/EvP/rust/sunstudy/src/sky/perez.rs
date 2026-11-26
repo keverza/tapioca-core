@@ -286,7 +286,10 @@ pub fn efficacy(p: &PerezParameters) -> (f64, f64) {
 
 /// Diffuse irradiance on an unobstructed plane with unit `normal` (sky frame)
 /// by the Perez 1990 transposition, W/m². The cross-check for the
-/// patch-integrated sky, never the production path. Uses the unheld Δ.
+/// patch-integrated sky on an open horizontal plane only: on a tilted plane
+/// the two Perez models differ by more than the acceptance tolerance (up to
+/// 62 % of DHI for a low sun facing the plane), so the tilted comparison is
+/// against Radiance (`radiance_tests`). Never the production path. Uses the unheld Δ.
 ///
 /// # Errors
 /// As [`parameters`].

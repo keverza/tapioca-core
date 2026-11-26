@@ -206,4 +206,6 @@ fn held_sun(sun: [f64; 3], zenith: f64) -> [f64; 3] {
 }
 
 #[cfg(test)]
+mod radiance_tests;
+#[cfg(test)]
 mod tests;

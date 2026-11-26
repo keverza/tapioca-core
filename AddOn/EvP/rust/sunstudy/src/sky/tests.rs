@@ -244,40 +244,6 @@ fn the_transposition_returns_dhi_on_a_horizontal_plane() {
     }
 }
 
-#[test]
-fn the_patch_integrated_sky_differs_from_the_1990_transposition_by_a_measured_bound() {
-    // Two different Perez models on one input: the 1993 luminance
-    // distribution integrated over the dome, and the 1990 irradiance
-    // transposition, whose circumsolar term is a point at the sun. They do
-    // not agree to 1 %: measured on these cases, up to 9 % of DHI with the
-    // sun at 30° or higher, and up to 62 % with a 10° sun facing the plane.
-    // The bounds below are those measurements rounded up; a regression in
-    // either model moves them.
-    for dome in domes() {
-        for c in conditions() {
-            let sky = perez_sky(&dome, &c).unwrap();
-            let low = c.sun[2] < 25.0_f64.to_radians().sin();
-            let bound = if low { 0.65 } else { 0.10 };
-            for azimuth in [0.0, 90.0, 160.0, 250.0] {
-                let n = facing(azimuth);
-                let integrated: f64 = dome
-                    .projected(n)
-                    .iter()
-                    .zip(&sky.field.values)
-                    .map(|(w, l)| w * l)
-                    .sum();
-                let analytic = perez::transposed_diffuse(&c, n).unwrap();
-                let rel = (integrated - analytic).abs() / c.dhi;
-                assert!(
-                    rel < bound,
-                    "{:?} az {azimuth}: {integrated} vs {analytic}",
-                    dome.set()
-                );
-            }
-        }
-    }
-}
-
 /// Sun altitude, DNI, DHI, element altitude and azimuth, ε, Δ, `L/L_ref`.
 type Case = (f64, f64, f64, f64, f64, f64, f64, f64);
 
