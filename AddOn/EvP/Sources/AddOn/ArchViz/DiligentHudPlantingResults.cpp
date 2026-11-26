@@ -309,7 +309,10 @@ void InspectSection (HudState& state)
     pl::PlantingHud& hud = state.planting;
     char first[96] = {}, second[96] = {};
     int cls = -1;
-    if (state.sunReadingState == 1) {
+    // While the DLI map is on this study its hours are DLI (Climate section).
+    const bool dliRead =
+        state.sunReadingState == 1 && DliReading (state, first, sizeof (first), second, sizeof (second), cls);
+    if (state.sunReadingState == 1 && !dliRead) {
         cls = pl::ClassOf (hud, state.sunReadingHours);
         std::snprintf (first, sizeof (first), "%s%.2f h direct sun a day", state.sunReadingNearest ? "~ " : "",
                        state.sunReadingHours);

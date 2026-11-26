@@ -61,6 +61,12 @@ void RefreshLayerAreas (HudState& state);
 void OpenFolderInExplorer (const std::filesystem::path& folder);
 // The Light sub-tab's Climate section (DiligentHudPlantingClimate.cpp).
 void DrawClimateSection (HudState& state, const DiligentSceneStats& scene);
+// "Jan".."Dec" for 1-12, "mean of the months" for 0 (the DLI map's month).
+const char* DliMonthName (int month);
+// The hover reading while the DLI map is on the hovered study: DLI in `first`,
+// the sample's own sun hours and class in `second` (`cls`, or -1). False when
+// the map is not shown there: read the hours as usual.
+bool DliReading (const HudState& state, char* first, size_t firstSize, char* second, size_t secondSize, int& cls);
 void DrawCompareTab (HudState& state);
 
 // The Scheme sub-tab (#278): a mix of catalogue plants placed on a kept layer.

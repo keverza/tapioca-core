@@ -65,4 +65,10 @@ namespace geomsrv::sunstudyhud::plantingclimate {
 void Shutdown ();
 } // namespace geomsrv::sunstudyhud::plantingclimate
 
+namespace geomsrv::sunstudyhud::plantingdli {
+// Quit/unload: put the layer's hours back and join the display worker
+// (SunStudyHudPlantingDli.cpp).
+void Shutdown ();
+} // namespace geomsrv::sunstudyhud::plantingdli
+
 #endif

@@ -240,7 +240,9 @@ struct PlantingHud {
     float minHostUp = 0.5f; // steeper hosts are unavailable (cos of the slope)
     int backend = 0;        // 0 CPU, 1 GPU
     // Climate and catalogue.
-    int climate = 0; // 0 geometry only; weather-weighted hours wait for #155 P2
+    int climate = 0;      // 0 geometry only, 1 weather-weighted (the Climate section's run)
+    int dliMonth = 0;     // the DLI map's month, 1-12, or 0 for the mean of the months
+    std::string dliError; // the last refused DLI map
     ClimateState climateState;
     CatalogueState catalogue;
     SchemeState scheme;

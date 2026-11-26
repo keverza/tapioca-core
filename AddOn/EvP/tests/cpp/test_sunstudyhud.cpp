@@ -155,6 +155,27 @@ PlantingClimate CurrentPlantingClimate ()
 {
     return {};
 }
+// The DLI map (#278): never shown offline.
+bool ShowPlantingDli (const std::string&, int, std::string& error)
+{
+    error = "no store in the offline HUD tests";
+    return false;
+}
+void HidePlantingDli (bool)
+{
+}
+PlantingDli CurrentPlantingDli ()
+{
+    return {};
+}
+bool PlantingDliHeldHours (const std::string&, std::vector<double>&)
+{
+    return false;
+}
+bool PlantingDliHeldHourAt (const std::string&, size_t, double&)
+{
+    return false;
+}
 } // namespace geomsrv::sunstudyhud
 
 namespace geomsrv::archviz::plantingzonesource {

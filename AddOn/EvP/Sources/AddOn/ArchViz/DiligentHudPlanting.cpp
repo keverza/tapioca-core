@@ -109,7 +109,12 @@ void ApplyPlantingDisplay (HudState& state)
     const pl::PlantingHud& hud = state.planting;
     state.sunView = kSunViewHours;
     state.sunLowBlue = false;
-    if (hud.metric == pl::kSunClass) {
+    // The DLI map (Climate section) is drawn on the continuous ramp: the class
+    // bands are edges in hours, which the map's values are not.
+    const sunstudyhud::PlantingDli dli = sunstudyhud::CurrentPlantingDli ();
+    const bool dliShown = dli.shown && hud.shownLayer >= 0 && size_t (hud.shownLayer) < hud.layers.size () &&
+                          hud.layers[size_t (hud.shownLayer)].studyId == dli.studyId;
+    if (hud.metric == pl::kSunClass && !dliShown) {
         int count = 0;
         pl::ClassBands (hud, kSunRampTop, count, state.sunBandEdges, int (std::size (state.sunBandEdges)));
         state.sunBandCount = std::clamp (count, kSunBandsMin, kSunBandsMax);
@@ -427,6 +432,7 @@ void plantinghud::ShowLayer (HudState& state, size_t index)
     if (index >= hud.layers.size () || hud.runningRun != 0 || hud.showingRun != 0)
         return;
     const pl::Layer& layer = hud.layers[index];
+    sunstudyhud::HidePlantingDli (false); // the layer is shown below with its own hours
     if (!sunstudyhud::IsPlantingLayerKept (layer.studyId)) {
         RunHeights (state, { layer.height });
         return;
@@ -447,6 +453,7 @@ void plantinghud::ClearLayers (HudState& state)
     pl::PlantingHud& hud = state.planting;
     if (hud.runningRun != 0 || hud.showingRun != 0)
         return;
+    sunstudyhud::HidePlantingDli (false);
     sunstudyhud::ForgetPlantingLayers ();
     hud.layers.clear ();
     hud.shownLayer = -1;
@@ -565,6 +572,7 @@ void ReleasePlantingDisplay (HudState& state)
     auto& hold = state.planting.sunHold;
     if (!hold.held)
         return;
+    sunstudyhud::HidePlantingDli (false); // the layer's hours back before the Sun tab reads the store
     state.sunGradientPreset = hold.preset;
     state.sunGradientFlipped = hold.flipped;
     state.sunGradientCustom = hold.custom;

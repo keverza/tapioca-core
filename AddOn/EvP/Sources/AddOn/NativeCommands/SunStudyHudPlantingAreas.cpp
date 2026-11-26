@@ -24,6 +24,7 @@ bool ReadPlantingAreas (const std::string& studyId, const std::vector<double>& e
         std::vector<double> positions, normals;
         if (!SunStudyStore::Get ().Results (studyId, hours, positions, normals, nullptr, error, false))
             return false;
+        (void) PlantingDliHeldHours (studyId, hours); // the map's DLI is not hours
     }
     SunStudyStore::SampleCells cells;
     if (!SunStudyStore::Get ().Cells (studyId, cells, error))
@@ -49,6 +50,7 @@ bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingS
     std::vector<double> hours, positions, normals;
     if (!SunStudyStore::Get ().Results (studyId, hours, positions, normals, nullptr, error, true))
         return false;
+    (void) PlantingDliHeldHours (studyId, hours); // the map's DLI is not hours
     std::vector<double> mean;
     if (period::MeanDailyHours (studyId, mean, error))
         hours = std::move (mean);

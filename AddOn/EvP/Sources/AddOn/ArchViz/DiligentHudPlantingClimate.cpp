@@ -9,6 +9,11 @@
 // light classes stay geometry-only (direct-sun hours); the weather figures sit
 // beside them, labelled an estimate, never mixed in.
 //
+// The DLI map: the run's per-sample DLI for one month (or the mean of the
+// months) drawn on the layer in the viewer through the layer's own study
+// (SunStudyHudPlantingDli.cpp), on the continuous ramp, with the classes'
+// bands off while it is shown. The hover reads DLI and the sample's own hours.
+//
 // RENDER THREAD. A weather file (about 1.5 MB) is parsed on the click that
 // picks it; the folder is listed on demand, never every frame.
 
@@ -18,6 +23,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/PlantHardiness.hpp"
 #include "ArchViz/PlantingFiles.hpp"
+#include "ArchViz/SunStudyPreview.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 
 #include <imgui.h>
@@ -37,6 +43,8 @@ namespace {
 constexpr const char* kMonths[12] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
+static_assert (sunstudyhud::kPlantingDliRampTop == double (kSunRampTop),
+               "the DLI map is drawn on the hours ramp: its top must be the ramp's");
 
 // Short names of the fields a missing count is worth showing for.
 struct FieldLabel {
@@ -311,6 +319,54 @@ void SeasonRow (pl::PlantingHud& hud)
                               : "It runs over New Year; a custom season stays within one year.");
 }
 
+// The DLI map on the shown layer: a tick, the month, and its ramp.
+void DliMapControls (pl::PlantingHud& hud, const pl::Layer& layer, const sunstudyhud::PlantingClimate& run)
+{
+    const sunstudyhud::PlantingDli dli = sunstudyhud::CurrentPlantingDli ();
+    const bool shownHere = dli.shown && dli.studyId == layer.studyId;
+    bool on = shownHere;
+    std::string error;
+    if (ImGui::Checkbox ("Show DLI on the layer##climatedli", &on)) {
+        if (on && !sunstudyhud::ShowPlantingDli (layer.studyId, hud.dliMonth, error))
+            hud.dliError = error;
+        else if (!on)
+            sunstudyhud::HidePlantingDli (true);
+        if (on && error.empty ())
+            hud.dliError.clear ();
+    }
+    hudshell::ItemTip ("Draw each sample's daily light integral on the layer instead of its sun hours. The light "
+                       "classes, areas, Fit and Scheme keep reading the sun hours.");
+    ImGui::SameLine ();
+    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 9.0f);
+    if (ImGui::BeginCombo ("##climatedlimonth", DliMonthName (hud.dliMonth))) {
+        for (int m = 0; m <= 12; ++m) {
+            if (m > 0 && std::isnan (run.dli[size_t (m - 1)]))
+                continue; // no weather that month
+            if (ImGui::Selectable (DliMonthName (m), hud.dliMonth == m)) {
+                hud.dliMonth = m;
+                if (shownHere) {
+                    if (sunstudyhud::ShowPlantingDli (layer.studyId, m, error))
+                        hud.dliError.clear ();
+                    else
+                        hud.dliError = error;
+                }
+            }
+        }
+        ImGui::EndCombo ();
+    }
+    hudshell::ItemTip ("The month drawn, or the mean of the months with weather.");
+    if (!hud.dliError.empty ())
+        hudshell::ErrorNotice (hud.dliError);
+    if (!shownHere)
+        return;
+    ImGui::TextDisabled ("Ramp 0 to %.0f mol/m2/day (largest %.1f). An estimate, as the table.", dli.top, dli.largest);
+    if (dli.missing > 0)
+        ImGui::TextDisabled ("%zu of %zu samples have no value for this month and are drawn as 0.", dli.missing,
+                             dli.samples);
+    if (!dli.displayError.empty ())
+        hudshell::ErrorNotice (dli.displayError);
+}
+
 // The shown layer's weather-weighted light: run it, follow it, show it.
 void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
 {
@@ -327,6 +383,10 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
     const bool mine =
         run.studyId == layer.studyId && run.weatherSha256 == climate.data->identity.sha256 && run.year == hud.year;
     using State = sunstudyhud::PlantingClimate::State;
+    // A map from another file, year or run no longer matches what is listed.
+    if (const auto dli = sunstudyhud::CurrentPlantingDli ();
+        dli.shown && dli.studyId == layer.studyId && !(mine && run.state == State::Ready))
+        sunstudyhud::HidePlantingDli (true);
     const bool busy = mine && (run.state == State::Capturing || run.state == State::Tracing);
     ImGui::BeginDisabled (busy || (mine && run.state == State::Ready));
     char label[96];
@@ -392,9 +452,32 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
     ImGui::TextDisabled ("Sky view %.2f (geometry). Estimate: ground taken as unshaded, everything that casts a "
                          "shadow treated as solid.",
                          run.skyView);
+    DliMapControls (hud, layer, run);
 }
 
 } // namespace
+
+const char* DliMonthName (int month)
+{
+    return month >= 1 && month <= 12 ? kMonths[month - 1] : "mean of the months";
+}
+
+bool DliReading (const HudState& state, char* first, size_t firstSize, char* second, size_t secondSize, int& cls)
+{
+    const sunstudyhud::PlantingDli dli = sunstudyhud::CurrentPlantingDli ();
+    if (!dli.shown || dli.studyId != state.sunReadingStudy)
+        return false;
+    // The study's hours are DLI on the ramp: undo the scale.
+    std::snprintf (first, firstSize, "%s%.1f mol/m2/day (%s, estimate)", state.sunReadingNearest ? "~ " : "",
+                   state.sunReadingHours * dli.top / sunstudyhud::kPlantingDliRampTop, DliMonthName (dli.month));
+    double hours = 0.0;
+    cls = -1;
+    if (sunstudyhud::PlantingDliHeldHourAt (dli.studyId, state.sunReadingSample, hours)) {
+        cls = pl::ClassOf (state.planting, hours);
+        std::snprintf (second, secondSize, "%.2f h direct sun a day: %s", hours, pl::ClassName (state.planting, cls));
+    }
+    return true;
+}
 
 void DrawClimateSection (HudState& state, const DiligentSceneStats& scene)
 {

@@ -196,6 +196,7 @@ void Run (const Want& want)
         const double all = valid + result.report.missingHours[size_t (m)];
         figures.coverage[size_t (m)] = all > 0.0 ? valid / all : nan;
     }
+    auto sampleDli = std::make_shared<const std::vector<ss::rust::Monthly>> (std::move (result.dli));
     const double seconds = std::chrono::duration<double> (std::chrono::steady_clock::now () - started).count ();
     Publish (want, [&] (PlantingClimate& c) {
         if (gCancel.load ())
@@ -208,6 +209,7 @@ void Run (const Want& want)
         c.coverage = figures.coverage;
         c.skyView = viewArea > 0.0 ? viewSum / viewArea : nan;
         c.seconds = seconds;
+        c.sampleDli = sampleDli;
     });
 }
 

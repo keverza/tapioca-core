@@ -404,15 +404,41 @@ struct PlantingClimate {
     std::string station;
     double sunMeanDegrees = 0.0, sunMaxDegrees = 0.0; // the host check
     size_t samples = 0;
-    std::array<double, 12> dli {};      // mol/m2/day, area-weighted mean; NaN without weather
+    std::array<double, 12> dli {};       // mol/m2/day, area-weighted mean; NaN without weather
     std::array<double, 12> energyKwh {}; // kWh/m2 a month, area-weighted mean (direct + diffuse + reflected)
-    std::array<double, 12> coverage {}; // valid share of the month's weather hours; NaN without any
-    double skyView = 0.0;               // geometric, area-weighted mean, 0-1
+    std::array<double, 12> coverage {};  // valid share of the month's weather hours; NaN without any
+    double skyView = 0.0;                // geometric, area-weighted mean, 0-1
     double seconds = 0.0;
+    // Per sample of the layer, January first, mol/m2/day; NaN without weather.
+    std::shared_ptr<const std::vector<std::array<double, 12>>> sampleDli;
 };
 void RequestPlantingClimate (const std::string& studyId, double layerHeight,
                              std::shared_ptr<const evp::sunstudy::WeatherData> weather, int year);
 PlantingClimate CurrentPlantingClimate ();
+
+// ---- the DLI map on a planting layer (#278 Stage 5) -------------------------
+//
+// The weather run's per-sample DLI drawn through the layer's own study on the
+// hours ramp (SunStudyHudPlantingDli.cpp): a sample shows DLI x
+// kPlantingDliRampTop / top. `month` 1-12, or 0 for the mean over the months
+// with weather. Hide puts back what the study held and, with `reshow`, shows
+// the layer again. While the map is shown the study's hours ARE the map:
+// readers of a planting study's hours take PlantingDliHeldHours first.
+constexpr double kPlantingDliRampTop = 10.0; // the hours ramp's top (ArchViz kSunRampTop)
+struct PlantingDli {
+    bool shown = false;
+    std::string studyId;
+    int month = 0;
+    double top = 0.0, largest = 0.0; // mol/m2/day
+    size_t samples = 0, missing = 0; // missing: drawn as 0
+    std::string displayError;
+};
+bool ShowPlantingDli (const std::string& studyId, int month, std::string& error);
+void HidePlantingDli (bool reshow);
+PlantingDli CurrentPlantingDli ();
+bool PlantingDliHeldHours (const std::string& studyId, std::vector<double>& hours);
+// One sample's kept hours, for a hover reading (no copy of the layer).
+bool PlantingDliHeldHourAt (const std::string& studyId, size_t sample, double& hours);
 
 } // namespace geomsrv::sunstudyhud
 
