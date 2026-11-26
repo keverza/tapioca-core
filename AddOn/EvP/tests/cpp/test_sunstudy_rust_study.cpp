@@ -689,7 +689,7 @@ TEST (SunStudyRustAbi, TheArchiveSpeaksThisHeadersVersion)
     std::string error;
     ASSERT_TRUE (evp::sunstudy::rust::ReadAbiVersion (version, error)) << error;
     EXPECT_EQ (version, TAPIOCA_SUNSTUDY_ABI_VERSION);
-    // v5: planting receptor layer (#278); v4: the analysis cylinder in the
+    // v6: EPW weather (#155); v5: planting receptor layer (#278); v4: the analysis cylinder in the
     // sampling records; v3 annual archive (#152)
-    EXPECT_EQ (version, 5u);
+    EXPECT_EQ (version, 6u);
 }
