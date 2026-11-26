@@ -802,6 +802,7 @@ void Shutdown ()
     period::Shutdown ();
     sunpath::Shutdown ();
     plantingroom::Shutdown ();
+    plantingclimate::Shutdown ();
 }
 
 } // namespace geomsrv::sunstudyhud

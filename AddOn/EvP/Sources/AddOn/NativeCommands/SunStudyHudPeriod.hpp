@@ -60,4 +60,9 @@ namespace geomsrv::sunstudyhud::plantingroom {
 void Shutdown ();
 } // namespace geomsrv::sunstudyhud::plantingroom
 
+namespace geomsrv::sunstudyhud::plantingclimate {
+// Quit/unload: cancel the climate run and join it (SunStudyHudPlantingClimate.cpp).
+void Shutdown ();
+} // namespace geomsrv::sunstudyhud::plantingclimate
+
 #endif

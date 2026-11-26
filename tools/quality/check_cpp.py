@@ -587,6 +587,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Its zones (#278) read the same layer samples by plain value to give each
     # drawn zone an area table row; the zone outlines come from the selection.
     ("ArchViz/DiligentHudPlantingZones.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # Its Climate section (#278 Stage 5) asks the runner for a weather-weighted
+    # run on a kept layer and reads its plain-value monthly figures; the host's
+    # sun is read on the main thread by the runner, not by the HUD.
+    ("ArchViz/DiligentHudPlantingClimate.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
     # Its Create Columns button (#278) hands the placed plants to the column
     # writer as plain values (x, y, base, height) and reads its plain-value
     # status; the write runs on the main thread through the command dispatcher.

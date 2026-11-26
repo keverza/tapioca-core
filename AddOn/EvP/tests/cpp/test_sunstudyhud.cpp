@@ -148,6 +148,13 @@ PlantingRoom CurrentPlantingRoom ()
 {
     return {};
 }
+void RequestPlantingClimate (const std::string&, double, std::shared_ptr<const evp::sunstudy::WeatherData>, int)
+{
+}
+PlantingClimate CurrentPlantingClimate ()
+{
+    return {};
+}
 } // namespace geomsrv::sunstudyhud
 
 namespace geomsrv::archviz::plantingzonesource {

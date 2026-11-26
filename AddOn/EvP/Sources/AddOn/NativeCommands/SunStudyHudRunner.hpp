@@ -14,7 +14,9 @@
 #include "SunStudy/SunStudyCrownClearance.hpp"
 #include "SunStudy/SunStudyPlantingAreas.hpp"
 #include "SunStudy/SunStudyPointProfile.hpp"
+#include "SunStudy/SunStudyWeather.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -381,6 +383,36 @@ struct PlantingRoom {
 };
 void RequestPlantingRoom (const std::string& studyId, double layerHeight);
 PlantingRoom CurrentPlantingRoom ();
+
+// ---- weather-weighted light on a planting layer (#278 Stage 5) ------------
+//
+// One kept planting study under one weather file: Archicad's sun for every
+// weather interval (checked against the independent sun, #155 P2; a refused
+// check is a failure, not a warning), then the climate run on the layer's own
+// samples and occluders (SunStudyClimateRun). Area-weighted monthly figures
+// for the layer; climatic outputs only, the geometric sky view beside them.
+// One worker; asking for another study, file or year cancels the running one.
+struct PlantingClimate {
+    enum class State : uint8_t { Idle, Capturing, Tracing, Ready, Failed };
+    State state = State::Idle;
+    std::string studyId;
+    std::string weatherSha256;
+    int year = 0;
+    size_t done = 0, total = 0; // intervals, while tracing
+    std::string error;          // Failed
+    // Ready.
+    std::string station;
+    double sunMeanDegrees = 0.0, sunMaxDegrees = 0.0; // the host check
+    size_t samples = 0;
+    std::array<double, 12> dli {};      // mol/m2/day, area-weighted mean; NaN without weather
+    std::array<double, 12> energyKwh {}; // kWh/m2 a month, area-weighted mean (direct + diffuse + reflected)
+    std::array<double, 12> coverage {}; // valid share of the month's weather hours; NaN without any
+    double skyView = 0.0;               // geometric, area-weighted mean, 0-1
+    double seconds = 0.0;
+};
+void RequestPlantingClimate (const std::string& studyId, double layerHeight,
+                             std::shared_ptr<const evp::sunstudy::WeatherData> weather, int year);
+PlantingClimate CurrentPlantingClimate ();
 
 } // namespace geomsrv::sunstudyhud
 

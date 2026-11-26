@@ -3,9 +3,11 @@
 // temperature and global horizontal radiation, and a growing season read from
 // its temperatures that the form can use as a custom season.
 //
-// ⚠️ NOT A LIGHT INPUT YET. The classes stay geometry-only (direct-sun hours)
-// until #155 P2 aligns the weather's instants with the host's sun positions;
-// the weather-weighted option stays disabled and says so.
+// Weather-weighted light (#278 Stage 5): for the shown layer, Archicad's sun
+// for the weather year (checked, #155 P2) and a climate run on the layer's
+// samples give monthly daily light integral, energy and weather coverage. The
+// light classes stay geometry-only (direct-sun hours); the weather figures sit
+// beside them, labelled an estimate, never mixed in.
 //
 // RENDER THREAD. A weather file (about 1.5 MB) is parsed on the click that
 // picks it; the folder is listed on demand, never every frame.
@@ -16,6 +18,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/PlantHardiness.hpp"
 #include "ArchViz/PlantingFiles.hpp"
+#include "NativeCommands/SunStudyHudRunner.hpp"
 
 #include <imgui.h>
 
@@ -308,6 +311,89 @@ void SeasonRow (pl::PlantingHud& hud)
                               : "It runs over New Year; a custom season stays within one year.");
 }
 
+// The shown layer's weather-weighted light: run it, follow it, show it.
+void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
+{
+    if (hud.shownLayer < 0 || size_t (hud.shownLayer) >= hud.layers.size ()) {
+        ImGui::TextDisabled ("Trace a layer first: the weather is weighed on a layer's samples.");
+        return;
+    }
+    const pl::Layer& layer = hud.layers[size_t (hud.shownLayer)];
+    if (!climate.data) {
+        ImGui::TextDisabled ("Pick a weather file.");
+        return;
+    }
+    const sunstudyhud::PlantingClimate run = sunstudyhud::CurrentPlantingClimate ();
+    const bool mine =
+        run.studyId == layer.studyId && run.weatherSha256 == climate.data->identity.sha256 && run.year == hud.year;
+    using State = sunstudyhud::PlantingClimate::State;
+    const bool busy = mine && (run.state == State::Capturing || run.state == State::Tracing);
+    ImGui::BeginDisabled (busy || (mine && run.state == State::Ready));
+    char label[96];
+    std::snprintf (label, sizeof label, "Weigh the %.2f m layer by the weather##climaterun", layer.height);
+    if (ImGui::Button (label))
+        sunstudyhud::RequestPlantingClimate (layer.studyId, layer.height, climate.data, hud.year);
+    ImGui::EndDisabled ();
+    hudshell::ItemTip ("Every hour of the weather file on this layer: Archicad's sun for each hour, checked "
+                       "against an independent calculation, then direct, sky and ground-reflected light per "
+                       "sample. Takes a while on a large layer; the viewer stays usable.");
+    if (!mine)
+        return;
+    switch (run.state) {
+        case State::Capturing:
+            ImGui::TextDisabled ("Reading Archicad's sun for every hour of the year...");
+            return;
+        case State::Tracing: {
+            const float f = run.total ? float (run.done) / float (run.total) : 0.0f;
+            char text[64];
+            std::snprintf (text, sizeof text, "%zu of %zu hours", run.done, run.total);
+            ImGui::ProgressBar (f, ImVec2 (-1, 0), text);
+            return;
+        }
+        case State::Failed:
+            ImGui::TextColored (ImVec4 (0.95f, 0.45f, 0.40f, 1.0f), "%s", run.error.c_str ());
+            return;
+        case State::Idle:
+        case State::Ready:
+            break;
+    }
+    if (run.state != State::Ready)
+        return;
+    ImGui::TextDisabled ("%s, %d: %zu samples, %.0f s. Archicad's sun agrees with an independent calculation "
+                         "to %.2f deg on average.",
+                         run.station.c_str (), run.year, run.samples, run.seconds, run.sunMeanDegrees);
+    const ImGuiTableFlags flags =
+        ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable ("##climatelight", 4, flags)) {
+        ImGui::TableSetupColumn ("Month");
+        ImGui::TableSetupColumn ("DLI mol/m2/day");
+        ImGui::TableSetupColumn ("Light kWh/m2");
+        ImGui::TableSetupColumn ("Weather hours");
+        ImGui::TableHeadersRow ();
+        for (int m = 0; m < 12; ++m) {
+            const double dli = run.dli[size_t (m)];
+            if (std::isnan (dli))
+                continue;
+            ImGui::TableNextRow ();
+            ImGui::TableNextColumn ();
+            ImGui::TextUnformatted (kMonths[m]);
+            ImGui::TableNextColumn ();
+            ImGui::Text ("%.1f", dli);
+            ImGui::TableNextColumn ();
+            ImGui::Text ("%.0f", run.energyKwh[size_t (m)]);
+            ImGui::TableNextColumn ();
+            ImGui::Text ("%.0f %%", 100.0 * run.coverage[size_t (m)]);
+        }
+        ImGui::EndTable ();
+    }
+    hudshell::ItemTip ("Area-weighted over the layer's samples. DLI: the month's light as photosynthetic photons "
+                       "a day (0.45 of the energy is photosynthetic light, 4.57 umol per joule): an estimate. "
+                       "Weather hours: the share of the month's hours with radiation in the file.");
+    ImGui::TextDisabled ("Sky view %.2f (geometry). Estimate: ground taken as unshaded, everything that casts a "
+                         "shadow treated as solid.",
+                         run.skyView);
+}
+
 } // namespace
 
 void DrawClimateSection (HudState& state, const DiligentSceneStats& scene)
@@ -321,12 +407,9 @@ void DrawClimateSection (HudState& state, const DiligentSceneStats& scene)
     ImGui::RadioButton ("Geometry only##plantingclimate", &hud.climate, 0);
     hudshell::ItemTip ("Direct-sun hours from the sun's path and the model alone: no weather, no clouds.");
     ImGui::SameLine ();
-    ImGui::BeginDisabled ();
-    int later = hud.climate;
-    ImGui::RadioButton ("Weather-weighted##plantingclimate", &later, 1);
-    ImGui::EndDisabled ();
-    hudshell::ItemTip ("Later: weight the hours by the weather and add daily light integral, once the weather's "
-                       "instants are aligned with the sun positions (#155 P2).");
+    ImGui::RadioButton ("Weather-weighted##plantingclimate", &hud.climate, 1);
+    hudshell::ItemTip ("The shown layer under the picked weather file: daily light integral and light energy "
+                       "per month, beside the sun hours. The light classes stay sun hours.");
     const char* current = climate.selected >= 0 && size_t (climate.selected) < climate.files.size ()
                               ? climate.files[size_t (climate.selected)].c_str ()
                               : (climate.files.empty () ? "no .epw or .zip in the folder" : "pick a weather file");
@@ -354,6 +437,8 @@ void DrawClimateSection (HudState& state, const DiligentSceneStats& scene)
         return;
     }
     StationLines (climate, scene);
+    if (hud.climate == 1)
+        WeatherLight (hud, climate);
     QualityLines (*climate.data);
     MonthlyCharts (*climate.data);
     SeasonRow (hud);
