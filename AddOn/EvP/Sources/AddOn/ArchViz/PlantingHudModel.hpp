@@ -142,7 +142,7 @@ struct ClimateState {
     bool fileNormals = false; // a normals file: averaged, its cold extremes smoothed away
 };
 
-// Zones from polylines (#278): closed Polylines and Fills read from the
+// Zones from the selection (#278): closed Polylines, Fills, Mesh and Slab contours read from the
 // selection, and the area table's zone rows for the shown layer.
 struct ZonesState {
     std::vector<PlantingZone> zones;
@@ -175,7 +175,7 @@ struct ZonesState {
 struct SchemeState {
     std::vector<SchemeSpecies> species;
     int layer = -1;     // kept layer the region comes from; -1 = the shown one
-    int zone = -1;      // ZonesState::zones index the region is limited to; -1 = the whole layer
+    int zone = -1;      // ZonesState::zones index the region is limited to; -1 = the whole layer, kAllBeds = every bed
     int highlight = -1; // species row the viewer emphasises
     int marker = 0;     // SchemeMarker
     float crownOverlap = 0.0f;
@@ -184,7 +184,8 @@ struct SchemeState {
     // overhangs once the layer's room is measured, with this margin, m.
     bool checkSpace = true;
     float clearanceMargin = 0.0f;
-    std::string roomStatus; // "Measuring room... 40 %", or why it is not checked
+    bool containCrowns = true; // SchemeOptions::containCrowns
+    std::string roomStatus;    // "Measuring room... 40 %", or why it is not checked
     // The region read for `siteStudy`, as classes at the edges it was read with.
     std::string siteStudy;
     std::vector<double> siteEdges;

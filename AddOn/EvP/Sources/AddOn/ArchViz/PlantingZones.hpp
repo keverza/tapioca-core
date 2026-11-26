@@ -40,8 +40,8 @@ enum class ZoneRole : uint8_t {
 
 struct PlantingZone {
     std::string guid;
-    std::string name; // the element's ID, else "Fill" / "Polyline" and the GUID's tail
-    bool fill = false;
+    std::string name; // the element's ID, else its kind and the GUID's tail
+    std::string kind; // what it was read from: "Polyline", "Fill", "Mesh" or "Slab"
     uint64_t stamp = 0;
     // Ring 0 is the outline, the rest are holes; x, y pairs, arcs tessellated,
     // not repeating the first point.
@@ -56,6 +56,9 @@ struct PlantingZone {
     // Plan distance from (x, y) to the zone: 0 inside, else to the nearest
     // outline or hole edge.
     double PlanDistance (double x, double y) const;
+    // Plan distance from (x, y) to the nearest outline or hole edge, inside or
+    // out: how far a crown centred there may reach before it crosses the zone.
+    double EdgeDistance (double x, double y) const;
 };
 
 // For each sample and each no-go zone (in `zones` order, Bed zones skipped),
@@ -69,6 +72,8 @@ void NoGoDistances (const std::vector<PlantingZone>& zones, const std::vector<do
 std::vector<uint32_t> ZoneMasks (const std::vector<PlantingZone>& zones, const std::vector<double>& x,
                                  const std::vector<double>& y);
 constexpr size_t kMaxPlantingZones = 32;
+// The Scheme and Fit region "all beds": every Bed zone at once (SchemeState::zone).
+constexpr int kAllBeds = -2;
 
 // Plan area per light class (raw hours, the exact comparator H >= edge) of
 // the samples a zone contains, with the measured area and the count.

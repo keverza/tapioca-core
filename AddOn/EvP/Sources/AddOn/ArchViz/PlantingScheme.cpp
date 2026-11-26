@@ -119,15 +119,108 @@ bool KeptOut (const SchemeSite& site, size_t sample, double radius, double heigh
     return false;
 }
 
+void SampleEdgeDistances (SchemeSite& site)
+{
+    site.edgeDistance.clear ();
+    const size_t n = site.Size ();
+    if (n == 0)
+        return;
+    // The raster's cell: the samples' own spacing (the median cell side).
+    double cell = 0.5;
+    if (site.area.size () == n) {
+        std::vector<double> sides;
+        sides.reserve (n);
+        for (double a : site.area)
+            if (a > 0.0)
+                sides.push_back (std::sqrt (a));
+        if (!sides.empty ()) {
+            std::nth_element (sides.begin (), sides.begin () + std::ptrdiff_t (sides.size () / 2), sides.end ());
+            cell = std::max (0.05, sides[sides.size () / 2]);
+        }
+    }
+    double x0 = site.x[0], x1 = x0, y0 = site.y[0], y1 = y0;
+    for (size_t s = 0; s < n; ++s) {
+        x0 = std::min (x0, site.x[s]);
+        x1 = std::max (x1, site.x[s]);
+        y0 = std::min (y0, site.y[s]);
+        y1 = std::max (y1, site.y[s]);
+    }
+    // At most about four million cells: a coarser raster for a huge site.
+    while ((x1 - x0) / cell * (y1 - y0) / cell > 4.0e6)
+        cell *= 2.0;
+    const int border = 3; // empty cells around the area, so its outline is an edge
+    const int w = int ((x1 - x0) / cell) + 1 + 2 * border, h = int ((y1 - y0) / cell) + 1 + 2 * border;
+    const auto at = [&] (int i, int j) { return size_t (j) * size_t (w) + size_t (i); };
+    std::vector<uint8_t> in (size_t (w) * size_t (h), 0);
+    std::vector<int> ci (n), cj (n);
+    for (size_t s = 0; s < n; ++s) {
+        ci[s] = border + int ((site.x[s] - x0) / cell + 0.5);
+        cj[s] = border + int ((site.y[s] - y0) / cell + 0.5);
+        ci[s] = std::clamp (ci[s], 0, w - 1);
+        cj[s] = std::clamp (cj[s], 0, h - 1);
+        in[at (ci[s], cj[s])] = 1;
+    }
+    // Close by one cell (dilate, then erode): lattices of neighbouring faces
+    // do not line up with the raster, and a skipped cell is not an edge.
+    const auto step = [&] (const std::vector<uint8_t>& from, bool dilate) {
+        std::vector<uint8_t> to (from.size (), 0);
+        for (int j = 1; j + 1 < h; ++j)
+            for (int i = 1; i + 1 < w; ++i) {
+                bool any = false, all = true;
+                for (int dj = -1; dj <= 1; ++dj)
+                    for (int di = -1; di <= 1; ++di) {
+                        const bool v = from[at (i + di, j + dj)] != 0;
+                        any = any || v;
+                        all = all && v;
+                    }
+                to[at (i, j)] = uint8_t (dilate ? any : all);
+            }
+        return to;
+    };
+    in = step (step (in, true), false);
+    for (size_t s = 0; s < n; ++s)
+        in[at (ci[s], cj[s])] = 1; // a lone sample stays measured
+    // Two-pass chamfer distance (1, sqrt 2) to the nearest empty cell, in cells.
+    constexpr float kFar = 1.0e9f, kDiagonal = 1.41421356f;
+    std::vector<float> d (in.size ());
+    for (size_t k = 0; k < in.size (); ++k)
+        d[k] = in[k] ? kFar : 0.0f;
+    for (int j = 1; j < h; ++j)
+        for (int i = 1; i + 1 < w; ++i) {
+            float& v = d[at (i, j)];
+            v = std::min ({ v, d[at (i - 1, j)] + 1.0f, d[at (i, j - 1)] + 1.0f, d[at (i - 1, j - 1)] + kDiagonal,
+                            d[at (i + 1, j - 1)] + kDiagonal });
+        }
+    for (int j = h - 2; j >= 0; --j)
+        for (int i = w - 2; i >= 1; --i) {
+            float& v = d[at (i, j)];
+            v = std::min ({ v, d[at (i + 1, j)] + 1.0f, d[at (i, j + 1)] + 1.0f, d[at (i + 1, j + 1)] + kDiagonal,
+                            d[at (i - 1, j + 1)] + kDiagonal });
+        }
+    // A cell's centre is half a cell inside the boundary of an edge cell.
+    site.edgeDistance.resize (n);
+    for (size_t s = 0; s < n; ++s)
+        site.edgeDistance[s] = float (std::max (0.0, (double (d[at (ci[s], cj[s])]) - 0.5) * cell));
+}
+
 SchemeSite RestrictToZone (const SchemeSite& site, const PlantingZone& zone)
+{
+    return RestrictToZones (site, { &zone });
+}
+
+SchemeSite RestrictToZones (const SchemeSite& site, const std::vector<const PlantingZone*>& zonesIn)
 {
     SchemeSite out;
     out.layerHeight = site.layerHeight;
     std::vector<size_t> keep;
+    std::vector<const PlantingZone*> home; // the zone each kept sample is in
     for (size_t s = 0; s < site.Size (); ++s) {
-        if (!zone.Contains (site.x[s], site.y[s]))
+        const auto in = std::find_if (zonesIn.begin (), zonesIn.end (),
+                                      [&] (const PlantingZone* z) { return z->Contains (site.x[s], site.y[s]); });
+        if (in == zonesIn.end ())
             continue;
         keep.push_back (s);
+        home.push_back (*in);
         out.x.push_back (site.x[s]);
         out.y.push_back (site.y[s]);
         out.groundZ.push_back (site.groundZ[s]);
@@ -139,6 +232,13 @@ SchemeSite RestrictToZone (const SchemeSite& site, const PlantingZone& zone)
     }
     if (site.clearance.Count () == site.Size ())
         out.clearance = site.clearance.Subset (keep);
+    // Inside the zone, and inside what was measured: the nearer edge counts.
+    for (size_t k = 0; k < keep.size (); ++k) {
+        const size_t s = keep[k];
+        const double zoneEdge = home[k]->EdgeDistance (site.x[s], site.y[s]);
+        const double layerEdge = site.edgeDistance.size () == site.Size () ? double (site.edgeDistance[s]) : zoneEdge;
+        out.edgeDistance.push_back (float (std::min (zoneEdge, layerEdge)));
+    }
     const size_t zones = site.noGoAllowance.size ();
     if (zones > 0 && site.noGoDistance.size () == site.Size () * zones) {
         out.noGoAllowance = site.noGoAllowance;
@@ -443,8 +543,8 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
     const bool space = options.checkSpace && !site.clearance.Empty () && site.clearance.Count () == n;
     result.spaceChecked = space;
     const bool noGo = !site.noGoAllowance.empty ();
-    if (space || noGo)
-        result.room.resize (species.size ());
+    const bool contain = options.containCrowns && site.edgeDistance.size () == n;
+    result.room.resize (species.size ());
 
     // gap[s]: distance from sample s to the nearest placed crown's edge.
     std::vector<double> gap (n, std::numeric_limits<double>::infinity ());
@@ -463,12 +563,17 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
         for (size_t s = 0; s < n; ++s) {
             if (site.cls[s] < 0 || !((mask >> site.cls[s]) & 1u))
                 continue;
+            SchemeRoom& room = result.room[i];
+            ++room.lightSamples;
+            if (contain && double (site.edgeDistance[s]) + 1e-6 < r) {
+                ++room.outside;
+                continue;
+            }
             if (!space && !noGo) {
+                ++room.fits;
                 ok[s] = 1;
                 continue;
             }
-            SchemeRoom& room = result.room[i];
-            ++room.lightSamples;
             if (KeptOut (site, s, r, result.sizes[i].height, options.clearanceMargin)) {
                 ++room.noGo;
                 continue;
@@ -593,6 +698,15 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
         else if (result.wanted[i] == 0 && result.placed[i] == 0)
             result.notes.push_back (
                 { SchemeSeverity::Warning, name + ": no " + roomText + " on a light class it accepts.", { int (i) } });
+        if (i < result.room.size () && result.room[i].outside > 0 && result.room[i].lightSamples > 0) {
+            char text[200];
+            std::snprintf (text, sizeof (text),
+                           ": its %.1f m wide crown would cross the region's edge from %.0f%% of the area with its "
+                           "light; it is kept inside.",
+                           2.0 * result.sizes[i].radius,
+                           100.0 * double (result.room[i].outside) / double (result.room[i].lightSamples));
+            result.notes.push_back ({ SchemeSeverity::Info, name + text, { int (i) } });
+        }
         if (i < result.room.size () && result.room[i].noGo > 0) {
             char text[160];
             std::snprintf (text, sizeof (text), ": no-go zones keep it out of %.0f%% of the area with its light.",

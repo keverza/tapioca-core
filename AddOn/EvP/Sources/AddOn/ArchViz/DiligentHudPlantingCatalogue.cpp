@@ -318,7 +318,7 @@ void Filters (pl::CatalogueState& cat, int designZone, const std::vector<pl::Pla
             ImGui::EndCombo ();
         }
         ImGui::EndDisabled ();
-        hudshell::ItemTip (zones.empty () ? "Read zones first: Light > Planting areas > Zones from polylines."
+        hudshell::ItemTip (zones.empty () ? "Read zones first: Light > Planting areas > Zones from selection."
                                           : "Read Fits inside this bed, on each plant's own layer, and list only the "
                                             "plants with compatible area there.");
     }

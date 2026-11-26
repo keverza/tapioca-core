@@ -65,6 +65,10 @@ struct SchemeSite {
     // No-go zones (PlantingZones NoGoDistances): plan distance per sample and
     // no-go zone, sample-major, and each zone's allowed height. Empty: none.
     std::vector<float> noGoDistance, noGoAllowance;
+    // Plan distance from each sample to the region's edge: the measured
+    // layer's outline (SampleEdgeDistances), and a zone's outline once
+    // restricted to it. Empty: not known, and crowns are not kept inside.
+    std::vector<float> edgeDistance;
     // The layer's sample a row came from.
     size_t SourceOf (size_t row) const
     {
@@ -125,7 +129,8 @@ bool KeptOut (const SchemeSite& site, size_t sample, double radius, double heigh
 struct SchemeRoom {
     size_t lightSamples = 0; // on an accepted light class
     size_t fits = 0, overhead = 0, narrow = 0, beyond = 0;
-    size_t noGo = 0; // its crown would reach into a no-go zone
+    size_t noGo = 0;    // its crown would reach into a no-go zone
+    size_t outside = 0; // its crown would cross the region's edge
 };
 
 struct SchemeResult {
@@ -146,7 +151,18 @@ struct SchemeOptions {
     double clearanceMargin = 0.0;
     // False: ignore a measured room (the "Clear of walls and overhangs" switch).
     bool checkSpace = true;
+    // Keep each mature crown inside the region (SchemeSite::edgeDistance), so
+    // a tree is never placed with half its crown off the bed or the slab.
+    bool containCrowns = true;
 };
+
+// The plan distance from each sample to the edge of the area the samples
+// cover, into `site.edgeDistance`. The samples are rasterised in plan at their
+// own spacing (closed by one cell, so the seams between hosts' lattices are
+// not edges) and a chamfer distance transform measures to the nearest empty
+// cell. ⚠️ IN PLAN: a podium above a yard counts as one area; within about
+// one cell of accuracy.
+void SampleEdgeDistances (SchemeSite& site);
 
 // The crown radius and marker height a plant is placed with, and where they
 // came from: the larger stated spread (conservative), the density's footprint
@@ -165,8 +181,12 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
 // trait competition, regulatory status, missing data. No placement needed.
 std::vector<SchemeNote> CheckCommunity (const Catalogue& catalogue, const std::vector<SchemeSpecies>& species);
 
-// The site's samples inside `zone`, in their order.
+// The site's samples inside `zone`, in their order. Each keeps its distance to
+// the nearer of the zone's edge and the measured layer's edge.
 SchemeSite RestrictToZone (const SchemeSite& site, const PlantingZone& zone);
+// The same over several zones (every bed at once): a sample is kept when one
+// contains it, and measures to that zone's edge.
+SchemeSite RestrictToZones (const SchemeSite& site, const std::vector<const PlantingZone*>& zones);
 
 // The catalogue index of a scheme species, -1 when it is gone.
 int FindPlant (const Catalogue& catalogue, const std::string& id);

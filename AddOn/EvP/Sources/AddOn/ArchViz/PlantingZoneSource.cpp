@@ -45,7 +45,24 @@ std::vector<double> Ring (const std::string& guid, const GS::Array<double>& coor
     return ring;
 }
 
-// MAIN THREAD.
+const char* KindOf (API_ElemTypeID type)
+{
+    switch (type) {
+        case API_PolyLineID:
+            return "Polyline";
+        case API_HatchID:
+            return "Fill";
+        case API_MeshID:
+            return "Mesh";
+        case API_SlabID:
+            return "Slab";
+        default:
+            return nullptr;
+    }
+}
+
+// MAIN THREAD. A Mesh's and a Slab's outline is its polygon memo, like a
+// Fill's: the plan contour, holes included; their heights are not used.
 bool ReadZone (const API_Element& element, planting::PlantingZone& zone, std::string& reason)
 {
     const bool polyline = element.header.type.typeID == API_PolyLineID;
@@ -77,7 +94,7 @@ bool ReadZone (const API_Element& element, planting::PlantingZone& zone, std::st
         return false;
     }
     zone.guid = APIGuidToString (element.header.guid).ToCStr ().Get ();
-    zone.fill = !polyline;
+    zone.kind = KindOf (element.header.type.typeID);
     zone.stamp = uint64_t (element.header.modiStamp);
     zone.rings.push_back (Ring (zone.guid, outer, outerArcs, 0, outerCount));
     if (zone.rings[0].size () < 6) {
@@ -94,8 +111,7 @@ bool ReadZone (const API_Element& element, planting::PlantingZone& zone, std::st
     if (ACAPI_Element_GetElementInfoString (&element.header.guid, &id) == NoError && !id.IsEmpty ())
         zone.name = id.ToCStr (0, MaxUSize, CC_UTF8).Get ();
     else
-        zone.name = std::string (polyline ? "Polyline .." : "Fill ..") +
-                    zone.guid.substr (zone.guid.size () >= 4 ? zone.guid.size () - 4 : 0);
+        zone.name = zone.kind + " .." + zone.guid.substr (zone.guid.size () >= 4 ? zone.guid.size () - 4 : 0);
     return true;
 }
 
@@ -116,7 +132,7 @@ void Import ()
         if (ACAPI_Element_Get (&element) != NoError)
             continue;
         const API_ElemTypeID type = element.header.type.typeID;
-        if (type != API_PolyLineID && type != API_HatchID)
+        if (KindOf (type) == nullptr)
             continue;
         planting::PlantingZone zone;
         std::string reason;
@@ -125,11 +141,11 @@ void Import ()
         else if (ReadZone (element, zone, reason))
             imported.zones.push_back (std::move (zone));
         else
-            imported.skipped.push_back (std::string (type == API_PolyLineID ? "Polyline .." : "Fill ..") +
+            imported.skipped.push_back (std::string (KindOf (type)) + " .." +
                                         guid.substr (guid.size () >= 4 ? guid.size () - 4 : 0) + ": " + reason);
     }
     if (imported.zones.empty () && imported.error.empty ())
-        imported.error = "select closed Polylines or Fills in Archicad first";
+        imported.error = "select closed Polylines, Fills, Meshes or Slabs in Archicad first";
     std::lock_guard<std::mutex> lock (s_mutex);
     imported.serial = s_latest.serial + 1;
     s_latest = std::move (imported);

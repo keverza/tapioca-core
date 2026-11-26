@@ -74,6 +74,7 @@ void RefreshSite (pl::PlantingHud& hud, int layer)
         s.siteHours = std::move (read.hours);
         s.siteHosts = std::move (read.meshGuids);
         s.site.layerHeight = l.height;
+        pl::SampleEdgeDistances (s.site); // once per layer: where a crown would leave the measured area
     }
     const std::vector<double> edges = pl::AreaEdges (hud);
     if (s.siteEdges != edges || s.site.cls.size () != s.siteHours.size ()) {
@@ -132,7 +133,8 @@ void RefreshPlacement (pl::PlantingHud& hud)
                        std::to_string (hud.catalogue.plants.plants.size ()) + "|" + std::to_string (s.crownOverlap) +
                        "|" + std::to_string (hud.deepShade) + "|zone" + std::to_string (s.zone) + "@" +
                        std::to_string (hud.zones.revision) + "|room" + std::to_string (s.checkSpace) + "/" +
-                       std::to_string (s.clearanceMargin) + "/" + std::to_string (s.site.clearance.Count ());
+                       std::to_string (s.clearanceMargin) + "/" + std::to_string (s.site.clearance.Count ()) +
+                       "|inside" + std::to_string (s.containCrowns);
     for (double e : s.siteEdges)
         from += "|" + std::to_string (e);
     for (const auto& sp : s.species)
@@ -143,6 +145,7 @@ void RefreshPlacement (pl::PlantingHud& hud)
     options.crownOverlap = s.crownOverlap;
     options.checkSpace = s.checkSpace;
     options.clearanceMargin = s.clearanceMargin;
+    options.containCrowns = s.containCrowns;
     s.result = pl::PlaceScheme (hud, hud.catalogue.plants, s.species, SchemeRegionSite (hud), options);
     s.placedFrom = from;
     ++s.revision;
@@ -164,6 +167,14 @@ pl::SchemeSite SchemeRegionSite (const pl::PlantingHud& hud)
     const auto& zones = hud.zones.zones;
     if (s.zone >= 0 && size_t (s.zone) < zones.size () && zones[size_t (s.zone)].role == pl::ZoneRole::Bed)
         return pl::RestrictToZone (s.site, zones[size_t (s.zone)]);
+    if (s.zone == pl::kAllBeds) {
+        std::vector<const pl::PlantingZone*> beds;
+        for (const auto& z : zones)
+            if (z.role == pl::ZoneRole::Bed)
+                beds.push_back (&z);
+        if (!beds.empty ())
+            return pl::RestrictToZones (s.site, beds);
+    }
     return s.site;
 }
 
@@ -201,14 +212,21 @@ void DrawSchemeRegion (pl::PlantingHud& hud, int layer)
                        "may go. Unavailable area (too steep, under a ceiling) is never planted.");
     ImGui::SameLine ();
     const auto& zones = hud.zones.zones;
-    if (s.zone >= int (zones.size ()) || (s.zone >= 0 && zones[size_t (s.zone)].role != pl::ZoneRole::Bed))
+    const bool anyBed = std::any_of (zones.begin (), zones.end (),
+                                     [] (const pl::PlantingZone& z) { return z.role == pl::ZoneRole::Bed; });
+    if (s.zone >= int (zones.size ()) || (s.zone >= 0 && zones[size_t (s.zone)].role != pl::ZoneRole::Bed) ||
+        (s.zone == pl::kAllBeds && !anyBed) || s.zone < pl::kAllBeds)
         s.zone = -1;
     ImGui::SetNextItemWidth (ImGui::GetFontSize () * 9.0f);
-    const std::string zoneLabel = s.zone < 0 ? std::string ("whole layer") : zones[size_t (s.zone)].name;
+    const std::string zoneLabel = s.zone == pl::kAllBeds ? std::string ("all beds")
+                                  : s.zone < 0           ? std::string ("whole layer")
+                                                         : zones[size_t (s.zone)].name;
     ImGui::BeginDisabled (zones.empty ());
     if (ImGui::BeginCombo ("Zone##schemezone", zoneLabel.c_str ())) {
-        if (ImGui::Selectable ("whole layer", s.zone < 0))
+        if (ImGui::Selectable ("whole layer", s.zone == -1))
             s.zone = -1;
+        if (anyBed && ImGui::Selectable ("all beds", s.zone == pl::kAllBeds))
+            s.zone = pl::kAllBeds;
         for (size_t i = 0; i < zones.size (); ++i) {
             if (zones[i].role != pl::ZoneRole::Bed)
                 continue; // a no-go zone is never a region
@@ -219,8 +237,8 @@ void DrawSchemeRegion (pl::PlantingHud& hud, int layer)
         ImGui::EndCombo ();
     }
     ImGui::EndDisabled ();
-    hudshell::ItemTip (zones.empty () ? "Read zones first: Light > Planting areas > Zones from polylines."
-                                      : "Place only on the samples inside this zone, in plan.");
+    hudshell::ItemTip (zones.empty () ? "Read zones first: Light > Planting areas > Zones from selection."
+                                      : "Place only inside this zone in plan, or inside every bed at once (all beds).");
     if (!s.siteError.empty ())
         ImGui::TextColored (ImVec4 (0.95f, 0.45f, 0.40f, 1.0f), "Region not read: %s", s.siteError.c_str ());
     else if (layer >= 0)
@@ -378,6 +396,10 @@ void DrawSchemeTab (HudState& state)
         s.crownOverlap = overlap / 100.0f;
     hudshell::ItemTip ("How far neighbouring mature crowns may overlap, as a share of the smaller crown's radius. "
                        "0 keeps them touching at most.");
+    ImGui::SameLine ();
+    ImGui::Checkbox ("Crowns inside the region##scheme", &s.containCrowns);
+    hudshell::ItemTip ("Keep each mature crown inside the region in plan: inside the chosen zone, and inside the "
+                       "measured layer's outline. Off, a crown may overhang the bed's edge.");
     ImGui::RadioButton ("Disc##schememarker", &s.marker, int (pl::SchemeMarker::Disc));
     hudshell::ItemTip ("A low cylinder at each plant's mature crown radius: the plan reads.");
     ImGui::SameLine ();

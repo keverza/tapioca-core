@@ -267,7 +267,7 @@ void RequestImport ()
     planting::PlantingZone lawn;
     lawn.guid = "FIXTURE-ZONE-LAWN-2222";
     lawn.name = "Lawn";
-    lawn.fill = true;
+    lawn.kind = "Fill";
     lawn.rings = { { 9, 2, 19, 2, 19, 11, 14, 11, 14, 6, 9, 6 }, { 15, 3, 17, 3, 17, 5, 15, 5 } };
     s_zones.zones = { bed, lawn };
     s_zones.error.clear ();

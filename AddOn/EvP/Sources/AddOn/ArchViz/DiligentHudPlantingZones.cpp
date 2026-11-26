@@ -1,5 +1,5 @@
-// The Planting tab's zones (#278): "Zones from polylines..." reads the closed
-// Polylines and Fills selected in Archicad (PlantingZoneSource, main thread),
+// The Planting tab's zones (#278): "Zones from selection..." reads the closed
+// Polylines, Fills, Meshes and Slabs selected in Archicad (PlantingZoneSource, main thread),
 // lists them, and gives the area table a row per zone for the shown layer.
 //
 // A zone row is read from the layer's samples (ReadPlantingSite, plain values)
@@ -71,15 +71,16 @@ void DrawZonesRow (HudState& state)
     pl::ZonesState& z = hud.zones;
     TakeImport (z);
     ImGui::BeginDisabled (z.importing);
-    if (ImGui::Button ("Zones from polylines...")) {
+    if (ImGui::Button ("Zones from selection...")) {
         z.importing = true;
         z.status = "Reading the selection...";
         plantingzonesource::RequestImport ();
     }
     ImGui::EndDisabled ();
-    hudshell::ItemTip ("Read the closed Polylines and Fills selected in Archicad as planting zones. Each is projected "
-                       "straight down onto the hosts and gets its own area table row; the Scheme can be limited to "
-                       "one. Select them again and read to update.");
+    hudshell::ItemTip ("Read what is selected in Archicad as planting zones: closed Polylines, Fills, and the "
+                       "contours of Meshes and Slabs. Each outline is projected straight down onto the hosts and gets "
+                       "its own area table row; the Scheme can plant one zone or all beds. Select them again and "
+                       "read to update.");
     ImGui::SameLine ();
     LaterButton ("Pick in viewer", "Later: click host surfaces in the viewer instead of selecting elements.");
     if (!z.status.empty ())
@@ -96,7 +97,7 @@ void DrawZonesRow (HudState& state)
                      zone.rings.size () > 1 ? "  (with holes)" : "");
         hudshell::ItemTip ("%s %s\nPlan area of the outline, holes taken out; the measured area is in the area "
                            "table.",
-                           zone.fill ? "Fill" : "Polyline", zone.guid.c_str ());
+                           zone.kind.c_str (), zone.guid.c_str ());
         ImGui::SameLine ();
         bool noGo = zone.role == pl::ZoneRole::NoGo;
         if (ImGui::Checkbox ("No-go", &noGo)) {

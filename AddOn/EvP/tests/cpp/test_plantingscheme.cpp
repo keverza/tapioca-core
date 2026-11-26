@@ -125,6 +125,57 @@ TEST (PlantingScheme, PlantsGoOnAcceptedLightAndCrownsDoNotOverlap)
         EXPECT_EQ (again.plants[i].x, r.plants[i].x) << "deterministic";
 }
 
+// The measured area's own outline: a corner sample is a quarter cell from the
+// edge, the centre five metres; and a tree is kept off the edge.
+TEST (PlantingScheme, CrownsStayInsideTheMeasuredArea)
+{
+    SchemeSite site = Courtyard ();
+    site.area.assign (site.Size (), 0.25);
+    SampleEdgeDistances (site);
+    ASSERT_EQ (site.edgeDistance.size (), site.Size ());
+    EXPECT_NEAR (site.edgeDistance[0], 0.25, 1e-6) << "(0.25, 0.25): half a cell in";
+    const size_t centre = 10 * 20 + 10; // (5.25, 5.25)
+    EXPECT_NEAR (site.edgeDistance[centre], 4.75, 0.3) << "chamfer: within a cell's fraction";
+
+    const Catalogue c = Plants ();
+    const SchemeResult r = PlaceScheme (Hud (), c, { { "tree", 4 } }, site);
+    ASSERT_GT (r.placed[0], 0);
+    for (const PlacedPlant& p : r.plants) {
+        EXPECT_GE (p.x - p.radius, -1e-9);
+        EXPECT_LE (p.x + p.radius, 10.0 + 1e-9);
+        EXPECT_GE (p.y - p.radius, -1e-9);
+        EXPECT_LE (p.y + p.radius, 10.0 + 1e-9) << "the crown is inside the measured area";
+    }
+    EXPECT_GT (r.room[0].outside, 0u);
+    EXPECT_TRUE (Has (r.notes, "would cross the region's edge"));
+
+    SchemeOptions loose;
+    loose.containCrowns = false;
+    const SchemeResult free = PlaceScheme (Hud (), c, { { "tree", 4 } }, site, loose);
+    EXPECT_EQ (free.room[0].outside, 0u) << "switched off, crowns may overhang";
+}
+
+// All beds at once: two zones, each sample measured to its own zone's edge.
+TEST (PlantingScheme, AllBedsKeepEachCrownInItsBed)
+{
+    SchemeSite site = Courtyard ();
+    site.area.assign (site.Size (), 0.25);
+    SampleEdgeDistances (site);
+    PlantingZone west, east;
+    west.rings = { { 0, 0, 4, 0, 4, 10, 0, 10 } };
+    east.rings = { { 6, 0, 10, 0, 10, 10, 6, 10 } };
+    const SchemeSite beds = RestrictToZones (site, { &west, &east });
+    EXPECT_EQ (beds.Size (), size_t (8 * 20 * 2)) << "the 1 m path between them is not a bed";
+    for (size_t k = 0; k < beds.Size (); ++k) {
+        const PlantingZone& home = beds.x[k] < 5 ? west : east;
+        EXPECT_LE (beds.edgeDistance[k], home.EdgeDistance (beds.x[k], beds.y[k]) + 1e-6);
+    }
+    const SchemeResult r = PlaceScheme (Hud (), Plants (), { { "tree", 0 } }, beds);
+    ASSERT_GT (r.placed[0], 0);
+    for (const PlacedPlant& p : r.plants)
+        EXPECT_GE (p.x - p.radius, 6.0 - 1e-9) << "full sun is x >= 5: only the east bed, and inside it";
+}
+
 TEST (PlantingScheme, TooManyIsReportedAndZeroFills)
 {
     const Catalogue c = Plants ();

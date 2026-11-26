@@ -61,6 +61,19 @@ double PlantingZone::PlanDistance (double x, double y) const
     return best;
 }
 
+double PlantingZone::EdgeDistance (double x, double y) const
+{
+    double best = std::numeric_limits<double>::infinity ();
+    for (const auto& ring : rings) {
+        const size_t n = ring.size () / 2;
+        if (n < 2)
+            continue;
+        for (size_t i = 0, j = n - 1; i < n; j = i++)
+            best = std::min (best, SegmentDistance (x, y, ring[2 * j], ring[2 * j + 1], ring[2 * i], ring[2 * i + 1]));
+    }
+    return best;
+}
+
 void NoGoDistances (const std::vector<PlantingZone>& zones, const std::vector<double>& x, const std::vector<double>& y,
                     std::vector<float>& distance, std::vector<float>& allowance)
 {
