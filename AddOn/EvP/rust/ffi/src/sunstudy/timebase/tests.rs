@@ -123,7 +123,9 @@ fn a_run_reads_its_daily_light_integral() {
         rotation: 0.0,
         patch_set: 0,
         sky: 1,
-        reserved: [0; 6],
+        lux_source: 0,
+        reserved: [0; 5],
+        lux_threshold: 0.0,
     };
     let mut handle = std::ptr::null_mut();
     // SAFETY: valid local request and slot.
@@ -146,6 +148,7 @@ fn a_run_reads_its_daily_light_integral() {
             albedo: 0.2,
             dew_point_c: f64::NAN,
             ghi: f64::NAN,
+            file_lux: [f64::NAN; 3],
             day_of_year: 80,
             month: 2,
             reserved: [0; 3],

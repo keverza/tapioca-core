@@ -13,6 +13,7 @@ pub mod annual;
 pub mod atlas;
 pub mod climate;
 pub mod follower;
+pub mod illuminance;
 pub mod light_class;
 pub mod limits;
 pub mod occlusion;
@@ -45,4 +46,4 @@ pub mod winding;
 ///
 /// Bumped only when an exported sun-study record or call changes shape, so the
 /// C++ wrapper can refuse a mismatched archive instead of misreading it.
-pub const ABI_VERSION: u32 = 9;
+pub const ABI_VERSION: u32 = 10;

@@ -79,6 +79,9 @@ struct ClimateSetup {
     std::vector<uint8_t> open;   // per sample, then per patch: share seen open, 0-255
     std::vector<uint8_t> canopy; // the same layout, through canopy only; may be empty
     std::array<double, 12> canopyTransmittance {};
+    // Exterior illuminance (#155 P4); a threshold of 0 or less skips it.
+    double luxThreshold = 0.0;
+    bool luxEfficacyOnly = false; // else the file's illuminance when valid
 };
 
 // One weather interval on the project's clock.
@@ -90,6 +93,10 @@ struct ClimateInterval {
     double albedo = 0.0;                                    // outside (0, 1]: 0.2
     double dewPointC = 0.0;                                 // NaN missing
     double ghi = std::numeric_limits<double>::quiet_NaN (); // the file's, W/m2: checked only
+    // The file's global horizontal, direct normal and diffuse horizontal lux.
+    std::array<double, 3> fileLux { std::numeric_limits<double>::quiet_NaN (),
+                                    std::numeric_limits<double>::quiet_NaN (),
+                                    std::numeric_limits<double>::quiet_NaN () };
     uint32_t dayOfYear = 1;
     int month = 0; // 0 = January
 
@@ -112,6 +119,10 @@ struct ClimateReport {
     double closureAnnual = 0.0, closureTolerance = 0.0, closureHours = 0.0;
     int closureWorstMonth = -1; // 0 = January
     bool closureWithin = false;
+    // Exterior illuminance: daylight hours by source, per month.
+    bool luxKept = false;
+    double luxThreshold = 0.0;
+    std::array<double, 12> luxFileHours {}, luxEfficacyHours {}, luxUnavailableHours {};
     double beamBelowHorizon = 0.0; // Wh/m2 lost with the sun down
     double maxClampedShare = 0.0;
     uint32_t isotropicIntervals = 0;
@@ -125,6 +136,9 @@ using Monthly = std::array<double, 12>;
 struct ClimateTotals {
     std::vector<Monthly> direct, diffuse, reflected; // Wh/m2, January first
     std::vector<double> skyView;                     // 0-1, open paths only
+    // Exterior illuminance, empty unless kept: lux-hours and hours at or
+    // above the threshold, January first.
+    std::vector<Monthly> luxHours, hoursAbove;
     ClimateReport report;
 
     double Total (size_t sample, int month) const;

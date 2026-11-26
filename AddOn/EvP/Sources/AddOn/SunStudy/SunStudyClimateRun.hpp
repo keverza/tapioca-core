@@ -48,6 +48,8 @@ struct ClimateRunRequest {
     double rotation = 0.0; // as rust::SkyPatches: the model frame's turn from true north
     rust::DiffuseSky sky = rust::DiffuseSky::Perez1993;
     std::array<double, 12> canopyTransmittance {};
+    double luxThreshold = 0.0;    // lux; 0 or less: no illuminance (#155 P4)
+    bool luxEfficacyOnly = false; // else the file's illuminance when valid
     uint32_t cellsPerSide = 4;
     SkyMaskOptions mask;
     rust::ParConversion par;
@@ -56,6 +58,9 @@ struct ClimateRunRequest {
 struct ClimateRunResult {
     // Per sample of the request, January first; NaN for an excluded sample.
     std::vector<rust::Monthly> direct, diffuse, reflected, dli;
+    // Exterior illuminance when asked: lux-hours and hours at or above the
+    // threshold per sample and month, NaN for an excluded sample; else empty.
+    std::vector<rust::Monthly> luxHours, hoursAbove;
     std::vector<double> skyView; // geometric, open shares only
     rust::ClimateReport report;  // over the traced samples
     SunSource sunSource = SunSource::Host;

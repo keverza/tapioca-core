@@ -148,7 +148,7 @@ PlantingRoom CurrentPlantingRoom ()
 {
     return {};
 }
-void RequestPlantingClimate (const std::string&, double, std::shared_ptr<const evp::sunstudy::WeatherData>, int)
+void RequestPlantingClimate (const std::string&, double, std::shared_ptr<const evp::sunstudy::WeatherData>, int, double)
 {
 }
 PlantingClimate CurrentPlantingClimate ()

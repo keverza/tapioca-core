@@ -342,6 +342,24 @@ void FileCheckLine (const sunstudyhud::PlantingClimate& run)
                        "not corrected.");
 }
 
+// Where the illuminance came from (#155 P4): never left implicit.
+void LuxSourceLine (const sunstudyhud::PlantingClimate& run)
+{
+    if (std::isnan (run.luxFileShare))
+        return;
+    if (run.luxFileShare >= 0.995)
+        ImGui::TextDisabled ("Illuminance: the weather file's own illuminance fields.");
+    else if (run.luxFileShare <= 0.005)
+        ImGui::TextDisabled ("Illuminance: from the radiation by luminous efficacy (Perez 1990), an estimate.");
+    else
+        ImGui::TextDisabled ("Illuminance: the file's own fields for %.0f %% of daylight hours, the rest from the "
+                             "radiation by luminous efficacy (Perez 1990).",
+                             100.0 * run.luxFileShare);
+    if (run.luxUnavailableHours > 0.0)
+        ImGui::TextDisabled ("%.0f daylight hours had no radiation and no illuminance: they add nothing.",
+                             run.luxUnavailableHours);
+}
+
 // The DLI map on the shown layer: a tick, the month, and its ramp.
 void DliMapControls (pl::PlantingHud& hud, const pl::Layer& layer, const sunstudyhud::PlantingClimate& run)
 {
@@ -403,8 +421,9 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
         return;
     }
     const sunstudyhud::PlantingClimate run = sunstudyhud::CurrentPlantingClimate ();
-    const bool mine =
-        run.studyId == layer.studyId && run.weatherSha256 == climate.data->identity.sha256 && run.year == hud.year;
+    const double luxThreshold = 1000.0 * double (hud.luxThresholdKlx);
+    const bool mine = run.studyId == layer.studyId && run.weatherSha256 == climate.data->identity.sha256 &&
+                      run.year == hud.year && run.luxThreshold == luxThreshold;
     using State = sunstudyhud::PlantingClimate::State;
     // A map from another file, year or run no longer matches what is listed.
     if (const auto dli = sunstudyhud::CurrentPlantingDli ();
@@ -415,11 +434,19 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
     char label[96];
     std::snprintf (label, sizeof label, "Weigh the %.2f m layer by the weather##climaterun", layer.height);
     if (ImGui::Button (label))
-        sunstudyhud::RequestPlantingClimate (layer.studyId, layer.height, climate.data, hud.year);
+        sunstudyhud::RequestPlantingClimate (layer.studyId, layer.height, climate.data, hud.year, luxThreshold);
     ImGui::EndDisabled ();
     hudshell::ItemTip ("Every hour of the weather file on this layer: Archicad's sun for each hour, checked "
                        "against an independent calculation, then direct, sky and ground-reflected light per "
                        "sample. Takes a while on a large layer; the viewer stays usable.");
+    ImGui::SameLine ();
+    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 5.0f);
+    ImGui::BeginDisabled (busy);
+    if (ImGui::InputFloat ("klx##climatelux", &hud.luxThresholdKlx, 1.0f, 5.0f, "%.0f"))
+        hud.luxThresholdKlx = std::clamp (hud.luxThresholdKlx, 1.0f, 150.0f);
+    ImGui::EndDisabled ();
+    hudshell::ItemTip ("The daylight threshold: each hour counts where the sample's illuminance in that hour is at "
+                       "or above it. Changing it allows a new run.");
     if (!mine)
         return;
     switch (run.state) {
@@ -447,11 +474,15 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
                          run.station.c_str (), run.year, run.samples, run.seconds, run.sunMeanDegrees);
     const ImGuiTableFlags flags =
         ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
-    if (ImGui::BeginTable ("##climatelight", 5, flags)) {
+    char aboveHeader[48];
+    std::snprintf (aboveHeader, sizeof aboveHeader, "h >= %.0f klx a day", double (hud.luxThresholdKlx));
+    if (ImGui::BeginTable ("##climatelight", 7, flags)) {
         ImGui::TableSetupColumn ("Month");
         ImGui::TableSetupColumn ("DLI mol/m2/day");
         ImGui::TableSetupColumn ("Light kWh/m2");
         ImGui::TableSetupColumn ("Weather hours");
+        ImGui::TableSetupColumn ("Daylight klx");
+        ImGui::TableSetupColumn (aboveHeader);
         ImGui::TableSetupColumn ("File check");
         ImGui::TableHeadersRow ();
         for (int m = 0; m < 12; ++m) {
@@ -467,6 +498,13 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
             ImGui::Text ("%.0f", run.energyKwh[size_t (m)]);
             ImGui::TableNextColumn ();
             ImGui::Text ("%.0f %%", 100.0 * run.coverage[size_t (m)]);
+            for (const double v : { run.daylightKlx[size_t (m)], run.hoursAboveDay[size_t (m)] }) {
+                ImGui::TableNextColumn ();
+                if (std::isnan (v))
+                    ImGui::TextDisabled ("-");
+                else
+                    ImGui::Text ("%.1f", v);
+            }
             ImGui::TableNextColumn ();
             const double check = run.closureMonthly[size_t (m)];
             if (std::isnan (check))
@@ -478,10 +516,13 @@ void WeatherLight (pl::PlantingHud& hud, const pl::ClimateState& climate)
     }
     hudshell::ItemTip ("Area-weighted over the layer's samples. DLI: the month's light as photosynthetic photons "
                        "a day (0.45 of the energy is photosynthetic light, 4.57 umol per joule): an estimate. "
-                       "Weather hours: the share of the month's hours with radiation in the file. File check: how "
+                       "Weather hours: the share of the month's hours with radiation in the file. Daylight klx: "
+                       "the mean illuminance over the month's daylight hours. Hours a day at or above the threshold "
+                       "are counted hour by hour from that hour's illuminance, not from sun hours. File check: how "
                        "far the file's direct and diffuse light rebuild its own global horizontal figure (a dash: "
                        "too little light that month to compare).");
     FileCheckLine (run);
+    LuxSourceLine (run);
     ImGui::TextDisabled ("Sky view %.2f (geometry). Estimate: ground taken as unshaded, everything that casts a "
                          "shadow treated as solid.",
                          run.skyView);

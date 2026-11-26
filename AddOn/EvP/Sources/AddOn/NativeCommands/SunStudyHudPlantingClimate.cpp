@@ -41,6 +41,7 @@ struct Want {
     double layerHeight = 0.0;
     std::shared_ptr<const ss::WeatherData> weather;
     int year = 2026;
+    double luxThreshold = 0.0;
 };
 
 std::mutex gMutex; // guards everything below
@@ -68,7 +69,7 @@ void Publish (const Want& want, const std::function<void (PlantingClimate&)>& ed
 {
     std::lock_guard<std::mutex> lock (gMutex);
     if (gClimate.studyId == want.studyId && gClimate.year == want.year && want.weather &&
-        gClimate.weatherSha256 == want.weather->identity.sha256)
+        gClimate.weatherSha256 == want.weather->identity.sha256 && gClimate.luxThreshold == want.luxThreshold)
         edit (gClimate);
 }
 
@@ -145,6 +146,7 @@ void Run (const Want& want)
     request.normals = record->normals;
     request.sunSource = ss::SunSource::Host;
     request.rotation = sun.rotation;
+    request.luxThreshold = want.luxThreshold;
     request.intervals.reserve (kept.size ());
     for (size_t i = 0; i < kept.size (); ++i) {
         const ss::WeatherRecord& r = weather.records[kept[i]];
@@ -157,6 +159,8 @@ void Run (const Want& want)
         interval.albedo = r.Get (ss::WeatherField::Albedo);
         interval.dewPointC = r.Get (ss::WeatherField::DewPoint);
         interval.ghi = r.Get (ss::WeatherField::GlobalHorizontal); // the file check only
+        interval.fileLux = { r.Get (ss::WeatherField::GlobalIlluminance), r.Get (ss::WeatherField::DirectIlluminance),
+                             r.Get (ss::WeatherField::DiffuseIlluminance) };
         interval.dayOfYear = instant.dayOfYear;
         interval.month = int (r.month) - 1;
         request.intervals.push_back (interval);
@@ -196,6 +200,24 @@ void Run (const Want& want)
         const double valid = result.report.validHours[size_t (m)];
         const double all = valid + result.report.missingHours[size_t (m)];
         figures.coverage[size_t (m)] = all > 0.0 ? valid / all : nan;
+        // Illuminance: lux-hours over the daylight hours that had it, and the
+        // hours above over the month's days in the file.
+        const auto& r = result.report;
+        const double daylight = r.luxFileHours[size_t (m)] + r.luxEfficacyHours[size_t (m)];
+        const double days = all / 24.0;
+        if (result.luxHours.empty () || daylight <= 0.0 || days <= 0.0) {
+            figures.daylightKlx[size_t (m)] = nan;
+            figures.hoursAboveDay[size_t (m)] = nan;
+            continue;
+        }
+        figures.daylightKlx[size_t (m)] = ss::AreaWeightedMean (result.luxHours, site.areas, m) / daylight / 1000.0;
+        figures.hoursAboveDay[size_t (m)] = ss::AreaWeightedMean (result.hoursAbove, site.areas, m) / days;
+    }
+    double fileHours = 0.0, lightHours = 0.0, unavailable = 0.0;
+    for (size_t m = 0; m < 12; ++m) {
+        fileHours += result.report.luxFileHours[m];
+        lightHours += result.report.luxFileHours[m] + result.report.luxEfficacyHours[m];
+        unavailable += result.report.luxUnavailableHours[m];
     }
     auto sampleDli = std::make_shared<const std::vector<ss::rust::Monthly>> (std::move (result.dli));
     const double seconds = std::chrono::duration<double> (std::chrono::steady_clock::now () - started).count ();
@@ -215,6 +237,10 @@ void Run (const Want& want)
         c.closureAnnual = result.report.closureAnnual;
         c.closureTolerance = result.report.closureTolerance;
         c.closureWithin = result.report.closureWithin;
+        c.daylightKlx = figures.daylightKlx;
+        c.hoursAboveDay = figures.hoursAboveDay;
+        c.luxFileShare = lightHours > 0.0 ? fileHours / lightHours : nan;
+        c.luxUnavailableHours = unavailable;
     });
 }
 
@@ -249,20 +275,21 @@ void Worker ()
 } // namespace
 
 void RequestPlantingClimate (const std::string& studyId, double layerHeight,
-                             std::shared_ptr<const evp::sunstudy::WeatherData> weather, int year)
+                             std::shared_ptr<const evp::sunstudy::WeatherData> weather, int year, double luxThreshold)
 {
     if (studyId.empty () || weather == nullptr)
         return;
     std::lock_guard<std::mutex> lock (gMutex);
     if (gClimate.studyId == studyId && gClimate.year == year && gClimate.weatherSha256 == weather->identity.sha256 &&
-        gClimate.state != PlantingClimate::State::Idle)
-        return; // running, done, or failed for good: asked once per study, file and year
+        gClimate.luxThreshold == luxThreshold && gClimate.state != PlantingClimate::State::Idle)
+        return; // running, done, or failed for good: asked once per study, file, year and threshold
     gClimate = PlantingClimate ();
     gClimate.studyId = studyId;
     gClimate.weatherSha256 = weather->identity.sha256;
     gClimate.year = year;
+    gClimate.luxThreshold = luxThreshold;
     gClimate.state = PlantingClimate::State::Capturing;
-    gWant = Want { studyId, layerHeight, std::move (weather), year };
+    gWant = Want { studyId, layerHeight, std::move (weather), year, luxThreshold };
     gCancel = true; // a run for something else stops; the worker then takes this one
     if (gWorkerRunning)
         return;

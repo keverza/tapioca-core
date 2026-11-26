@@ -40,6 +40,7 @@ fn setup(dome: Dome, normals: Vec<[f64; 3]>, path: u8, sky: DiffuseSky, tau: f64
         masks,
         sky,
         canopy_transmittance: [tau; 12],
+        lux: None,
     }
 }
 
@@ -65,6 +66,7 @@ fn day(month: u8, overcast: bool) -> Vec<ClimateInterval> {
                 dew_point_c: 12.0,
                 // The file's own GHI, consistent with its DNI and DHI.
                 ghi: dni * (altitude.to_radians().sin()).max(0.0) + dhi,
+                file_lux: [f64::NAN; 3],
             }
         })
         .collect()
@@ -451,6 +453,7 @@ fn hours_without_ghi_or_a_dark_month_are_not_compared() {
         albedo: 0.2,
         dew_point_c: 0.0,
         ghi: 500.0,
+        file_lux: [f64::NAN; 3],
     });
     let totals = run(
         setup(

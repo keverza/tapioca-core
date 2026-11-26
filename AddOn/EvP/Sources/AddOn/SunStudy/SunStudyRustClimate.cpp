@@ -9,14 +9,14 @@ using namespace detail;
 
 static_assert (sizeof (TapiocaSkyPatch) == 56);
 static_assert (sizeof (TapiocaSkyCell) == 64);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateCreateRequest) == 160);
-static_assert (sizeof (TapiocaClimateInterval) == 80);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateCreateRequest) == 168);
+static_assert (sizeof (TapiocaClimateInterval) == 104);
 static_assert (sizeof (TapiocaWeatherStamp) == 4);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaWeatherInstantRequest) == 64);
 static_assert (sizeof (TapiocaWeatherInstant) == 64);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSunCrossCheck) == 32);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReport) == 744);
-static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReadOutput) == 48);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReport) == 1040);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaClimateReadOutput) == 64);
 
 bool SkyPatches (SkyPatchSet set, double rotation, std::vector<SkyPatch>& patches, std::string& error)
 {
@@ -154,6 +154,8 @@ std::unique_ptr<RustClimate> RustClimate::Create (const ClimateSetup& setup, std
     request.rotation = setup.rotation;
     request.patchSet = static_cast<uint8_t> (setup.set);
     request.sky = static_cast<uint8_t> (setup.sky);
+    request.luxSource = setup.luxEfficacyOnly ? 1 : 0;
+    request.luxThreshold = setup.luxThreshold;
     TapiocaSunStudyClimate* handle = nullptr;
     if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_climate_create (&request, &handle, m, n); }, error))
         return nullptr;
@@ -174,6 +176,7 @@ bool RustClimate::Add (const ClimateInterval& interval, const std::vector<uint8_
     record.albedo = interval.albedo;
     record.dewPointC = interval.dewPointC;
     record.ghi = interval.ghi;
+    std::copy (interval.fileLux.begin (), interval.fileLux.end (), record.fileLux);
     record.dayOfYear = interval.dayOfYear;
     record.month = static_cast<uint8_t> (interval.month);
     const TapiocaByteView view { beam.data (), beam.size () };
@@ -191,10 +194,14 @@ bool RustClimate::Read (ClimateTotals& totals, std::string& error) const
         return false;
     const size_t samples = report.sampleCount;
     std::vector<double> direct (samples * 12), diffuse (samples * 12), reflected (samples * 12), skyView (samples);
+    const bool lux = report.luxKept != 0;
+    std::vector<double> luxHours (lux ? samples * 12 : 0), hoursAbove (lux ? samples * 12 : 0);
     output.direct = direct.data ();
     output.diffuse = diffuse.data ();
     output.reflected = reflected.data ();
     output.skyView = skyView.data ();
+    output.luxHours = lux ? luxHours.data () : nullptr;
+    output.hoursAbove = lux ? hoursAbove.data () : nullptr;
     output.capacity = samples;
     if (samples != 0 && !Invoke (read, error))
         return false;
@@ -209,6 +216,8 @@ bool RustClimate::Read (ClimateTotals& totals, std::string& error) const
     totals.diffuse = rows (diffuse);
     totals.reflected = rows (reflected);
     totals.skyView = std::move (skyView);
+    totals.luxHours = lux ? rows (luxHours) : std::vector<Monthly> {};
+    totals.hoursAbove = lux ? rows (hoursAbove) : std::vector<Monthly> {};
     ClimateReport& r = totals.report;
     std::copy (report.validHours, report.validHours + 12, r.validHours.begin ());
     std::copy (report.missingHours, report.missingHours + 12, r.missingHours.begin ());
@@ -222,6 +231,11 @@ bool RustClimate::Read (ClimateTotals& totals, std::string& error) const
     r.closureHours = report.closureHours;
     r.closureWorstMonth = report.closureWorstMonth;
     r.closureWithin = report.closureWithin != 0;
+    r.luxKept = lux;
+    r.luxThreshold = report.luxThreshold;
+    std::copy (report.luxFileHours, report.luxFileHours + 12, r.luxFileHours.begin ());
+    std::copy (report.luxEfficacyHours, report.luxEfficacyHours + 12, r.luxEfficacyHours.begin ());
+    std::copy (report.luxUnavailableHours, report.luxUnavailableHours + 12, r.luxUnavailableHours.begin ());
     r.beamBelowHorizon = report.beamBelowHorizon;
     r.maxClampedShare = report.maxClampedShare;
     r.isotropicIntervals = report.isotropicIntervals;

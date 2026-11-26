@@ -398,6 +398,7 @@ struct PlantingClimate {
     std::string studyId;
     std::string weatherSha256;
     int year = 0;
+    double luxThreshold = 0.0;  // lux: part of what was asked
     size_t done = 0, total = 0; // intervals, while tracing
     std::string error;          // Failed
     // Ready.
@@ -417,9 +418,15 @@ struct PlantingClimate {
     bool closureWithin = false;
     // Per sample of the layer, January first, mol/m2/day; NaN without weather.
     std::shared_ptr<const std::vector<std::array<double, 12>>> sampleDli;
+    // Exterior illuminance (#155 P4), area-weighted: the mean over daylight
+    // hours, klx, and the hours a day at or above the threshold; NaN without
+    // daylight. Weather lux, never a design sky's.
+    std::array<double, 12> daylightKlx {}, hoursAboveDay {};
+    double luxFileShare = 0.0;      // share of daylight hours from the file's illuminance fields
+    double luxUnavailableHours = 0; // daylight hours without radiation or file illuminance
 };
 void RequestPlantingClimate (const std::string& studyId, double layerHeight,
-                             std::shared_ptr<const evp::sunstudy::WeatherData> weather, int year);
+                             std::shared_ptr<const evp::sunstudy::WeatherData> weather, int year, double luxThreshold);
 PlantingClimate CurrentPlantingClimate ();
 
 // ---- the DLI map on a planting layer (#278 Stage 5) -------------------------

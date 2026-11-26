@@ -16,7 +16,7 @@
 
 #include "Geometry/GeometryRustFfi.h"
 
-#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (9)
+#define TAPIOCA_SUNSTUDY_ABI_VERSION UINT32_C (10)
 
 #ifdef __cplusplus
 extern "C" {
@@ -536,18 +536,21 @@ typedef struct {
     double canopyTransmittance[12];
     double rotation; /* as sky_patches */
     uint8_t patchSet;
-    uint8_t sky; /* 0 Perez 1993, 1 isotropic */
-    uint8_t reserved[6];
+    uint8_t sky;       /* 0 Perez 1993, 1 isotropic */
+    uint8_t luxSource; /* 0 the file's illuminance when valid, else efficacy; 1 efficacy */
+    uint8_t reserved[5];
+    double luxThreshold; /* lux; 0 or less skips the illuminance */
 } TapiocaClimateCreateRequest;
 
 typedef struct {
     double sun[3]; /* to the sun at the interval midpoint, model frame */
     double hours;
-    double dni;       /* mean W/m2, NaN missing */
-    double dhi;       /* mean W/m2, NaN missing */
-    double albedo;    /* outside (0, 1]: 0.2 */
-    double dewPointC; /* NaN missing */
-    double ghi;       /* the file's mean W/m2, NaN missing: checked, never summed */
+    double dni;        /* mean W/m2, NaN missing */
+    double dhi;        /* mean W/m2, NaN missing */
+    double albedo;     /* outside (0, 1]: 0.2 */
+    double dewPointC;  /* NaN missing */
+    double ghi;        /* the file's mean W/m2, NaN missing: checked, never summed */
+    double fileLux[3]; /* the file's global horizontal, direct normal, diffuse horizontal lux; NaN missing */
     uint32_t dayOfYear;
     uint8_t month; /* 0 = January */
     uint8_t reserved[3];
@@ -556,6 +559,12 @@ typedef struct {
 typedef struct {
     double validHours[12];
     double missingHours[12];
+    /* Daylight hours whose illuminance came from the file, from the efficacy,
+     * or could not be had (nothing added), per month; and the threshold. */
+    double luxFileHours[12];
+    double luxEfficacyHours[12];
+    double luxUnavailableHours[12];
+    double luxThreshold;
     double openHorizontal[12]; /* sum (DNI sin a + DHI) dt, Wh/m2 */
     /* Over intervals with DNI, DHI and GHI present: the model's total, the
      * file's sum GHI dt (Wh/m2) and their hours, per month. */
@@ -574,17 +583,20 @@ typedef struct {
     uint32_t heldIntervals;
     int8_t closureWorstMonth; /* 0 = January, -1 none */
     uint8_t closureWithin;
-    uint8_t reserved[6];
+    uint8_t luxKept;
+    uint8_t reserved[5];
     size_t sampleCount;
     size_t patchCount;
 } TapiocaClimateReport;
 
 typedef struct {
-    double* direct;    /* capacity x 12 */
-    double* diffuse;   /* capacity x 12 */
-    double* reflected; /* capacity x 12 */
-    double* skyView;   /* capacity */
-    size_t capacity;   /* below the sample count: only the report */
+    double* direct;     /* capacity x 12 */
+    double* diffuse;    /* capacity x 12 */
+    double* reflected;  /* capacity x 12 */
+    double* skyView;    /* capacity */
+    double* luxHours;   /* capacity x 12, lux-hours; null skips it */
+    double* hoursAbove; /* capacity x 12, hours at or above the threshold; null skips it */
+    size_t capacity;    /* below the sample count: only the report */
     TapiocaClimateReport* report;
 } TapiocaClimateReadOutput;
 

@@ -319,15 +319,15 @@ const _: () = {
     assert!(size_of::<VisibilitySummary>() == 88);
     assert!(size_of::<VisibilityReadOutput>() == 112);
     assert!(size_of::<SkyPatchRecord>() == 56);
-    assert!(size_of::<ClimateCreateRequest>() == 160);
+    assert!(size_of::<ClimateCreateRequest>() == 168);
     assert!(size_of::<SkyCellRecord>() == 64);
     assert!(size_of::<WeatherStamp>() == 4);
     assert!(size_of::<WeatherInstantRequest>() == 64);
     assert!(size_of::<WeatherInstant>() == 64);
     assert!(size_of::<SunCrossCheckRecord>() == 32);
-    assert!(size_of::<ClimateIntervalRecord>() == 80);
-    assert!(size_of::<ClimateReportRecord>() == 744);
-    assert!(size_of::<ClimateReadOutput>() == 48);
+    assert!(size_of::<ClimateIntervalRecord>() == 104);
+    assert!(size_of::<ClimateReportRecord>() == 1040);
+    assert!(size_of::<ClimateReadOutput>() == 64);
 };
 
 type Range = Option<(usize, usize)>;

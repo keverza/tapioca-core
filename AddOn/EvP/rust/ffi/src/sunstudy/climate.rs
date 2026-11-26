@@ -11,6 +11,7 @@ use tapioca_sunstudy::climate::{
     Climate, ClimateInterval, ClimateRefusal, ClimateSetup, DiffuseSky, FILE_CONSISTENCY_TOLERANCE,
     SkyMasks, horizontal_closure,
 };
+use tapioca_sunstudy::illuminance::{LuxOptions, LuxSource};
 use tapioca_sunstudy::sky::{Dome, PatchSet};
 
 /// One sky patch in the model frame.
@@ -162,8 +163,13 @@ pub struct ClimateCreateRequest {
     pub patch_set: u8,
     /// 0 Perez 1993, 1 isotropic.
     pub sky: u8,
+    /// Illuminance source (#155 P4): 0 the file's fields when valid, else the
+    /// luminous efficacy; 1 the efficacy always.
+    pub lux_source: u8,
     /// Zero.
-    pub reserved: [u8; 6],
+    pub reserved: [u8; 5],
+    /// Exterior illuminance threshold, lux; 0 or less skips the illuminance.
+    pub lux_threshold: f64,
 }
 
 /// One weather interval on the project's clock.
@@ -184,6 +190,9 @@ pub struct ClimateIntervalRecord {
     pub dew_point_c: f64,
     /// The file's mean GHI, W/m²; NaN missing. Checked only, never summed.
     pub ghi: f64,
+    /// The file's mean global horizontal, direct normal and diffuse horizontal
+    /// illuminance, lux; NaN missing.
+    pub file_lux: [f64; 3],
     /// 1–366.
     pub day_of_year: u32,
     /// 0 = January.
@@ -200,6 +209,14 @@ pub struct ClimateReportRecord {
     pub valid_hours: [f64; 12],
     /// Hours with missing radiation per month.
     pub missing_hours: [f64; 12],
+    /// Daylight hours whose illuminance came from the file, per month ...
+    pub lux_file_hours: [f64; 12],
+    /// ... from the luminous efficacy ...
+    pub lux_efficacy_hours: [f64; 12],
+    /// ... or could not be had (missing radiation, nothing added).
+    pub lux_unavailable_hours: [f64; 12],
+    /// The illuminance threshold, lux (0 when the illuminance was skipped).
+    pub lux_threshold: f64,
     /// Σ(DNI·sin α + DHI)·Δt per month, Wh/m².
     pub open_horizontal: [f64; 12],
     /// Over intervals with DNI, DHI and GHI present: the model's total ...
@@ -229,8 +246,10 @@ pub struct ClimateReportRecord {
     pub closure_worst_month: i8,
     /// 1 when the year is within the tolerance.
     pub closure_within: u8,
+    /// 1 when the run kept the illuminance.
+    pub lux_kept: u8,
     /// Zero.
-    pub reserved: [u8; 6],
+    pub reserved: [u8; 5],
     /// Samples.
     pub sample_count: usize,
     /// Patches per sample.
@@ -250,6 +269,10 @@ pub struct ClimateReadOutput {
     pub reflected: *mut f64,
     /// Geometric sky view factor through the open shares, 0–1.
     pub sky_view: *mut f64,
+    /// Lux-hours per sample and month; null skips it.
+    pub lux_hours: *mut f64,
+    /// Hours at or above the threshold per sample and month; null skips it.
+    pub hours_above: *mut f64,
     /// Samples the arrays hold.
     pub capacity: usize,
     /// The report.
@@ -340,7 +363,28 @@ fn setup(
         masks,
         sky,
         canopy_transmittance: request.canopy_transmittance,
+        lux: lux_options(request)?,
     })
+}
+
+/// The request's illuminance settings; `None` below a positive threshold.
+fn lux_options(request: &ClimateCreateRequest) -> Result<Option<LuxOptions>, Failure> {
+    let source = match request.lux_source {
+        0 => LuxSource::FileWhenValid,
+        1 => LuxSource::EfficacyOnly,
+        _ => {
+            return Err(Failure::Argument(
+                "ClimateLuxSource: 0 file when valid, 1 efficacy",
+            ));
+        }
+    };
+    if request.lux_threshold.is_nan() || request.lux_threshold <= 0.0 {
+        return Ok(None);
+    }
+    Ok(Some(LuxOptions {
+        threshold_lux: request.lux_threshold,
+        source,
+    }))
 }
 
 /// Start a run.
@@ -437,6 +481,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_climate_add(
                         albedo: r.albedo,
                         dew_point_c: r.dew_point_c,
                         ghi: r.ghi,
+                        file_lux: r.file_lux,
                     },
                     (!beam.is_empty()).then_some(beam),
                 )
@@ -473,12 +518,27 @@ pub unsafe extern "C" fn tapioca_sunstudy_climate_read(
             regions.output(o.diffuse, monthly);
             regions.output(o.reflected, monthly);
             regions.output(o.sky_view, o.capacity);
+            if !o.lux_hours.is_null() {
+                regions.output(o.lux_hours, monthly);
+            }
+            if !o.hours_above.is_null() {
+                regions.output(o.hours_above, monthly);
+            }
             regions.check()?;
             let climate = climate(handle)?;
             let totals = climate.totals();
             let r = &totals.report;
             let closure = horizontal_closure(r);
+            let lux_report = totals
+                .lux
+                .as_ref()
+                .map_or_else(Default::default, |l| l.report.clone());
             o.report.write(ClimateReportRecord {
+                lux_file_hours: lux_report.file_hours,
+                lux_efficacy_hours: lux_report.efficacy_hours,
+                lux_unavailable_hours: lux_report.unavailable_hours,
+                lux_threshold: lux_report.threshold_lux,
+                lux_kept: u8::from(totals.lux.is_some()),
                 valid_hours: r.valid_hours,
                 missing_hours: r.missing_hours,
                 open_horizontal: r.open_horizontal,
@@ -494,7 +554,7 @@ pub unsafe extern "C" fn tapioca_sunstudy_climate_read(
                     .and_then(|m| i8::try_from(m).ok())
                     .unwrap_or(-1),
                 closure_within: u8::from(closure.within),
-                reserved: [0; 6],
+                reserved: [0; 5],
                 beam_below_horizon: r.beam_below_horizon,
                 max_clamped_share: r.max_clamped_share,
                 isotropic_intervals: r.isotropic_intervals,
@@ -512,6 +572,19 @@ pub unsafe extern "C" fn tapioca_sunstudy_climate_read(
             ] {
                 for (s, row) in rows.iter().enumerate() {
                     std::ptr::copy_nonoverlapping(row.as_ptr(), target.add(s * 12), 12);
+                }
+            }
+            if let Some(lux) = &totals.lux {
+                for (target, rows) in [
+                    (o.lux_hours, &lux.lux_hours),
+                    (o.hours_above, &lux.hours_above),
+                ] {
+                    if target.is_null() {
+                        continue;
+                    }
+                    for (s, row) in rows.iter().enumerate() {
+                        std::ptr::copy_nonoverlapping(row.as_ptr(), target.add(s * 12), 12);
+                    }
                 }
             }
             let svf = climate.sky_view_factors();

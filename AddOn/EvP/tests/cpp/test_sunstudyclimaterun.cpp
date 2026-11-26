@@ -242,6 +242,13 @@ TEST (SunStudyClimateRun, TheHorizontalClosureReportsTheFilesOwnGhi)
 // with the independent sun at the interval midpoint, rebuild its own GHI
 // within the file-consistency tolerance over the year. The monthly shares are
 // printed: the evidence for that tolerance.
+// How far our Perez 1990 illuminance may sit from a file's own global
+// illuminance over a year. Measured 2026-11-26: Kaunas IWEC +0.28 %, Vilnius
+// TMYx -1.21 % (Perugia IGDG has no illuminance fields). Such fields are
+// usually themselves derived from the radiation, so this checks the
+// coefficients and the wiring, not the efficacy model against measurement.
+constexpr double kEfficacyAgainstFile = 0.03;
+
 TEST (SunStudyClimateRun, ReferenceWeatherFilesCloseOnTheirOwnGhi)
 {
     const char* dir = std::getenv ("TAPIOCA_EPW_DIR");
@@ -275,6 +282,9 @@ TEST (SunStudyClimateRun, ReferenceWeatherFilesCloseOnTheirOwnGhi)
         setup.sky = DiffuseSky::Isotropic;
         setup.normals = { 0, 0, 1 };
         setup.open.assign (145, 255);
+        setup.luxThreshold = 10000.0;
+        setup.luxEfficacyOnly = true; // derived, to compare with the file's own field
+        double fileLux = 0.0;
         auto climate = rust::RustClimate::Create (setup, error);
         ASSERT_NE (climate, nullptr) << error;
         for (size_t k = 0; k < kept.size (); ++k) {
@@ -293,6 +303,9 @@ TEST (SunStudyClimateRun, ReferenceWeatherFilesCloseOnTheirOwnGhi)
             const std::vector<uint8_t> beam =
                 i.NeedsBeam () ? std::vector<uint8_t> { uint8_t (SkyPath::Open) } : std::vector<uint8_t> {};
             ASSERT_TRUE (climate->Add (i, beam, error)) << error;
+            const double g = kept[k]->Get (WeatherField::GlobalIlluminance);
+            if (i.sun[2] > 0.0 && std::isfinite (g) && std::isfinite (i.dni) && std::isfinite (i.dhi) && i.dhi > 0.0)
+                fileLux += g * i.hours;
         }
         ClimateTotals totals;
         ASSERT_TRUE (climate->Read (totals, error)) << error;
@@ -303,6 +316,18 @@ TEST (SunStudyClimateRun, ReferenceWeatherFilesCloseOnTheirOwnGhi)
             std::printf (" %+.1f", 100.0 * m);
         std::printf ("\n");
         EXPECT_TRUE (r.closureWithin) << entry.path ().filename ().string () << ": " << r.closureAnnual;
+        // Illuminance: ours by luminous efficacy on the open horizontal sample,
+        // against the file's own global horizontal illuminance, same hours.
+        ASSERT_TRUE (r.luxKept);
+        double ours = 0.0;
+        for (double v : totals.luxHours[0])
+            ours += v;
+        if (fileLux > 0.0) {
+            std::printf ("illuminance %s: efficacy %.1f Mlxh, file %.1f Mlxh, %+.2f %%\n",
+                         entry.path ().filename ().string ().c_str (), ours / 1e6, fileLux / 1e6,
+                         100.0 * (ours / fileLux - 1.0));
+            EXPECT_LT (std::fabs (ours / fileLux - 1.0), kEfficacyAgainstFile) << entry.path ().filename ().string ();
+        }
         ++checked;
     }
     if (checked == 0)
@@ -459,4 +484,39 @@ TEST (SunStudyClimateRun, AShadedWallMatchesRadianceWhenFixturesAreProvided)
     }
     if (checked == 0)
         GTEST_SKIP () << "no .wea in TAPIOCA_RADIANCE_OVERHANG_DIR";
+}
+
+// Exterior illuminance through the run (#155 P4): kept only when asked, NaN
+// for an excluded sample, and the shaded wall below the open ground; the
+// hours above come from each interval's illuminance.
+TEST (SunStudyClimateRun, IlluminanceIsKeptWhenAskedAndExcludedSamplesStayNaN)
+{
+    std::vector<WeatherInstant> instants;
+    std::string error;
+    ASSERT_TRUE (WeatherInstants (ThreeDays (), Vilnius (), instants, error)) << error;
+    const auto scene = OverhangScene ();
+    auto request = Request (Intervals (instants));
+    ClimateRunResult off;
+    ASSERT_TRUE (RunClimate (*scene, request, {}, {}, off, error)) << error;
+    EXPECT_TRUE (off.luxHours.empty () && off.hoursAbove.empty ());
+    EXPECT_FALSE (off.report.luxKept);
+
+    request.luxThreshold = 20000.0;
+    ClimateRunResult on;
+    ASSERT_TRUE (RunClimate (*scene, request, {}, {}, on, error)) << error;
+    ASSERT_EQ (on.luxHours.size (), 3u);
+    EXPECT_TRUE (on.report.luxKept);
+    EXPECT_DOUBLE_EQ (on.report.luxThreshold, 20000.0);
+    // No illuminance in these intervals' file fields: all by efficacy.
+    EXPECT_GT (on.report.luxEfficacyHours[5], 20.0);
+    EXPECT_DOUBLE_EQ (on.report.luxFileHours[5], 0.0);
+    // Open ground (1) sees more light and more bright hours than the wall
+    // under the overhang (0); the unavailable sample (2) is NaN, never zero.
+    EXPECT_GT (on.luxHours[1][5], on.luxHours[0][5]);
+    EXPECT_GE (on.hoursAbove[1][5], on.hoursAbove[0][5]);
+    EXPECT_GT (on.hoursAbove[1][5], 0.0);
+    EXPECT_TRUE (std::isnan (on.luxHours[2][5]) && std::isnan (on.hoursAbove[2][5]));
+    // The irradiation does not change with the illuminance kept.
+    EXPECT_EQ (on.direct[1][5], off.direct[1][5]);
+    EXPECT_EQ (on.diffuse[0][5], off.diffuse[0][5]);
 }

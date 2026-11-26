@@ -103,7 +103,9 @@ fn create(
         rotation: 0.0,
         patch_set: 0,
         sky,
-        reserved: [0; 6],
+        lux_source: 0,
+        reserved: [0; 5],
+        lux_threshold: 50_000.0,
     };
     let mut handle: *mut ClimateHandle = std::ptr::null_mut();
     // SAFETY: valid local request and slot.
@@ -138,6 +140,7 @@ fn a_run_crosses_the_boundary_and_reads_back_its_totals() {
         albedo: 0.25,
         dew_point_c: f64::NAN,
         ghi: 600.0 * a.sin() + 132.0, // the file reads 12 W/m² above its DNI and DHI
+        file_lux: [f64::NAN, 60_000.0, 20_000.0],
         day_of_year: 160,
         month: 5,
         reserved: [0; 3],
@@ -170,12 +173,15 @@ fn a_run_crosses_the_boundary_and_reads_back_its_totals() {
 
     let (mut direct, mut diffuse, mut reflected) = (vec![0.0; 24], vec![0.0; 24], vec![0.0; 24]);
     let mut svf = vec![0.0; 2];
+    let (mut lux_hours, mut hours_above) = (vec![0.0; 24], vec![0.0; 24]);
     let mut report = ClimateReportRecord::default();
     let output = ClimateReadOutput {
         direct: direct.as_mut_ptr(),
         diffuse: diffuse.as_mut_ptr(),
         reflected: reflected.as_mut_ptr(),
         sky_view: svf.as_mut_ptr(),
+        lux_hours: lux_hours.as_mut_ptr(),
+        hours_above: hours_above.as_mut_ptr(),
         capacity: 2,
         report: &raw mut report,
     };
@@ -198,6 +204,15 @@ fn a_run_crosses_the_boundary_and_reads_back_its_totals() {
     assert_eq!(report.closure_within, 0);
     assert!((report.closure_tolerance - 0.05).abs() < 1e-15);
     assert!((report.closure_hours - 1.0).abs() < 1e-12);
+    // The file's illuminance crossed and was used, and the report says so.
+    assert_eq!(report.lux_kept, 1);
+    assert!((report.lux_threshold - 50_000.0).abs() < 1e-12);
+    assert!((report.lux_file_hours[5] - 1.0).abs() < 1e-12);
+    assert!(report.lux_efficacy_hours[5].abs() < 1e-12);
+    // The open horizontal sample: 60 klx x sin a + 20 klx of sky, above 50 klx.
+    let open_lux = 60_000.0 * a.sin() + 20_000.0;
+    assert!((lux_hours[5] - open_lux).abs() < 1e-3 * open_lux);
+    assert!((hours_above[5] - f64::from(u8::from(open_lux >= 50_000.0))).abs() < 1e-12);
     assert!((direct[5] + diffuse[5] - open).abs() < 1e-9 * open);
     // The canopy sample: half the beam it faces.
     assert!((direct[12 + 5] - 0.5 * 600.0 * a.cos()).abs() < 1e-9);

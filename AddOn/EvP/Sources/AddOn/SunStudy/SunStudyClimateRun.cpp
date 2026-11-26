@@ -56,6 +56,8 @@ bool RunClimate (const ITraversal& traversal, const ClimateRunRequest& request, 
     setup.rotation = request.rotation;
     setup.sky = request.sky;
     setup.canopyTransmittance = request.canopyTransmittance;
+    setup.luxThreshold = request.luxThreshold;
+    setup.luxEfficacyOnly = request.luxEfficacyOnly;
     setup.normals = normals;
     if (!TraceSkyMasks (traversal, positions, normals, cells, patches.size (), request.mask, cancelled, setup.open,
                         error))
@@ -98,6 +100,10 @@ bool RunClimate (const ITraversal& traversal, const ClimateRunRequest& request, 
     out.diffuse = Spread (totals.diffuse, index, count);
     out.reflected = Spread (totals.reflected, index, count);
     out.dli = Spread (dli, index, count);
+    if (totals.report.luxKept) {
+        out.luxHours = Spread (totals.luxHours, index, count);
+        out.hoursAbove = Spread (totals.hoursAbove, index, count);
+    }
     out.skyView.assign (count, kNaN);
     for (size_t k = 0; k < index.size () && k < totals.skyView.size (); ++k)
         out.skyView[index[k]] = totals.skyView[k];

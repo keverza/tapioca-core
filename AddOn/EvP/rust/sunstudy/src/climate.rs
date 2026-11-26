@@ -29,6 +29,7 @@
 //! Climatic outputs only: the geometric sky view factor lives on
 //! [`SkyMasks::view_factor`] and is never mixed into these totals.
 
+use crate::illuminance::{IntervalLux, Lux, LuxInterval, LuxOptions, LuxTotals};
 use crate::sky::perez::PerezInput;
 use crate::sky::{Dome, PerezSkyRefusal, perez_sky};
 
@@ -119,6 +120,18 @@ impl SkyMasks {
         Ok(())
     }
 
+    /// The shares of `patch` that `sample` sees open and through canopy only,
+    /// each 0–1.
+    #[must_use]
+    pub fn shares(&self, sample: usize, patch: usize) -> (f64, f64) {
+        let at = sample * self.patches + patch;
+        let byte = |v: &Vec<u8>| f64::from(v.get(at).copied().unwrap_or(0));
+        (
+            byte(&self.open) / f64::from(SHARE_FULL),
+            byte(&self.canopy) / f64::from(SHARE_FULL),
+        )
+    }
+
     /// The share of `patch` that `sample` sees, 0–1, canopy passing
     /// `canopy_transmittance`.
     #[must_use]
@@ -172,6 +185,8 @@ pub struct ClimateSetup {
     pub sky: DiffuseSky,
     /// Canopy transmittance per month (January first), 0–1.
     pub canopy_transmittance: [f64; 12],
+    /// Exterior illuminance (#155 P4) beside the irradiation; `None` skips it.
+    pub lux: Option<LuxOptions>,
 }
 
 /// One weather interval, already placed on the project's clock.
@@ -197,6 +212,9 @@ pub struct ClimateInterval {
     /// missing. Never used in a total: only checked against DNI and DHI
     /// ([`horizontal_closure`]).
     pub ghi: f64,
+    /// The file's mean global horizontal, direct normal and diffuse horizontal
+    /// illuminance, lux; NaN when missing. Read only by the illuminance pass.
+    pub file_lux: [f64; 3],
 }
 
 impl ClimateInterval {
@@ -255,6 +273,8 @@ pub struct ClimateTotals {
     pub reflected: Vec<[f64; 12]>,
     /// The run's report.
     pub report: ClimateReport,
+    /// Exterior illuminance, when the setup asked for it.
+    pub lux: Option<LuxTotals>,
 }
 
 impl ClimateTotals {
@@ -281,6 +301,7 @@ pub struct Climate {
     /// Per month: Σ ρ·(DNI·sin α + DHI)·Δt, Wh/m².
     ground: [f64; 12],
     report: ClimateReport,
+    lux: Option<Lux>,
 }
 
 impl Climate {
@@ -296,11 +317,17 @@ impl Climate {
             return Err(ClimateRefusal::Length);
         }
         let patches = setup.dome.len();
+        let lux = setup.lux.map(|options| {
+            Lux::new(options, &setup.dome, &setup.normals, |s, p| {
+                setup.masks.shares(s, p)
+            })
+        });
         Ok(Self {
             direct: vec![[0.0; 12]; samples],
             field: vec![vec![0.0; patches]; 12],
             ground: [0.0; 12],
             report: ClimateReport::default(),
+            lux,
             setup,
         })
     }
@@ -332,6 +359,7 @@ impl Climate {
         let (dni, dhi) = (interval.dni, interval.dhi);
         if !dni.is_finite() || !dhi.is_finite() {
             add_to(&mut self.report.missing_hours, month, interval.hours);
+            self.add_lux(interval, &[], beam);
             return Ok(());
         }
         let (dni, dhi) = (dni.max(0.0), dhi.max(0.0));
@@ -358,9 +386,12 @@ impl Climate {
             DEFAULT_ALBEDO
         };
         add_to(&mut self.ground, month, albedo * horizontal);
-        if dhi > 0.0 {
-            self.add_sky(interval, month, dni, dhi);
-        }
+        let sky = if dhi > 0.0 {
+            self.add_sky(interval, month, dni, dhi)
+        } else {
+            Vec::new()
+        };
+        self.add_lux(interval, &sky, beam);
         if let Some(beam) = beam {
             let tau = self
                 .setup
@@ -386,8 +417,47 @@ impl Climate {
         Ok(())
     }
 
-    /// Add one interval's diffuse field to its month.
-    fn add_sky(&mut self, interval: &ClimateInterval, month: usize, dni: f64, dhi: f64) {
+    /// The interval's illuminance, when the run keeps it.
+    fn add_lux(&mut self, interval: &ClimateInterval, field: &[f64], beam: Option<&[u8]>) {
+        let Some(lux) = self.lux.as_mut() else {
+            return;
+        };
+        let month = usize::from(interval.month);
+        let albedo = if interval.albedo > 0.0 && interval.albedo <= 1.0 {
+            interval.albedo
+        } else {
+            DEFAULT_ALBEDO
+        };
+        let _: IntervalLux = lux.add(&LuxInterval {
+            month,
+            hours: interval.hours,
+            sun: interval.sun,
+            dni: interval.dni,
+            dhi: interval.dhi,
+            day_of_year: interval.day_of_year,
+            dew_point_c: interval.dew_point_c,
+            albedo,
+            file_lux: interval.file_lux,
+            field,
+            beam: beam.unwrap_or(&[]),
+            canopy_transmittance: self
+                .setup
+                .canopy_transmittance
+                .get(month)
+                .copied()
+                .unwrap_or(0.0),
+        });
+    }
+
+    /// Add one interval's diffuse field to its month; returns that field,
+    /// W/m²/sr per patch (normalised to the interval's DHI).
+    fn add_sky(
+        &mut self,
+        interval: &ClimateInterval,
+        month: usize,
+        dni: f64,
+        dhi: f64,
+    ) -> Vec<f64> {
         let dome = &self.setup.dome;
         let perez = match self.setup.sky {
             DiffuseSky::Perez1993 => Some(perez_sky(
@@ -407,7 +477,7 @@ impl Climate {
         };
         let fallback = matches!(perez, Some(Err(_)));
         let Some(field) = self.field.get_mut(month) else {
-            return;
+            return Vec::new();
         };
         match perez {
             Some(Ok(sky)) => {
@@ -420,16 +490,18 @@ impl Climate {
                 for (f, l) in field.iter_mut().zip(&sky.field.values) {
                     *f += l * interval.hours;
                 }
+                sky.field.values
             }
             Some(Err(PerezSkyRefusal::Input(_) | PerezSkyRefusal::Field(_))) | None => {
                 if fallback {
                     self.report.isotropic_intervals += 1;
                 }
                 // Uniform radiance with Σ L·(moment)_z = DHI: L = DHI/π.
-                let l = dhi / std::f64::consts::PI * interval.hours;
+                let l = dhi / std::f64::consts::PI;
                 for f in field.iter_mut() {
-                    *f += l;
+                    *f += l * interval.hours;
                 }
+                vec![l; field.len()]
             }
         }
     }
@@ -469,6 +541,7 @@ impl Climate {
             field,
             ground,
             report,
+            lux,
         } = self;
         let direct = direct.clone();
         let report = report.clone();
@@ -497,6 +570,7 @@ impl Climate {
             diffuse,
             reflected,
             report,
+            lux: lux.as_ref().map(|l| l.totals().clone()),
         }
     }
 }
