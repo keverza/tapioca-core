@@ -541,58 +541,31 @@ bool Matches (const Plant& plant, const PlantFilter& filter)
                         [&] (const auto& kv) { return has (kv.second); });
 }
 
+namespace {
+
+#include "ArchViz/PlantCatalogueSeed.inc"
+
+template <size_t N> std::string Join (const char* const (&pieces)[N])
+{
+    std::string text;
+    for (const char* piece : pieces)
+        text += piece;
+    return text;
+}
+
+} // namespace
+
+// The seed is PlantCatalogueSeed.plants.json / .profiles.json, tracked beside
+// this file and compiled in through tools/generate_plant_catalogue_seed.py.
 const std::string& SeedPlantsJson ()
 {
-    static const std::string text = R"json({
-  "schemaVersion": 1,
-  "catalogueId": "tapioca-example",
-  "locale": "lt-LT",
-  "sources": [
-    {
-      "id": "example",
-      "title": "Tapioca example catalogue",
-      "note": "Illustrative only: light classes are common garden guidance, not a sourced catalogue, and no heights are given. Replace this file with your regional catalogue."
-    }
-  ],
-  "plants": [
-    { "id": "hosta-sieboldiana", "scientificName": "Hosta sieboldiana", "localNames": { "lt": "Siboldo melsvė", "en": "Siebold's plantain lily" },
-      "habit": "perennial", "light": { "acceptedClasses": ["shade", "partial"] }, "deciduous": true, "sourceRefs": [{ "sourceId": "example" }] },
-    { "id": "geranium-macrorrhizum", "scientificName": "Geranium macrorrhizum", "localNames": { "lt": "Stambiašaknis snaputis", "en": "Bigroot geranium" },
-      "habit": "perennial", "light": { "acceptedClasses": ["shade", "partial", "full"] }, "sourceRefs": [{ "sourceId": "example" }] },
-    { "id": "asarum-europaeum", "scientificName": "Asarum europaeum", "localNames": { "lt": "Europinė pipirnė", "en": "European wild ginger" },
-      "habit": "groundcover", "light": { "acceptedClasses": ["shade", "partial"] }, "deciduous": false, "sourceRefs": [{ "sourceId": "example" }] },
-    { "id": "alchemilla-mollis", "scientificName": "Alchemilla mollis", "localNames": { "lt": "Minkštoji rasakila", "en": "Lady's mantle" },
-      "habit": "perennial", "light": { "acceptedClasses": ["partial", "full"] }, "sourceRefs": [{ "sourceId": "example" }] },
-    { "id": "lavandula-angustifolia", "scientificName": "Lavandula angustifolia", "localNames": { "lt": "Siauralapė levanda", "en": "English lavender" },
-      "habit": "shrub", "light": { "acceptedClasses": ["full"] }, "deciduous": false, "sourceRefs": [{ "sourceId": "example" }] },
-    { "id": "sedum-acre", "scientificName": "Sedum acre", "localNames": { "lt": "Aitrusis šilokas", "en": "Goldmoss stonecrop" },
-      "habit": "groundcover", "light": { "acceptedClasses": ["full"] }, "deciduous": false, "sourceRefs": [{ "sourceId": "example" }] },
-    { "id": "spiraea-japonica", "scientificName": "Spiraea japonica", "localNames": { "lt": "Japoninė lanksva", "en": "Japanese spiraea" },
-      "habit": "shrub", "light": { "acceptedClasses": ["partial", "full"] }, "deciduous": true, "sourceRefs": [{ "sourceId": "example" }] },
-    { "id": "cornus-alba", "scientificName": "Cornus alba", "localNames": { "lt": "Baltoji sedula", "en": "Red-barked dogwood" },
-      "habit": "shrub", "light": { "acceptedClasses": ["shade", "partial", "full"] }, "deciduous": true, "sourceRefs": [{ "sourceId": "example" }] }
-  ]
-}
-)json";
+    static const std::string text = Join (kSeedPlantsPieces);
     return text;
 }
 
 const std::string& SeedProfilesJson ()
 {
-    static const std::string text = R"json({
-  "schemaVersion": 1,
-  "profiles": [
-    {
-      "id": "vilnius-2024",
-      "name": "Vilnius 2024",
-      "source": "Miesto zeldinimo ir zeldiniu prieziuros standartas (2024), p. 20",
-      "edition": "2024",
-      "classEdgesH": { "partial": 3, "full": 6 },
-      "season": { "from": "4/28", "to": "10/1", "note": "Proposed: the 10 C season, Vilnius 1991-2020; not set by the standard" }
-    }
-  ]
-}
-)json";
+    static const std::string text = Join (kSeedProfilesPieces);
     return text;
 }
 
