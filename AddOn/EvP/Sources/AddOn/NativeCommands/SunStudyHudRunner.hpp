@@ -358,6 +358,7 @@ bool ReadPlantingAreas (const std::string& studyId, const std::vector<double>& e
 struct PlantingSite {
     std::string studyId;
     std::vector<double> x, y, groundZ, hours;
+    std::vector<double> areas; // m², plan for a planting layer
     std::vector<uint32_t> groups;
     std::vector<std::string> meshGuids;
 };

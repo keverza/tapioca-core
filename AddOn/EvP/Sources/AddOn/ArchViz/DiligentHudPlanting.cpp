@@ -213,11 +213,7 @@ void AreasSection (HudState& state)
     RoleRow ("Context", "Casts shadow and is never measured: buildings, walls, balconies, existing trees.", hud.context,
              hud.hosts, state.visibilitySelection);
     ImGui::TextDisabled ("Everything else casts shadow too.");
-    LaterButton ("Zones from polylines...",
-                 "Later: closed polylines or fills projected onto the hosts as named zones, each with its own area "
-                 "table row.");
-    ImGui::SameLine ();
-    LaterButton ("Pick in viewer", "Later: click host surfaces in the viewer instead of selecting elements.");
+    plantinghud::DrawZonesRow (state);
 }
 
 void PeriodSection (pl::PlantingHud& hud)

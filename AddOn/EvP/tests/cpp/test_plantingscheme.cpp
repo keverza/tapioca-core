@@ -194,3 +194,52 @@ TEST (PlantingSchemeScene, OneCylinderPerPlantAndOneLinePerLink)
             shrubAlpha = std::max (shrubAlpha, v.rgba & 0xffu);
     EXPECT_LT (treeRgba & 0xffu, shrubAlpha);
 }
+
+TEST (PlantingZones, AreaAndContainmentHonourHoles)
+{
+    PlantingZone z;
+    z.rings = { { 0, 0, 2, 0, 2, 2, 0, 2 }, { 0.5, 0.5, 1.5, 0.5, 1.5, 1.5, 0.5, 1.5 } };
+    EXPECT_DOUBLE_EQ (z.PlanArea (), 3.0);
+    EXPECT_TRUE (z.Contains (0.25, 0.25));
+    EXPECT_FALSE (z.Contains (1.0, 1.0)) << "inside the hole";
+    EXPECT_FALSE (z.Contains (3.0, 1.0));
+    PlantingZone clockwise;
+    clockwise.rings = { { 0, 0, 0, 2, 2, 2, 2, 0 } };
+    EXPECT_DOUBLE_EQ (clockwise.PlanArea (), 4.0) << "ring direction does not matter";
+}
+
+TEST (PlantingZones, MasksAndClassAreasUseTheExactComparator)
+{
+    PlantingZone a, b;
+    a.rings = { { 0, 0, 2, 0, 2, 2, 0, 2 } };
+    b.rings = { { 1, 0, 3, 0, 3, 2, 1, 2 } };
+    const std::vector<double> x = { 0.5, 1.5, 2.5, 5.0 }, y = { 1, 1, 1, 1 };
+    const auto masks = ZoneMasks ({ a, b }, x, y);
+    EXPECT_EQ (masks, (std::vector<uint32_t> { 1u, 3u, 2u, 0u })) << "the middle sample is in both";
+
+    const std::vector<double> hours = { 2.99, 3.0, 6.0, 1.0 }, areas = { 1, 2, 4, 8 };
+    const ZoneClassAreas za = ClassAreasInZone (masks, 1u, hours, areas, { 3.0, 6.0 });
+    EXPECT_EQ (za.classAreas, (std::vector<double> { 1.0, 2.0, 0.0 })) << "3.00 h is partial shade";
+    EXPECT_DOUBLE_EQ (za.measured, 3.0);
+    EXPECT_EQ (za.samples, 2u);
+    const ZoneClassAreas zb = ClassAreasInZone (masks, 2u, hours, areas, { 3.0, 6.0 });
+    EXPECT_EQ (zb.classAreas, (std::vector<double> { 0.0, 2.0, 4.0 }));
+    const ZoneClassAreas outside = ClassAreasInZone (masks, 0u, hours, areas, { 3.0, 6.0 });
+    EXPECT_DOUBLE_EQ (outside.measured, 8.0) << "bit 0 is outside every zone";
+}
+
+TEST (PlantingScheme, AZoneLimitsWherePlantsGo)
+{
+    const Catalogue c = Plants ();
+    PlantingZone shade;
+    shade.rings = { { 0, 0, 4, 0, 4, 10, 0, 10 } };
+    const SchemeSite inside = RestrictToZone (Courtyard (), shade);
+    EXPECT_EQ (inside.Size (), size_t (8 * 20)) << "the 0.5 m samples with x < 4";
+    SchemeResult r = PlaceScheme (Hud (), c, { { "shrub", 3 } }, inside);
+    EXPECT_EQ (r.placed[0], 3);
+    for (const PlacedPlant& p : r.plants)
+        EXPECT_LT (p.x, 4.0);
+    r = PlaceScheme (Hud (), c, { { "tree", 1 } }, inside);
+    EXPECT_EQ (r.placed[0], 0) << "a full-sun tree has no accepted light in a shaded zone";
+    EXPECT_TRUE (Has (r.notes, "Only 0 of 1 fit"));
+}

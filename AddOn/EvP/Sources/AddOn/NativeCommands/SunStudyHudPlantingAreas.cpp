@@ -57,7 +57,8 @@ bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingS
     SunStudyStore::SampleCells cells;
     if (!SunStudyStore::Get ().Cells (studyId, cells, error))
         return false;
-    if (positions.size () != hours.size () * 3 || cells.groups.size () != hours.size ()) {
+    if (positions.size () != hours.size () * 3 || cells.groups.size () != hours.size () ||
+        cells.areas.size () != hours.size ()) {
         error = "the study's samples, positions and cells do not match";
         return false;
     }
@@ -71,6 +72,7 @@ bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingS
         out.groundZ[i] = positions[3 * i + 2] - layerHeight;
     }
     out.hours = std::move (hours);
+    out.areas = std::move (cells.areas);
     out.groups = std::move (cells.groups);
     out.meshGuids = std::move (cells.meshGuids);
     return true;

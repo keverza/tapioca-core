@@ -23,6 +23,7 @@
 // different-zone problem, not plant-to-plant conflict, and is worded so.
 
 #include "ArchViz/PlantCatalogue.hpp"
+#include "ArchViz/PlantingZones.hpp"
 
 #include <cstdint>
 #include <string>
@@ -113,6 +114,9 @@ SchemeResult PlaceScheme (const PlantingHud& hud, const Catalogue& catalogue, co
 // The community notes alone: water and ground overlap, growth intensity and
 // trait competition, regulatory status, missing data. No placement needed.
 std::vector<SchemeNote> CheckCommunity (const Catalogue& catalogue, const std::vector<SchemeSpecies>& species);
+
+// The site's samples inside `zone`, in their order.
+SchemeSite RestrictToZone (const SchemeSite& site, const PlantingZone& zone);
 
 // The catalogue index of a scheme species, -1 when it is gone.
 int FindPlant (const Catalogue& catalogue, const std::string& id);

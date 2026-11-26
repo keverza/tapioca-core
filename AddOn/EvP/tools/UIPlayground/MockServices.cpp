@@ -5,6 +5,7 @@
 #include "ArchViz/AnalysisPathSource.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/PlantingZoneSource.hpp"
 #include "SunStudy/SunPathStudyData.hpp"
 #include "SunStudy/SunStudyKernels.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
@@ -195,6 +196,7 @@ bool ReadPlantingSite (const std::string& studyId, double layerHeight, PlantingS
             out.groundZ.push_back (0.0);
             out.hours.push_back (1.0 + 8.0 * (1.0 - y / 12.0) + 0.05 * (x - 10.0));
             out.groups.push_back (x < 14 ? 0u : 1u);
+            out.areas.push_back (0.25);
         }
     out.meshGuids = { "FIXTURE-COURTYARD-BED-0A1B", "FIXTURE-ROOF-TERRACE-9C2D" };
     pg::LogMock ("Read planting site -> fixed courtyard bed; layer " + std::to_string (layerHeight) + " m");
@@ -213,6 +215,33 @@ void PublishSchemeScene (HudState&)
 {
 }
 } // namespace geomsrv::archviz::plantinghud
+namespace geomsrv::archviz::plantingzonesource {
+// Zones from polylines (#278): no Archicad selection here. An import returns two
+// fixed beds over the mock courtyard: a rectangle and an L with a hole.
+namespace {
+Imported s_zones;
+}
+void RequestImport ()
+{
+    planting::PlantingZone bed;
+    bed.guid = "FIXTURE-ZONE-BED-1111";
+    bed.name = "Bed A";
+    bed.rings = { { 1, 1, 7, 1, 7, 5, 1, 5 } };
+    planting::PlantingZone lawn;
+    lawn.guid = "FIXTURE-ZONE-LAWN-2222";
+    lawn.name = "Lawn";
+    lawn.fill = true;
+    lawn.rings = { { 9, 2, 19, 2, 19, 11, 14, 11, 14, 6, 9, 6 }, { 15, 3, 17, 3, 17, 5, 15, 5 } };
+    s_zones.zones = { bed, lawn };
+    s_zones.error.clear ();
+    ++s_zones.serial;
+    pg::LogMock ("Zones from polylines -> two fixed beds");
+}
+Imported Latest ()
+{
+    return s_zones;
+}
+} // namespace geomsrv::archviz::plantingzonesource
 namespace evp::sunstudy {
 // EPW weather (#155 P1): the Playground has no Rust parser. Any picked file
 // reads as one synthetic Vilnius-like year, so the Climate section can be laid

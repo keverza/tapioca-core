@@ -88,7 +88,8 @@ void RefreshPlacement (pl::PlantingHud& hud)
     pl::SchemeState& s = hud.scheme;
     std::string from = s.siteStudy + "|" + hud.catalogue.plants.catalogueId + "|" +
                        std::to_string (hud.catalogue.plants.plants.size ()) + "|" + std::to_string (s.crownOverlap) +
-                       "|" + std::to_string (hud.deepShade);
+                       "|" + std::to_string (hud.deepShade) + "|zone" + std::to_string (s.zone) + "@" +
+                       std::to_string (hud.zones.revision);
     for (double e : s.siteEdges)
         from += "|" + std::to_string (e);
     for (const auto& sp : s.species)
@@ -97,7 +98,10 @@ void RefreshPlacement (pl::PlantingHud& hud)
         return;
     pl::SchemeOptions options;
     options.crownOverlap = s.crownOverlap;
-    s.result = pl::PlaceScheme (hud, hud.catalogue.plants, s.species, s.site, options);
+    const bool inZone = s.zone >= 0 && size_t (s.zone) < hud.zones.zones.size ();
+    s.result =
+        pl::PlaceScheme (hud, hud.catalogue.plants, s.species,
+                         inZone ? pl::RestrictToZone (s.site, hud.zones.zones[size_t (s.zone)]) : s.site, options);
     s.placedFrom = from;
     ++s.revision;
 }
@@ -135,7 +139,25 @@ void RegionRow (pl::PlantingHud& hud, int layer)
     hudshell::ItemTip ("Plants are placed on this layer's measured samples, and its light classes decide where each "
                        "may go. Unavailable area (too steep, under a ceiling) is never planted.");
     ImGui::SameLine ();
-    LaterButton ("Zone from polyline...", "Later: limit the scheme to a closed polyline or fill drawn in plan.");
+    const auto& zones = hud.zones.zones;
+    if (s.zone >= int (zones.size ()))
+        s.zone = -1;
+    ImGui::SetNextItemWidth (ImGui::GetFontSize () * 9.0f);
+    const std::string zoneLabel = s.zone < 0 ? std::string ("whole layer") : zones[size_t (s.zone)].name;
+    ImGui::BeginDisabled (zones.empty ());
+    if (ImGui::BeginCombo ("Zone##schemezone", zoneLabel.c_str ())) {
+        if (ImGui::Selectable ("whole layer", s.zone < 0))
+            s.zone = -1;
+        for (size_t i = 0; i < zones.size (); ++i) {
+            const std::string item = zones[i].name + "##schemezone" + std::to_string (i);
+            if (ImGui::Selectable (item.c_str (), s.zone == int (i)))
+                s.zone = int (i);
+        }
+        ImGui::EndCombo ();
+    }
+    ImGui::EndDisabled ();
+    hudshell::ItemTip (zones.empty () ? "Read zones first: Light > Planting areas > Zones from polylines."
+                                      : "Place only on the samples inside this zone, in plan.");
     if (!s.siteError.empty ())
         ImGui::TextColored (ImVec4 (0.95f, 0.45f, 0.40f, 1.0f), "Region not read: %s", s.siteError.c_str ());
     else if (layer >= 0)

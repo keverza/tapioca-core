@@ -14,6 +14,7 @@
 #include "ArchViz/GradientLibrary.hpp"
 #include "ArchViz/PlantCatalogue.hpp"
 #include "ArchViz/PlantingScheme.hpp"
+#include "ArchViz/PlantingZones.hpp"
 #include "SunStudy/SunStudyPlantingAreas.hpp"
 #include "SunStudy/SunStudyWeather.hpp"
 
@@ -130,11 +131,31 @@ struct ClimateState {
     evp::sunstudy::GrowingSeason season;
 };
 
+// Zones from polylines (#278): closed Polylines and Fills read from the
+// selection, and the area table's zone rows for the shown layer.
+struct ZonesState {
+    std::vector<PlantingZone> zones;
+    uint64_t revision = 0;   // bumps when the zone list changes
+    uint64_t seenSerial = 0; // the last import taken from PlantingZoneSource
+    bool importing = false;
+    std::string status;
+    std::vector<std::string> skipped;
+    // The rows, read for `study` at `edges` and zone `rowsRevision`.
+    std::string study;
+    std::vector<double> edges;
+    uint64_t rowsRevision = ~uint64_t (0);
+    std::vector<ZoneClassAreas> rows;
+    ZoneClassAreas outside;
+    double rowsSum = 0.0, measured = 0.0;
+    std::string error;
+};
+
 // The Scheme sub-tab (#278): a mix of catalogue plants placed on one kept
 // layer's samples. Held for the session only; nothing is written to the model.
 struct SchemeState {
     std::vector<SchemeSpecies> species;
     int layer = -1;     // kept layer the region comes from; -1 = the shown one
+    int zone = -1;      // ZonesState::zones index the region is limited to; -1 = the whole layer
     int highlight = -1; // species row the viewer emphasises
     int marker = 0;     // SchemeMarker
     float crownOverlap = 0.0f;
@@ -175,6 +196,7 @@ struct PlantingHud {
     ClimateState climateState;
     CatalogueState catalogue;
     SchemeState scheme;
+    ZonesState zones;
     std::string profileId = "vilnius-2024";
 
     // Run queue: heights still to trace, the one running, and the finished ones.

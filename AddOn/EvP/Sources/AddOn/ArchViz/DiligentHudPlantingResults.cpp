@@ -186,6 +186,46 @@ void AreaRow (const char* name, const char* tip, const evp::sunstudy::PlantingAr
                            row.steepArea, row.blockedArea, row.invalidArea);
 }
 
+// A row per zone, then what lies outside every zone. No N/A: unavailable area
+// is not kept per sample, so it cannot be split by zone.
+void ZoneRows (HudState& state, const std::string& studyId, int classes)
+{
+    pl::PlantingHud& hud = state.planting;
+    if (hud.zones.zones.empty ())
+        return;
+    const auto shown = std::find_if (hud.layers.begin (), hud.layers.end (),
+                                     [&] (const pl::Layer& layer) { return layer.studyId == studyId; });
+    if (shown == hud.layers.end ())
+        return;
+    const pl::ZonesState& z = RefreshZoneRows (state, studyId, shown->height);
+    auto row = [&] (const std::string& name, const std::string& tip, const pl::ZoneClassAreas& zone) {
+        evp::sunstudy::PlantingAreaRow r;
+        r.classAreas = zone.classAreas;
+        r.evaluatedArea = zone.measured;
+        ImGui::PushID (name.c_str ());
+        AreaRow (name.c_str (), tip.c_str (), r, classes, hud.areas.showShares);
+        ImGui::PopID ();
+    };
+    if (!z.error.empty ()) {
+        ImGui::TableNextRow ();
+        ImGui::TableNextColumn ();
+        ImGui::TextDisabled ("Zones not read: %s", z.error.c_str ());
+        return;
+    }
+    for (size_t i = 0; i < z.rows.size () && i < z.zones.size (); ++i) {
+        const auto& zone = z.zones[i];
+        char tip[160];
+        std::snprintf (tip, sizeof (tip),
+                       "Zone %s: %zu samples. Drawn %.1f m2 in plan; measured is the hosts' "
+                       "area inside it. N/A is not split by zone.",
+                       zone.name.c_str (), z.rows[i].samples, zone.PlanArea ());
+        row ("Zone " + zone.name,
+             z.rows[i].samples == 0 ? "No measured sample inside: no host under this zone." : std::string (tip),
+             z.rows[i]);
+    }
+    row ("Outside zones", "Measured area inside no zone.", z.outside);
+}
+
 void AreaTable (HudState& state, const SunStudyOverlayStatus& study)
 {
     pl::PlantingHud& hud = state.planting;
@@ -226,6 +266,7 @@ void AreaTable (HudState& state, const SunStudyOverlayStatus& study)
         }
         if (areas.table.hosts.size () != 1)
             AreaRow ("All hosts", nullptr, areas.table.total, classes, hud.areas.showShares);
+        ZoneRows (state, study.studyId, classes);
         ImGui::EndTable ();
     }
     ImGui::Checkbox ("Shares##plantingareas", &hud.areas.showShares);
@@ -237,6 +278,9 @@ void AreaTable (HudState& state, const SunStudyOverlayStatus& study)
                        "Unavailable area (N/A) is never counted as shade.");
     if (areas.table.total.unclassified > 0)
         ImGui::TextDisabled ("%zu sample(s) without a value left out.", areas.table.total.unclassified);
+    const auto& z = hud.zones;
+    if (!z.zones.empty () && z.error.empty () && z.rowsSum > z.measured + 1e-6)
+        ImGui::TextDisabled ("Zones overlap: their rows add up to more than the measured area.");
 }
 
 // The plants whose light needs a point meets: the catalogue's plants that

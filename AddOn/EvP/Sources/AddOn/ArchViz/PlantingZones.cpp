@@ -1,0 +1,102 @@
+#include "ArchViz/PlantingZones.hpp"
+
+#include <algorithm>
+#include <cmath>
+
+namespace geomsrv::archviz::planting {
+
+namespace {
+
+double SignedArea (const std::vector<double>& ring)
+{
+    const size_t n = ring.size () / 2;
+    double twice = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        const size_t k = (i + 1) % n;
+        twice += ring[2 * i] * ring[2 * k + 1] - ring[2 * k] * ring[2 * i + 1];
+    }
+    return twice / 2.0;
+}
+
+// Even-odd crossing test.
+bool InRing (const std::vector<double>& ring, double x, double y)
+{
+    const size_t n = ring.size () / 2;
+    bool inside = false;
+    for (size_t i = 0, j = n - 1; i < n; j = i++) {
+        const double xi = ring[2 * i], yi = ring[2 * i + 1];
+        const double xj = ring[2 * j], yj = ring[2 * j + 1];
+        if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+            inside = !inside;
+    }
+    return inside;
+}
+
+} // namespace
+
+double PlantingZone::PlanArea () const
+{
+    if (rings.empty ())
+        return 0.0;
+    double area = std::abs (SignedArea (rings[0]));
+    for (size_t r = 1; r < rings.size (); ++r)
+        area -= std::abs (SignedArea (rings[r]));
+    return std::max (area, 0.0);
+}
+
+bool PlantingZone::Contains (double x, double y) const
+{
+    if (rings.empty () || rings[0].size () < 6 || !InRing (rings[0], x, y))
+        return false;
+    for (size_t r = 1; r < rings.size (); ++r)
+        if (rings[r].size () >= 6 && InRing (rings[r], x, y))
+            return false;
+    return true;
+}
+
+std::vector<uint32_t> ZoneMasks (const std::vector<PlantingZone>& zones, const std::vector<double>& x,
+                                 const std::vector<double>& y)
+{
+    std::vector<uint32_t> masks (x.size (), 0u);
+    const size_t count = std::min (zones.size (), kMaxPlantingZones);
+    for (size_t z = 0; z < count; ++z) {
+        // Bounding box first: most samples of a courtyard lie outside a small bed.
+        const auto& outline = zones[z].rings.empty () ? std::vector<double> () : zones[z].rings[0];
+        if (outline.size () < 6)
+            continue;
+        double minX = outline[0], maxX = outline[0], minY = outline[1], maxY = outline[1];
+        for (size_t i = 0; i + 1 < outline.size (); i += 2) {
+            minX = std::min (minX, outline[i]);
+            maxX = std::max (maxX, outline[i]);
+            minY = std::min (minY, outline[i + 1]);
+            maxY = std::max (maxY, outline[i + 1]);
+        }
+        for (size_t s = 0; s < x.size (); ++s)
+            if (x[s] >= minX && x[s] <= maxX && y[s] >= minY && y[s] <= maxY && zones[z].Contains (x[s], y[s]))
+                masks[s] |= 1u << z;
+    }
+    return masks;
+}
+
+ZoneClassAreas ClassAreasInZone (const std::vector<uint32_t>& masks, uint32_t zoneBit, const std::vector<double>& hours,
+                                 const std::vector<double>& areas, const std::vector<double>& edges)
+{
+    ZoneClassAreas out;
+    out.classAreas.assign (edges.size () + 1, 0.0);
+    const size_t n = std::min ({ masks.size (), hours.size (), areas.size () });
+    for (size_t s = 0; s < n; ++s) {
+        const bool in = zoneBit == 0 ? masks[s] == 0 : (masks[s] & zoneBit) != 0;
+        if (!in)
+            continue;
+        size_t cls = 0;
+        for (double edge : edges)
+            if (hours[s] >= edge)
+                ++cls;
+        out.classAreas[cls] += areas[s];
+        out.measured += areas[s];
+        ++out.samples;
+    }
+    return out;
+}
+
+} // namespace geomsrv::archviz::planting

@@ -71,6 +71,11 @@ void AddToScheme (planting::PlantingHud& hud, const planting::Plant& plant);
 // playground has no scene and stubs it). Call every frame the Planting tab is open.
 void PublishSchemeScene (HudState& state);
 
+// Zones from polylines (#278): the Planting areas row, and the area table's zone
+// rows for the shown layer (read once per study, edges and zone list).
+void DrawZonesRow (HudState& state);
+const planting::ZonesState& RefreshZoneRows (HudState& state, const std::string& studyId, float layerHeight);
+
 } // namespace plantinghud
 } // namespace geomsrv::archviz
 

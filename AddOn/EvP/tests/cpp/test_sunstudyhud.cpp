@@ -10,6 +10,7 @@
 #include "ArchViz/SunStudyPreview.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "MeshFixtures.hpp"
+#include "ArchViz/PlantingZoneSource.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
@@ -140,6 +141,16 @@ bool ReadPlantingSite (const std::string&, double, PlantingSite&, std::string& e
     return false;
 }
 } // namespace geomsrv::sunstudyhud
+
+namespace geomsrv::archviz::plantingzonesource {
+void RequestImport ()
+{
+}
+Imported Latest ()
+{
+    return {};
+}
+} // namespace geomsrv::archviz::plantingzonesource
 
 namespace tapioca::test {
 void ResetSunStudyHudServices ()

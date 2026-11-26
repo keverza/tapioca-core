@@ -479,6 +479,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # failed read in the add-on's vocabulary -- the main-thread half of a HUD read.
     ("ArchViz/AnalysisPathSource.cpp", "NativeCommands/CommandUtils.hpp"),
     ("ArchViz/AnalysisPathSource.cpp", "Diagnostics/ApiError.hpp"),
+    # Planting zones (#278) read the selected closed Polylines' and Fills' polygons
+    # through the same one walk, holes included, and say a failed read the same
+    # way -- the main-thread half of the Planting tab's zone import.
+    ("ArchViz/PlantingZoneSource.cpp", "NativeCommands/CommandUtils.hpp"),
+    ("ArchViz/PlantingZoneSource.cpp", "Diagnostics/ApiError.hpp"),
     # The viewpoint's Bake button makes its area a Fill through the one fill polygon
     # build (closing repeat, winding) that Tapioca.CreateFills and the massing bake share.
     ("ArchViz/ViewpointBake.cpp", "NativeCommands/DraftingFillCommands.hpp"),
@@ -579,6 +584,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Its Scheme sub-tab reads a kept layer's samples from the same runner by
     # plain value (ReadPlantingSite) to place plants on them; it submits nothing.
     ("ArchViz/DiligentHudPlantingScheme.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
+    # Its zones (#278) read the same layer samples by plain value to give each
+    # drawn zone an area table row; the zone outlines come from the selection.
+    ("ArchViz/DiligentHudPlantingZones.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
     # Seasonal small multiples are the same panel's read-only plain-value adapter.
     ("ArchViz/DiligentHudSunSeasons.cpp", "NativeCommands/SunStudySeasonal.hpp"),
     # The sun path preview (#152) asks the same runner, by plain value, for

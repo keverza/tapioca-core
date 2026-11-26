@@ -60,6 +60,22 @@ void LinkSpecies (const std::vector<PlacedPlant>& plants, const std::vector<int>
 
 } // namespace
 
+SchemeSite RestrictToZone (const SchemeSite& site, const PlantingZone& zone)
+{
+    SchemeSite out;
+    out.layerHeight = site.layerHeight;
+    for (size_t s = 0; s < site.Size (); ++s) {
+        if (!zone.Contains (site.x[s], site.y[s]))
+            continue;
+        out.x.push_back (site.x[s]);
+        out.y.push_back (site.y[s]);
+        out.groundZ.push_back (site.groundZ[s]);
+        out.cls.push_back (site.cls[s]);
+        out.host.push_back (site.host[s]);
+    }
+    return out;
+}
+
 int FindPlant (const Catalogue& catalogue, const std::string& id)
 {
     for (size_t i = 0; i < catalogue.plants.size (); ++i)
