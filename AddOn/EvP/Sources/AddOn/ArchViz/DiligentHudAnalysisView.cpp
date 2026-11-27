@@ -13,6 +13,7 @@
 #include "ArchViz/SunStudyObstructionController.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
+#include "ArchViz/SunStudyCylinderContour.hpp"
 #include "ArchViz/ViewpointOverlayGeometry.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
@@ -341,6 +342,19 @@ void UpdateAndDrawAnalysisOverlays (DiligentScene& scene, Diligent::IDeviceConte
                                   modelIsDrawn, camera);
     UpdateAndDrawObstructionOverlay (scene, context, state, viewProj, width, height, colorFormat, depthFormat,
                                      modelIsDrawn);
+    const bool guide = modelIsDrawn && state.sunRunShowBounds && state.sunRunBounded &&
+                       (!state.ScreenshotCleanView () || state.ScreenshotKind () == kShotSunStudy);
+    SunCylinder cylinder { state.sunRunCentre[0], state.sunRunCentre[1], state.sunRunRadius, 0, 0 };
+    float lo[3], hi[3];
+    const bool haveBounds = guide && scene.SceneBounds (lo, hi);
+    if (haveBounds) {
+        const double padding = std::max (0.01, (hi[2] - lo[2]) * 0.01);
+        cylinder.floor = lo[2] - padding;
+        cylinder.top = hi[2] + padding;
+        state.sunRunFloor = lo[2]; // placement and grips keep the original scene-floor plane
+    }
+    scene.DrawSunCylinder (context, viewProj, width, height, colorFormat, depthFormat,
+                           haveBounds ? &cylinder : nullptr);
     // The sun path last: built by last frame's HUD (DrawSunStudySunPath), which
     // runs after the scene. Its key is 0 whenever the path is hidden.
     if (!state.ScreenshotCleanView () ||

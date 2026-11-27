@@ -781,8 +781,6 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     double min[3], max[3];
     const bool haveScene = SceneBounds (min, max);
     if (haveScene) {
-        state.sunRunFloor = min[2];
-        state.sunRunTop = max[2];
         if (!state.sunRunBoundsSeeded) {
             CentreOnScene (state, min, max);
             state.sunRunBoundsSeeded = true;
@@ -858,8 +856,8 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
             if (ImGui::SmallButton (state.sunRunPickingCentre ? "Click the model..." : "Pick centre"))
                 state.sunRunPickingCentre = !state.sunRunPickingCentre;
             geomsrv::archviz::hudshell::ItemTip (
-                "Only faces inside are measured; everything still casts shadow. Drag the arrows "
-                "or disc to move it, the grip on the ring to resize.");
+                "Click the orange boundary to show its grips, or pick a centre in the viewport. "
+                "Drag the arrows or disc to move, the orange grip to resize. Escape hides the grips.");
             ImGui::SameLine ();
             ImGui::BeginDisabled (!haveScene);
             if (ImGui::SmallButton ("Centre on scene"))
@@ -886,32 +884,15 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     }
 }
 
-void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
+void DrawSunStudyBoundsOverlay (HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
 {
-    if (!state.sunRunBounded || !state.sunRunShowBounds || viewProj == nullptr || width == 0 || height == 0)
+    if (!state.sunRunBounded || !state.sunRunShowBounds || ImGui::IsKeyPressed (ImGuiKey_Escape, false)) {
+        state.sunRunSelected = state.sunRunPickingCentre = state.sunRunDragging = state.sunRunContourPressed = false;
         return;
-    constexpr int kSegments = 64;
-    const double z[2] = { state.sunRunFloor, (std::max) (state.sunRunTop, state.sunRunFloor + 0.01) };
-    ImVec2 ring[2][kSegments];
-    bool visible[2][kSegments];
-    for (int level = 0; level < 2; ++level)
-        for (int i = 0; i < kSegments; ++i) {
-            const double angle = 2.0 * 3.14159265358979323846 * double (i) / double (kSegments);
-            const double point[3] = { state.sunRunCentre[0] + state.sunRunRadius * std::cos (angle),
-                                      state.sunRunCentre[1] + state.sunRunRadius * std::sin (angle), z[level] };
-            visible[level][i] = Project (point, viewProj, width, height, ring[level][i]);
-        }
-    ImDrawList* draw = ImGui::GetBackgroundDrawList ();
+    }
+    if (!state.sunRunSelected || !viewProj || !width || !height)
+        return;
     const ImU32 colour = IM_COL32 (245, 158, 36, 220); // the roles view's analysis orange
-    for (int level = 0; level < 2; ++level)
-        for (int i = 0; i < kSegments; ++i) {
-            const int next = (i + 1) % kSegments;
-            if (visible[level][i] && visible[level][next])
-                draw->AddLine (ring[level][i], ring[level][next], colour, 2.0f);
-        }
-    for (int i = 0; i < kSegments; i += kSegments / 8)
-        if (visible[0][i] && visible[1][i])
-            draw->AddLine (ring[0][i], ring[1][i], colour, 1.0f);
     DrawGumball (CylinderGumball (state, viewProj, width, height), ImGui::GetForegroundDrawList ());
     ImVec2 grip;
     if (RadiusGrip (state, viewProj, width, height, grip)) {
@@ -924,6 +905,10 @@ void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, 
                                    uint32_t width, uint32_t height, const float rayOrigin[3],
                                    const float rayDirection[3])
 {
+    if (input.escape) {
+        state.sunRunSelected = state.sunRunPickingCentre = state.sunRunDragging = state.sunRunContourPressed = false;
+        return;
+    }
     if (state.sunRunBusy || !state.sunRunBounded || !state.sunRunShowBounds || state.readOnly || viewProj == nullptr ||
         width == 0 || height == 0) {
         state.sunRunDragging = false;
@@ -933,7 +918,7 @@ void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, 
     const double direction[3] = { rayDirection[0], rayDirection[1], rayDirection[2] };
     const float x = float (CursorTargetX (input, width)), y = float (CursorTargetY (input, height));
     int hit = -1;
-    if (input.inside) {
+    if (input.inside && state.sunRunSelected && !state.sunRunPickingCentre) {
         ImVec2 grip;
         if (RadiusGrip (state, viewProj, width, height, grip) && std::hypot (x - grip.x, y - grip.y) <= 9.0f)
             hit = kRadiusGrip;
@@ -988,6 +973,7 @@ void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, con
         return;
     state.sunRunCentre[0] = double (origin[0]) + t * double (direction[0]);
     state.sunRunCentre[1] = double (origin[1]) + t * double (direction[1]);
+    state.sunRunSelected = true;
     state.sunRunPickingCentre = false;
 }
 

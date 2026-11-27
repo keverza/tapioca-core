@@ -22,6 +22,7 @@
 // Everything they share is here, and nothing else is.
 
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/SunStudyCylinderContour.hpp"
 
 #include "ArchViz/DiligentAmbientOcclusion.hpp"
 #include "ArchViz/DiligentEpipolarLightScattering.hpp"
@@ -820,10 +821,16 @@ struct geomsrv::archviz::DiligentScene::Impl {
 
     // The sun path (#179): fine, arc and bold line widths, one layer each.
     GhPreviewLayer sunPathLayers[3];
+    GhPreviewLayer cylinderLayer;
+    CylinderContourKey cylinderKey;
+    std::vector<CylinderSegment> cylinderSegments;
     uint64_t sunPathKey = 0;
     bool sunPathInitFailed = false;
     void ShutdownSunPathOverlay ()
     {
+        cylinderLayer.Shutdown ();
+        cylinderKey = {};
+        cylinderSegments.clear ();
         for (GhPreviewLayer& layer : sunPathLayers)
             layer.Shutdown ();
         sunPathKey = 0;

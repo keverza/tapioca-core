@@ -51,8 +51,8 @@ void TurnOnAntiAliasingOnceLoaded (HudState& hud, const DiligentScene& scene, st
 // The HUD's grading and clay override (issue #14 P2), in DiligentViewportLook.cpp. `overlay`
 // withholds clay: the overlay is compared AGAINST Archicad's shading and keeps the materials.
 void ApplySurfaceLook (DiligentScene& scene, const HudState& hud, bool overlay);
-void ServiceViewpointInput (const Camera& camera, HudState& hud, const InputSnapshot& input, uint32_t width,
-                            uint32_t height);
+void ServiceViewpointInput (const Camera& camera, const DiligentScene& scene, HudState& hud, const InputSnapshot& input,
+                            uint32_t width, uint32_t height);
 void ServiceCursorAnalysis (const Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,
                             uint32_t width, uint32_t height);
 

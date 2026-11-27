@@ -514,7 +514,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (vieweredit::Active ())
                 hudState.wantsMouse = false, hudState.viewpointOwnsMouse = false;
             if (!offscreen && !hudState.ScreenshotCleanView ())
-                ServiceViewpointInput (liveCamera, hudState, input, width, height);
+                ServiceViewpointInput (liveCamera, scene, hudState, input, width, height);
             // ⚠️ THE HUD'S ANSWER IS FROM THE PREVIOUS FRAME, AND THAT IS
             // CORRECT. ImGui only knows whether it wants the mouse after its
             // widgets have been submitted, and the HUD is drawn at the END of

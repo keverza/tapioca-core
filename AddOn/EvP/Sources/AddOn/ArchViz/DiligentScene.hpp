@@ -68,6 +68,7 @@ namespace geomsrv {
 namespace archviz {
 
 class Camera;
+struct SunCylinder;
 struct SunPathSceneGeometry; // ArchViz/SunPathScene.hpp
 namespace planting {
 struct PlantingSchemeGeometry; // ArchViz/PlantingSchemeScene.hpp
@@ -716,6 +717,10 @@ class DiligentScene final {
     // The sun path (#179) as depth-tested scene geometry, so the model hides
     // what is behind it and lines keep a constant pixel width. Uploaded only
     // when `key` changes; key 0 hides it.
+    void DrawSunCylinder (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t width, uint32_t height,
+                          uint32_t colorFormat, uint32_t depthFormat, const SunCylinder* cylinder);
+    bool HitSunCylinder (const Camera& camera, const float viewProj[16], uint32_t width, uint32_t height, int x,
+                         int y) const;
     void DrawSunPathOverlay (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
                              uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                              const SunPathSceneGeometry* replacement, uint64_t key, bool modelIsDrawn);

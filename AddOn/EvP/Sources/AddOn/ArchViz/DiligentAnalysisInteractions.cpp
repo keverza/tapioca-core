@@ -6,8 +6,8 @@
 
 namespace geomsrv::archviz {
 
-void ServiceViewpointInput (const Camera& camera, HudState& hud, const InputSnapshot& input, uint32_t width,
-                            uint32_t height)
+void ServiceViewpointInput (const Camera& camera, const DiligentScene& scene, HudState& hud, const InputSnapshot& input,
+                            uint32_t width, uint32_t height)
 {
     // Resolve the gumball BEFORE navigation consumes a left-button transition.
     // Projection uses the same stable camera, never the scene's TAA jitter.
@@ -19,6 +19,23 @@ void ServiceViewpointInput (const Camera& camera, HudState& hud, const InputSnap
     camera.CursorRay (CursorTargetX (input, width), CursorTargetY (input, height), width, height, origin, direction);
     viewerhud::ServiceViewpointInteractions (hud, input, viewProj, width, height, origin, direction);
     ServiceSunStudyBoundsGumball (hud, input, viewProj, width, height, origin, direction);
+    if (!input.escape && hud.sunRunBounded && hud.sunRunShowBounds && !hud.sunRunBusy && !hud.readOnly) {
+        for (int i = 0; i < input.transitionCount; ++i) {
+            const auto& transition = input.transitions[i];
+            if (transition.button != kMouseLeft)
+                continue;
+            if (transition.down && input.inside && !hud.wantsMouse && !hud.viewpointOwnsMouse) {
+                if (!hud.sunRunPickingCentre)
+                    hud.sunRunSelected = scene.HitSunCylinder (
+                        camera, viewProj, width, height, CursorTargetX (input, width), CursorTargetY (input, height));
+                hud.sunRunContourPressed = hud.sunRunPickingCentre || hud.sunRunSelected;
+            }
+        }
+        if (hud.sunRunContourPressed) {
+            hud.viewpointOwnsMouse = true;
+            hud.sunRunContourPressed = (input.buttons & kMouseLeft) != 0;
+        }
+    }
     ServiceSunStudyPointGrip (hud, input, width, height, origin, direction);
 }
 

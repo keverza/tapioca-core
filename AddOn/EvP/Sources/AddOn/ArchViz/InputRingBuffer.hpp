@@ -91,6 +91,7 @@ struct InputSnapshot {
     // The wheel BUTTON — Archicad's navigation button. Polled, so it keeps
     // reporting for the whole drag and cannot be lost between two messages.
     bool navButton = false;
+    bool escape = false; // viewport cancellation also works without a focused HUD text field
 
     // ---- pushed by the child HWND subclass/message hook -------------------
     uint8_t buttons = kMouseNone; // left/right held, for ImGui

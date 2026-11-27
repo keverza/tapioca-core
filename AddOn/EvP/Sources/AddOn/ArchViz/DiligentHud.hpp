@@ -462,6 +462,8 @@ struct HudState {
     // The analysis cylinder; its centre/radius are seeded from the scene once.
     bool sunRunBounded = false;
     bool sunRunShowBounds = true;
+    bool sunRunSelected = false;
+    bool sunRunContourPressed = false;
     bool sunRunBoundsSeeded = false;
     bool sunRunPickingCentre = false;
     // The cylinder's gumball drag (DiligentHudSunRun.cpp): axis 0/1 an arrow,
@@ -472,7 +474,7 @@ struct HudState {
     double sunRunDragParameter[3] = { 0.0, 0.0, 0.0 };
     double sunRunCentre[2] = { 0.0, 0.0 };
     float sunRunRadius = 50.0f;
-    double sunRunFloor = 0.0, sunRunTop = 0.0; // scene height, for the drawn cylinder
+    double sunRunFloor = 0.0; // world Z of the placement and handle plane
     std::string sunRunSubmitError;
 
     // Exclusive Analysis / Context / Focus roles. Point mode replaces Analysis
@@ -1126,7 +1128,7 @@ void DrawSunStudySunPathStatus (HudState& state, const std::string& studyId);
 // Run a single day at `month`/`day` with the run form's other settings; the
 // form keeps its own period and date.
 void RunSunStudyDay (HudState& state, int month, int day, uint64_t* acceptedRun = nullptr);
-void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+void DrawSunStudyBoundsOverlay (HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3]);
 // Before navigation reads the press, like the viewpoint gumball.

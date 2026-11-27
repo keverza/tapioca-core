@@ -13,8 +13,9 @@ constexpr size_t kSegmentLimit = 65536;
 bool ReachesCircle (double xmin, double xmax, double ymin, double ymax, double r)
 {
     const double dx = std::clamp (0., xmin, xmax), dy = std::clamp (0., ymin, ymax);
-    return std::hypot (dx, dy) <= r &&
-           std::hypot (std::max (std::abs (xmin), std::abs (xmax)), std::max (std::abs (ymin), std::abs (ymax))) >= r;
+    const double farX = std::max (std::abs (xmin), std::abs (xmax));
+    const double farY = std::max (std::abs (ymin), std::abs (ymax));
+    return dx * dx + dy * dy <= r * r && farX * farX + farY * farY >= r * r;
 }
 
 // Intersect an infinite plan line with the circle; parameter is metres along the line.

@@ -138,6 +138,7 @@ void PollHardwareInput (void* nwh, InputSnapshot& io)
     // and is explicitly NOT wanted -- it is per-thread and would report a press
     // this thread never saw.
     io.shift = enabled && (::GetAsyncKeyState (VK_SHIFT) & 0x8000) != 0;
+    io.escape = enabled && root == ::GetForegroundWindow () && (::GetAsyncKeyState (VK_ESCAPE) & 0x8000) != 0;
     io.navButton = enabled && (::GetAsyncKeyState (VK_MBUTTON) & 0x8000) != 0;
 }
 

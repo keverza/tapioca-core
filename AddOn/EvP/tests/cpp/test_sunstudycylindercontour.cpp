@@ -1,4 +1,6 @@
 #include "ArchViz/SectionCaps.hpp"
+#include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SunStudyCylinderContour.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
@@ -6,6 +8,77 @@
 
 namespace {
 using namespace geomsrv::archviz;
+TEST (SunStudyCylinderContour, UnchangedGuideReusesMeshUntilGeometryVisibilityOrCylinderChanges)
+{
+    CylinderContourKey key;
+    SunCylinder c { 0, 0, 1, -1, 1 };
+    float plane[] = { 0, 0, 0, 1 };
+    std::vector<std::shared_ptr<const SectionMesh>> meshes { std::make_shared<SectionMesh> () };
+    EXPECT_TRUE (key.Update (c, plane, meshes));
+    EXPECT_FALSE (key.Update (c, plane, meshes));
+    meshes[0] = std::make_shared<SectionMesh> ();
+    EXPECT_TRUE (key.Update (c, plane, meshes));
+    ++c.radius;
+    EXPECT_TRUE (key.Update (c, plane, meshes));
+    plane[0] = 1;
+    EXPECT_TRUE (key.Update (c, plane, meshes));
+    meshes.clear ();
+    EXPECT_TRUE (key.Update (c, plane, meshes));
+    EXPECT_FALSE (key.Update (c, plane, meshes));
+}
+
+TEST (SunStudyCylinderContour, EmptyContourCanBePlacedAndEscapeOnlyClearsInteraction)
+{
+    HudState hud;
+    hud.sunRunFloor = 4;
+    hud.sunRunBounded = hud.sunRunShowBounds = hud.sunRunPickingCentre = true;
+    InputSnapshot input;
+    input.inside = true;
+    input.transitions[0] = { kMouseLeft, false };
+    input.transitionCount = 1;
+    float origin[] = { 2, 3, 8 }, direction[] = { 0, 0, -1 };
+    ServiceSunStudyCentrePick (hud, input, origin, direction);
+    EXPECT_TRUE (hud.sunRunSelected);
+    EXPECT_FALSE (hud.sunRunPickingCentre);
+    hud.sunRunDragging = true;
+    input.escape = true;
+    ServiceSunStudyBoundsGumball (hud, input, nullptr, 0, 0, origin, direction);
+    EXPECT_FALSE (hud.sunRunSelected);
+    EXPECT_FALSE (hud.sunRunDragging);
+    EXPECT_TRUE (hud.sunRunBounded);
+    EXPECT_TRUE (hud.sunRunShowBounds);
+    EXPECT_EQ (hud.sunRunCentre[0], 2);
+    EXPECT_EQ (hud.sunRunCentre[1], 3);
+}
+TEST (SunStudyCylinderContour, OnlySelectedRadiusGripCanStartAResize)
+{
+    HudState hud;
+    hud.sunRunBounded = hud.sunRunShowBounds = true;
+    hud.sunRunRadius = 2;
+    float matrix[16] = {};
+    matrix[0] = matrix[5] = .25f;
+    matrix[10] = matrix[15] = 1;
+    InputSnapshot input;
+    input.inside = true;
+    input.buttons = kMouseLeft;
+    input.transitions[0] = { kMouseLeft, true };
+    input.transitionCount = 1;
+    input.x = 75;
+    input.y = 50;
+    float eye[] = { 2, 0, 4 }, direction[] = { 0, 0, -1 };
+    ServiceSunStudyBoundsGumball (hud, input, matrix, 100, 100, eye, direction);
+    EXPECT_FALSE (hud.sunRunDragging);
+    EXPECT_FALSE (hud.viewpointOwnsMouse);
+    hud.sunRunSelected = true;
+    ServiceSunStudyBoundsGumball (hud, input, matrix, 100, 100, eye, direction);
+    ASSERT_TRUE (hud.sunRunDragging);
+    EXPECT_TRUE (hud.viewpointOwnsMouse);
+    input.transitionCount = 0;
+    eye[0] = 3;
+    ServiceSunStudyBoundsGumball (hud, input, matrix, 100, 100, eye, direction);
+    EXPECT_EQ (hud.sunRunRadius, 3);
+}
+
 SectionMesh Mesh (std::vector<float> vertices, std::vector<uint32_t> indices)
 {
     SectionMesh m;
